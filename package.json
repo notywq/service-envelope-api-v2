@@ -1,0 +1,30 @@
+{
+  "name": "service-envelope-cli",
+  "version": "1.0.0",
+  "description": "Service Envelope System CLI for orchestrating requests",
+  "main": "dist/index.js",
+  "bin": {
+    "envelope": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "dev": "ts-node src/cli.ts"
+  },
+  "dependencies": {
+    "commander": "^11.0.0",
+    "rxjs": "^7.8.1",
+    "yaml": "^2.3.2",
+    "chalk": "^5.3.0",
+    "inquirer": "^9.2.10",
+    "ajv": "^8.12.0",
+    "winston": "^3.10.0",
+    "ora": "^7.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.5.0",
+    "@types/inquirer": "^9.0.3",
+    "typescript": "^5.1.6",
+    "ts-node": "^10.9.1"
+  }
+}
