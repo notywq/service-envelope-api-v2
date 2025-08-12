@@ -4,7 +4,7 @@
  */
 
 import { Observable, of, from, concat } from 'rxjs';
-import { map, switchMap, concatMap, tap } from 'rxjs/operators';
+import { map, switchMap, concatMap, tap, last } from 'rxjs/operators';
 import { EnvelopeProcessor } from '../core/envelope-processor';
 import { ProcessingEnvelope, ServiceRequest, ProcessingTask } from '../types/envelope.types';
 import { Logger } from 'winston';
@@ -18,34 +18,52 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
     super(logger);
   }
 
-  protected processInternal(request: ServiceRequest, envelope: ProcessingEnvelope): Observable<ProcessingEnvelope> {
-    envelope.status = 'in_progress';
-    envelope.processorId = `worker_${Date.now()}`;
-    
-    // Process tasks sequentially
-    return from(envelope.tasks).pipe(
-      concatMap(task => this.processTask(request, task)),
-      tap(task => {
-        // Update current task in envelope
-        const taskIndex = envelope.tasks.findIndex(t => t.name === task.name);
-        envelope.tasks[taskIndex] = task;
-        envelope.currentTask = task.status === 'in_progress' ? task.name : undefined;
-      }),
-      map(task => envelope), // Return updated envelope for each task
-      // After all tasks complete, finalize the envelope
-      switchMap(() => {
-        const allCompleted = envelope.tasks.every(t => t.status === 'completed');
-        const anyFailed = envelope.tasks.some(t => t.status === 'failed');
-        
-        envelope.status = anyFailed ? 'failed' : (allCompleted ? 'completed' : 'in_progress');
-        envelope.currentTask = undefined;
-        envelope.timestamp = new Date().toISOString();
-        
-        return of(envelope);
-      })
-    );
-  }
+protected processInternal(
+  request: ServiceRequest,
+  envelope: ProcessingEnvelope
+): Observable<ProcessingEnvelope> {
+  envelope.status = 'in_progress';
+  envelope.processorId = `worker_${Date.now()}`;
 
+  return from(envelope.tasks).pipe(
+    concatMap((task, index) =>
+      this.processTask(request, task).pipe(
+        tap(updatedTask => {
+          // Update envelope task list
+          const taskIndex = envelope.tasks.findIndex(t => t.name === updatedTask.name);
+          envelope.tasks[taskIndex] = updatedTask;
+          envelope.currentTask =
+            updatedTask.status === 'in_progress' ? updatedTask.name : undefined;
+
+          // Log current task status
+          this.logger.info(
+            `[ProcessingEnvelope] Request ${request.id} - Task ${index + 1}/${envelope.tasks.length} "${updatedTask.name}" → ${updatedTask.status}`
+          );
+        })
+      )
+    ),
+    // After all tasks complete, finalize status once
+    last(), // <-- waits until all tasks processed
+    map(() => {
+      const allCompleted = envelope.tasks.every(t => t.status === 'completed');
+      const anyFailed = envelope.tasks.some(t => t.status === 'failed');
+
+      envelope.status = anyFailed
+        ? 'failed'
+        : allCompleted
+        ? 'completed'
+        : 'in_progress';
+      envelope.currentTask = undefined;
+      envelope.timestamp = new Date().toISOString();
+
+      this.logger.info(
+        `[ProcessingEnvelope] Request ${request.id} - Final status: ${envelope.status}`
+      );
+
+      return envelope;
+    })
+  );
+}
   protected getEnvelopeType(): string {
     return 'Processing';
   }

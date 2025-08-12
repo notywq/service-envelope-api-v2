@@ -43,7 +43,7 @@ export abstract class EnvelopeProcessor<T extends BaseEnvelope> {
    * Check if this envelope should be processed or skipped
    */
   shouldProcess(request: ServiceRequest, envelope: T): boolean {
-    return envelope.required && envelope.status === 'pending';
+    return envelope.required || envelope.status === 'pending';
   }
 
   /**

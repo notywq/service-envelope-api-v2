@@ -4,7 +4,7 @@
   "description": "Service Envelope System CLI for orchestrating requests",
   "main": "dist/index.js",
   "bin": {
-    "mapua-services": "dist/cli.js"
+    "mcmm-services": "dist/cli-v2.js"
   },
   "scripts": {
     "build": "tsc",

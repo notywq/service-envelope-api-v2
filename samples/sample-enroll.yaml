@@ -1,0 +1,64 @@
+id: req-2025-ENROLL-001
+type: enrollment-fee-payment
+initiator: cashier_office
+overallStatus: queued
+createdAt: "2025-08-12T10:00:00Z"
+lastUpdated: "2025-08-12T10:00:00Z"
+history: []
+
+envelopes:
+  request:
+    status: pending
+    timestamp: "2025-08-12T10:00:00Z"
+    sourceSystem: SIS
+    validationStatus: passed
+    parameters:
+      studentId: "STU-2025-0456"
+      semester: "2025-1st"
+      feeType: "enrollment"
+      amount: 1500.00
+      currency: "PHP"
+
+  approval:
+    required: true
+    status: pending
+    timestamp: "2025-08-12T10:05:00Z"
+    approvers:
+      - id: "APV-REG-001"
+        role: registrar
+        status: pending
+    approvalRules:
+      type: finance-department
+
+  payment:
+    required: true
+    status: pending
+    timestamp: "2025-08-12T10:10:00Z"
+    paymentDetails:
+      method: "bank-transfer"
+      bankName: "Metrobank"
+      accountNumber: "1234-5678-9012"
+      referenceNumber: "MB-2025-000123"
+
+  processing:
+    status: pending
+    timestamp: "2025-08-12T10:15:00Z"
+    tasks:
+      - name: verify-payment
+        status: pending
+      - name: update-student-ledger
+        status: pending
+
+  delivery:
+    required: true
+    status: pending
+    timestamp: "2025-08-12T10:20:00Z"
+    method: email
+    details:
+      recipient: "student.email@example.com"
+      subject: "Enrollment Fee Payment Confirmation"
+
+  feedback:
+    required: true
+    status: pending
+    timestamp: "2025-08-12T10:25:00Z"

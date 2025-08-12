@@ -20,6 +20,9 @@ Thumbs.db
 /dist
 /build
 
+#CLI TESTS
+/data
+
 # IDEs
 .vscode/
 .idea/
