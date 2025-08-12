@@ -5,7 +5,7 @@
 
 import { Observable, of, throwError } from 'rxjs';
 import { switchMap, tap, catchError, map } from 'rxjs/operators';
-import { ServiceRequest, RequestStatus } from '../types/envelope.types';
+import { ServiceRequest, RequestStatus, EnvelopeCollection } from '../types/envelope.types';
 import { RequestProcessor } from '../processors/request-processor';
 import { ApprovalProcessor } from '../processors/approval-processor';
 import { PaymentProcessor } from '../processors/payment-processor';
@@ -14,6 +14,7 @@ import { DeliveryProcessor } from '../processors/delivery-processor';
 import { FeedbackProcessor } from '../processors/feedback-processor';
 import { StateManager } from './state-manager';
 import { Logger } from 'winston';
+import { EnvelopeProcessor } from './envelope-processor';
 
 export class ServiceOrchestrator {
   constructor(
@@ -77,47 +78,58 @@ export class ServiceOrchestrator {
   /**
    * Process a specific envelope type
    */
-  private processEnvelope(request: ServiceRequest, envelopeType: keyof ServiceRequest['envelopes']): Observable<ServiceRequest> {
-    const processor = this.getProcessor(envelopeType);
-    const envelope = request.envelopes[envelopeType];
-    
-    if (!processor.shouldProcess(request, envelope)) {
-      this.logger.info(`Skipping ${envelopeType} envelope for request ${request.id}`);
-      return of(request);
-    }
+  
+  private processEnvelope<K extends keyof EnvelopeCollection>(
+  request: ServiceRequest,
+  envelopeType: K
+): Observable<ServiceRequest> {
+  const processor = this.getProcessor(envelopeType);
+  const envelope = request.envelopes[envelopeType];
 
-    return processor.process(request, envelope).pipe(
-      map(updatedEnvelope => {
-        request.envelopes[envelopeType] = updatedEnvelope;
-        request.lastUpdated = new Date().toISOString();
-        this.addHistoryEntry(request, updatedEnvelope.status, envelopeType);
-        
-        // Check if envelope failed and should stop processing
-        if (updatedEnvelope.status === 'failed') {
-          request.overallStatus = 'failed';
-          throw new Error(`${envelopeType} envelope failed`);
-        }
-        
-        return request;
-      }),
-      tap(req => this.stateManager.saveRequest(req))
-    );
+  if (!processor.shouldProcess(request, envelope)) {
+    this.logger.info(`Skipping ${envelopeType} envelope for request ${request.id}`);
+    return of(request);
   }
 
+  return processor.process(request, envelope).pipe(
+    switchMap(updatedEnvelope => {
+      request.envelopes[envelopeType] = updatedEnvelope;
+      request.lastUpdated = new Date().toISOString();
+      this.addHistoryEntry(request, updatedEnvelope.status, envelopeType);
+
+      if (updatedEnvelope.status === 'failed') {
+        request.overallStatus = 'failed';
+        return throwError(() => new Error(`${envelopeType} envelope failed`));
+      }
+
+      return of(request);
+    }),
+    tap(req => this.stateManager.saveRequest(req))
+  );
+}
   /**
    * Get the appropriate processor for an envelope type
    */
-  private getProcessor(envelopeType: keyof ServiceRequest['envelopes']) {
-    switch (envelopeType) {
-      case 'request': return this.requestProcessor;
-      case 'approval': return this.approvalProcessor;
-      case 'payment': return this.paymentProcessor;
-      case 'processing': return this.processingProcessor;
-      case 'delivery': return this.deliveryProcessor;
-      case 'feedback': return this.feedbackProcessor;
-      default: throw new Error(`Unknown envelope type: ${envelopeType}`);
-    }
+private getProcessor<K extends keyof EnvelopeCollection>(
+  envelopeType: K
+): EnvelopeProcessor<EnvelopeCollection[K]> {
+  switch (envelopeType) {
+    case 'request':
+      return this.requestProcessor as unknown as EnvelopeProcessor<EnvelopeCollection[K]>;
+    case 'approval':
+      return this.approvalProcessor as unknown as EnvelopeProcessor<EnvelopeCollection[K]>;
+    case 'payment':
+      return this.paymentProcessor as unknown as EnvelopeProcessor<EnvelopeCollection[K]>;
+    case 'processing':
+      return this.processingProcessor as unknown as EnvelopeProcessor<EnvelopeCollection[K]>;
+    case 'delivery':
+      return this.deliveryProcessor as unknown as EnvelopeProcessor<EnvelopeCollection[K]>;
+    case 'feedback':
+      return this.feedbackProcessor as unknown as EnvelopeProcessor<EnvelopeCollection[K]>;
+    default:
+      throw new Error(`Unknown envelope type: ${envelopeType}`);
   }
+}
 
   /**
    * Add a history entry to the request

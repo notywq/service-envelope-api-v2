@@ -9,13 +9,15 @@ import { EnvelopeProcessor } from '../core/envelope-processor';
 import { RequestEnvelope, ServiceRequest } from '../types/envelope.types';
 import { Logger } from 'winston';
 import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
 
 export class RequestProcessor extends EnvelopeProcessor<RequestEnvelope> {
   private ajv: Ajv;
 
-  constructor(logger: Logger) {
+    constructor(logger: Logger) {
     super(logger);
-    this.ajv = new Ajv();
+    this.ajv = new Ajv({ allErrors: true });
+    addFormats(this.ajv); // ✅ Adds "date-time", "email", "uri", etc.
   }
 
   protected processInternal(request: ServiceRequest, envelope: RequestEnvelope): Observable<RequestEnvelope> {

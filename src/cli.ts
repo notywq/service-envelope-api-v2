@@ -10,6 +10,7 @@ import { join } from 'path';
 import YAML from 'yaml';
 import ora from 'ora';
 import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
 import { createLogger } from './utils/logger';
 import { StateManager } from './core/state-manager';
 import { ServiceOrchestrator } from './core/service-orchestrator';
@@ -30,6 +31,8 @@ const stateManager = new StateManager('./data');
 
 // --- JSON Schema validation setup ---
 const ajv = new Ajv({ allErrors: true });
+addFormats(ajv); // ✅ Adds "date-time", "email", "uri", etc.
+
 
 // TODO: Import/define your JSON schema for ServiceRequest
 import serviceRequestSchema from './schemas/service-request.schema.json';
@@ -58,7 +61,7 @@ function loadServiceRequest(filePath: string): ServiceRequest {
     console.error(validateServiceRequest.errors);
     process.exit(1);
   }
-  return yamlData as ServiceRequest;
+  return yamlData as unknown as ServiceRequest;
 }
 
 // --- COMMAND: process ---

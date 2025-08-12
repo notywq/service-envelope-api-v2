@@ -20,7 +20,7 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
 
   protected processInternal(request: ServiceRequest, envelope: ProcessingEnvelope): Observable<ProcessingEnvelope> {
     envelope.status = 'in_progress';
-    envelope.processorId = worker_${Date.now()};
+    envelope.processorId = `worker_${Date.now()}`;
     
     // Process tasks sequentially
     return from(envelope.tasks).pipe(

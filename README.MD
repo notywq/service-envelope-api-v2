@@ -1,0 +1,51 @@
+# Service Envelope System CLI
+
+A **TypeScript + RxJS-powered orchestration CLI** for processing complex, multi-step service requests in a **configurable, dynamic, and future-proof way**.
+
+This tool executes "envelopes" that simulate a pipeline (discrete processing stages) such as:
+- Request validation
+- Approval routing
+- Payment handling
+- Processing tasks
+- Delivery of outputs
+- Feedback collection
+
+Envelopes are **defined dynamically** in YAML and can be extended with **fluid parameters** that don’t require code changes.
+
+---
+
+## 📜 Introduction
+
+The **Service Envelope System** is designed as the engine for Mapua Services, a core feature of the MINERVA PROJECT. **reliable, auditable, and modular automation**.
+
+It uses:
+- **TypeScript** for strong typing and maintainability
+- **RxJS** for reactive, observable-based pipelines
+- **Winston** for structured logging
+- **YAML** for human-friendly configuration
+- **AJV** for JSON schema validation
+- **Inquirer** for interactive prompts
+
+It supports:
+- **Dynamic parameters** per request type
+- **Optional/Skipped envelopes** (`required: false`)
+- **Retry logic** for transient failures
+- **Pluggable third-party integrations** (payment, notifications, etc.)
+
+---
+
+## 📦 Installation
+
+```bash
+# Clone the repo
+git clone https://github.com/your-username/service-envelope-cli.git
+cd service-envelope-cli
+
+# Install dependencies
+npm install
+
+# Build TypeScript to JavaScript
+npm run build
+
+# Link CLI globally (optional)
+npm link

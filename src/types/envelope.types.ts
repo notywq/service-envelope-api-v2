@@ -3,6 +3,14 @@
  * Defines the structure of service requests, envelopes, and their states
  */
 
+export type Envelope =
+  | RequestEnvelope
+  | ApprovalEnvelope
+  | PaymentEnvelope
+  | ProcessingEnvelope
+  | DeliveryEnvelope
+  | FeedbackEnvelope;
+
 export interface ServiceRequest {
   id: string;
   type: string;
