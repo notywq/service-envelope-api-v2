@@ -9,20 +9,28 @@ export class ThirdPartyService {
    * Simulates sending an approval request.
    * Some requests will be "waiting" (human approval), triggering pending_external.
    */
-  sendApprovalRequest(req: ServiceRequest, approver: Approver): Observable<{ status: 'approved' | 'waiting'; approver: Approver }> {
-    this.logger.info(`Simulating approval request for ${approver.id}`);
+  sendApprovalRequest(req: ServiceRequest, approver: Approver): Observable<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }> {
+  // Cyan color for approval request
+  this.logger.info(`\x1b[36m[Approval Request]\x1b[0m Simulating for ${approver.role} - ${approver.id}`);
 
     // Simulate network delay
     const isWaiting = Math.random() < 0.5; // 50% chance to be "waiting"
     if (isWaiting) {
-      this.logger.warn(`Approval request for ${approver.id} is waiting for external input`);
-      return of<{ status: 'approved' | 'waiting'; approver: Approver }>({ status: 'waiting', approver })// Simulate small delay
+      // Yellow color for waiting
+      this.logger.warn(`\x1b[36m[Approval Request]\x1b[0m for ${approver.id} is \x1b[33m[WAITING]\x1b[0m for external input`);
+      return of<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }>({ status: 'pending_external', approver });
     }
 
+    const isFailing = Math.random() < 0.3;
+    if (isFailing) {
+  // Red color for denied
+  this.logger.warn(`\x1b[36m[Approval Request]\x1b[0m for ${approver.id} is \x1b[31m[DENIED]\x1b[0m`);
+      return of<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }>({ status: 'denied', approver });
+    }
     // Auto-approve for simulation
     approver.status = 'approved';
     approver.approvedAt = new Date().toISOString();
-    return of<{ status: 'approved' | 'waiting'; approver: Approver }>({ status: 'approved', approver })
+    return of<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }>({ status: 'approved', approver })
   }
 
   processPayment(data: any): Observable<{ success: boolean; transactionId: string; response: any; pending?: boolean }> {

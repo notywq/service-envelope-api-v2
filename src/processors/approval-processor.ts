@@ -40,7 +40,7 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
           envelope.status = 'pending_external';
           envelope.timestamp = new Date().toISOString();
           this.stateManager.saveRequest(request);
-          this.logger.warn(`[Approval] Paused for external approval on request ${request.id}`);
+          this.logger.warn(`[Approval] Paused for external approvals on request ${request.id}`);
           return envelope;
         }
 
@@ -63,14 +63,19 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
 private requestApproval(request: ServiceRequest, approver: Approver): Observable<Approver> {
   return this.thirdPartyService.sendApprovalRequest(request, approver).pipe(
     map(result => {
-      if (result.status === 'waiting') {
+      if (result.status === 'pending_external') {
         // Set envelope to pending_external so orchestrator pauses
         approver.status = 'pending';
         request.envelopes.approval.status = 'pending_external';
-      } else {
+      }
+      else if(result.status === 'denied') {
+        approver.status = 'denied';
+        approver.approvedAt = new Date().toISOString();
+        request.envelopes.approval.status = 'failed';
+      }else {
         approver.status = 'approved';
         approver.approvedAt = new Date().toISOString();
-      }
+      } 
       return approver;
     })
   );
@@ -81,7 +86,7 @@ private requestApproval(request: ServiceRequest, approver: Approver): Observable
    */
   private calculateApprovalStatus(envelope: ApprovalEnvelope): 'pending' | 'completed' | 'failed' {
     const approvedCount = envelope.approvers.filter(a => a.status === 'approved').length;
-    const rejectedCount = envelope.approvers.filter(a => a.status === 'rejected').length;
+    const rejectedCount = envelope.approvers.filter(a => a.status === 'denied').length;
 
     if (rejectedCount > 0) {
       return 'failed';

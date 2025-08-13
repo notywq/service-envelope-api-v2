@@ -133,7 +133,7 @@ export type EnvelopeStatus = 'pending' | 'in_progress' | 'completed' | 'failed' 
 
 export type ValidationStatus = 'passed' | 'failed_schema' | 'failed_rules';
 
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'pending_external';
+export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'pending_external';
 
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'waiting' | 'pending_external'; // NEW: waiting on human/external input
 

@@ -30,7 +30,7 @@ export abstract class EnvelopeProcessor<T extends BaseEnvelope> {
       ),
       map(result => {
         // Green for success
-        this.logger.info(`\x1b[32m[SUCCESS]\x1b[0m - processed ${this.getEnvelopeType()} envelope for request ${request.id}`);
+        this.logger.info(`\x1b[32m[SUCCESS]\x1b[0m - Processed ${this.getEnvelopeType()} envelope for request ${request.id}`);
         return result;
       }),
       catchError(error => {
