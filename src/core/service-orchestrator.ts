@@ -75,15 +75,21 @@ export class ServiceOrchestrator {
     const envelope = request.envelopes[envelopeType];
 
     // Skip if already completed or failed
-    if (['completed', 'failed', 'waived'].includes(envelope.status)) {
-      this.logger.info(`Skipping ${envelopeType} (status: ${envelope.status}) for request ${request.id}`);
+    if (['completed', 'waived'].includes(envelope.status)) {
+      this.logger.info(`Skipping ${envelopeType.toUpperCase()} (status: ${envelope.status.toUpperCase()}) for request ${request.id}`);
       return of(request);
     }
 
     // Resume if status is pending_external — we try processing again
     if (envelope.status === 'pending_external') {
-      this.logger.info(`Resuming ${envelopeType} for request ${request.id}`);
+      this.logger.info(`Resuming ${envelopeType.toUpperCase()} for request ${request.id}`);
     }
+
+    if (envelope.status === 'failed') {
+    this.logger.warn(
+      `[RETRY ENVELOPE ENABLED] ${envelopeType.toUpperCase()} previously failed for request ${request.id}. Retrying now...`
+    );
+  }
 
     return processor.process(request, envelope).pipe(
       switchMap(updatedEnvelope => {
@@ -94,17 +100,21 @@ export class ServiceOrchestrator {
         // Pause if processor signals pending_external
         if (updatedEnvelope.status === 'pending_external') {
           this.logger.warn(
-            `Pausing pipeline — ${envelopeType} is waiting for external input (request ${request.id})`
+            `\x1b[36m[PAUSING PIPELINE]\x1b[0m — ${envelopeType} is waiting for external processes to complete (request ${request.id})`
           );
           this.stateManager.saveRequest(request);
-          return throwError(() => new Error('Pipeline paused: pending_external'));
+          return throwError(() => new Error('[PIPELINE PAUSED]: pending_external'));
         }
 
-        // Stop if envelope failed
+      // If approval failed, save and pause instead of failing the whole request
         if (updatedEnvelope.status === 'failed') {
-          request.overallStatus = 'failed';
-          return throwError(() => new Error(`${envelopeType} envelope failed`));
+          this.logger.warn(
+            `[PAUSING PIPELINE] ${envelopeType.toUpperCase()} failed for request ${request.id} — will allow retry on resume`
+          );
+          this.stateManager.saveRequest(request);
+          return throwError(() => new Error(`[PIPELINE PAUSED]: ${envelopeType} envelope failed`));
         }
+
 
         return of(request);
       }),

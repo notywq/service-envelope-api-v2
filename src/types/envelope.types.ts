@@ -66,17 +66,25 @@ export interface Approver {
   approvedAt?: string;
 }
 
+
+
+
 export interface ApprovalRules {
   type: 'all_must_approve' | 'any_one' | 'specific_approver';
   specificApprover?: string;
 }
 
 export interface PaymentEnvelope extends BaseEnvelope {
-  amount: number;
-  currency: string;
+  charges: Charge[]
   paymentMethod: string;
   transactionId?: string;
   paymentGatewayResponse?: any;
+}
+
+export interface Charge {
+  item: string;
+  amount: number;
+  currency: string;
 }
 
 export interface ProcessingEnvelope extends BaseEnvelope {

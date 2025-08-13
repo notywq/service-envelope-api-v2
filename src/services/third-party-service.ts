@@ -1,6 +1,6 @@
 import { Observable, of, delay } from 'rxjs';
 import { Logger } from 'winston';
-import { Approver, ServiceRequest, ProcessingTask } from '../types/envelope.types';
+import { Approver, ServiceRequest, ProcessingTask, Charge } from '../types/envelope.types';
 
 export class ThirdPartyService {
   constructor(private logger: Logger) {}
@@ -17,24 +17,39 @@ export class ThirdPartyService {
     const isWaiting = Math.random() < 0.5; // 50% chance to be "waiting"
     if (isWaiting) {
       // Yellow color for waiting
+      //approver.status = 'pending';
       this.logger.warn(`\x1b[36m[Approval Request]\x1b[0m for ${approver.id} is \x1b[33m[WAITING]\x1b[0m for external input`);
       return of<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }>({ status: 'pending_external', approver });
     }
 
     const isFailing = Math.random() < 0.3;
     if (isFailing) {
+      approver.comment="This request was denied due to missing requirements - namely THIS FILE.";
   // Red color for denied
+  //approver.status = 'denied';
   this.logger.warn(`\x1b[36m[Approval Request]\x1b[0m for ${approver.id} is \x1b[31m[DENIED]\x1b[0m`);
       return of<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }>({ status: 'denied', approver });
     }
     // Auto-approve for simulation
     approver.status = 'approved';
     approver.approvedAt = new Date().toISOString();
+    this.logger.warn(`\x1b[36m[Approval Request]\x1b[0m for ${approver.id} is \x1b[32m[APPROVED]\x1b[0m`);
+
     return of<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }>({ status: 'approved', approver })
   }
 
-  processPayment(data: any): Observable<{ success: boolean; transactionId: string; response: any; pending?: boolean }> {
-    this.logger.info(`Simulating payment of ${data.amount} ${data.currency}`);
+
+  processPayment(data: { charges: Charge[]; paymentMethod: string; transactionId?: string ; requestId: string}): Observable<{ success: boolean; transactionId: string; response: any; pending?: boolean }> {
+    let total = 0;
+    let currency = "";
+    
+    data.charges.forEach((charge: Charge) => {
+      this.logger.info(`Charge item: ${charge.item}, amount: ${charge.amount} ${charge.currency}`);
+      total += charge.amount;
+      currency = charge.currency;
+    });
+    
+    this.logger.info(`Simulating payment of ${total} ${currency}`);
     
     const isPending = Math.random() < 0.3; // 30% chance of external wait
     if (isPending) {
@@ -43,7 +58,6 @@ export class ThirdPartyService {
         success: false,
         transactionId: `TXN-${Date.now()}`,
         response: { code: 'PENDING', message: 'Awaiting verification' },
-        pending: true
       });
     }
 

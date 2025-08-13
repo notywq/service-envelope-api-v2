@@ -19,7 +19,7 @@ export class PaymentProcessor extends EnvelopeProcessor<PaymentEnvelope> {
   }
 
   protected processInternal(request: ServiceRequest, envelope: PaymentEnvelope): Observable<PaymentEnvelope> {
-    if (!envelope.required || envelope.amount <= 0) {
+    if (!envelope.required || envelope.charges.length <= 0) {
       envelope.status = 'waived';
       return of(envelope);
     }
@@ -28,8 +28,15 @@ export class PaymentProcessor extends EnvelopeProcessor<PaymentEnvelope> {
       map(paymentResult => {
         envelope.transactionId = paymentResult.transactionId;
         envelope.paymentGatewayResponse = paymentResult.response;
-        envelope.status = paymentResult.success ? 'completed' : 'failed';
         envelope.timestamp = new Date().toISOString();
+        if(paymentResult.response.code === 'PENDING') {
+          envelope.status = 'pending_external';
+          this.logger.warn(`\x1b[36m[PAUSED]\x1b[0m due to pending payment verification for request ${request.id}`);
+        }
+        else {
+            envelope.status = paymentResult.success ? 'completed' : 'failed';
+        }
+
         return envelope;
       })
     );
@@ -45,9 +52,9 @@ export class PaymentProcessor extends EnvelopeProcessor<PaymentEnvelope> {
    */
   private processPayment(request: ServiceRequest, envelope: PaymentEnvelope): Observable<PaymentResult> {
     return this.thirdPartyService.processPayment({
-      amount: envelope.amount,
-      currency: envelope.currency,
-      method: envelope.paymentMethod,
+      charges: envelope.charges,
+      paymentMethod: envelope.paymentMethod,
+      transactionId: envelope.transactionId,
       requestId: request.id
     });
   }

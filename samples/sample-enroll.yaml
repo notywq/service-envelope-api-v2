@@ -4,7 +4,10 @@ initiator: cashier_office
 overallStatus: queued
 createdAt: "2025-08-12T10:00:00Z"
 lastUpdated: "2025-08-12T10:00:00Z"
-history: []
+history:
+  - status: queued
+    timestamp: 2025-08-12T10:00:00Z
+    envelope: request
 
 envelopes:
   request:
@@ -28,7 +31,7 @@ envelopes:
         role: registrar
         status: pending
     approvalRules:
-      type: finance-department
+      type: all_must_approve
 
   payment:
     required: true

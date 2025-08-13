@@ -5,7 +5,7 @@
 import { Command } from 'commander';
 import inquirer from 'inquirer';
 import { join, resolve } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from 'fs';
 import YAML from 'yaml';
 import ora from 'ora';
 import Ajv from 'ajv';
@@ -121,6 +121,12 @@ program
       console.error(`❌ No saved request found with ID: ${id}`);
       process.exit(1);
     }
+
+    if (saved.overallStatus === 'completed') {
+      console.warn(`⚠️ Request ${id} is already completed.`);
+      return;
+    }
+
     const spinner = ora(`Resuming request ${id}...`).start();
     try {
       await firstValueFrom(orchestrator.processRequest(saved));
@@ -169,6 +175,90 @@ program
     }
   });
 
+// --- COMMAND: cancel ---
+program
+  .command('cancel <id>')
+  .description('Cancel a stored request (archives without deleting)')
+  .action((id: string) => {
+    const req = stateManager.loadRequest(id);
+    if (!req) {
+      console.error(`❌ No request found with ID: ${id}`);
+      process.exit(1);
+    }
+
+    if (req.overallStatus === 'cancelled') {
+      console.warn(`⚠️ Request ${id} is already cancelled.`);
+      return;
+    }
+
+ // Ensure archive folder exists
+    const archiveDir = resolve('./data/archive');
+    if (!existsSync(archiveDir)) {
+      mkdirSync(archiveDir, { recursive: true });
+    }
+
+    // Update status & history
+    req.overallStatus = 'cancelled';
+    req.lastUpdated = new Date().toISOString();
+    req.history.push({
+      status: 'cancelled',
+      timestamp: new Date().toISOString(),
+      envelope: 'system',
+      notes: 'Request manually cancelled via CLI and moved to archive'
+    });
+
+    // Save updated request in archive
+    const archivePath = join(archiveDir, `${id}.json`);
+    stateManager.saveRequest(req, archiveDir); // <-- we’ll need to tweak saveRequest to accept a custom path
+
+    // Remove original file from /data
+    const activePath = resolve('./data', `${id}.json`);
+    if (existsSync(activePath)) {
+      renameSync(activePath, archivePath);
+    }
+
+    console.log(`🛑 Request ${id} has been cancelled and archived to /data/archive.`);
+  });
+// --- COMMAND: list-archived ---
+program
+  .command('list-archived')
+  .description('List all archived (cancelled) requests')
+  .action(() => {
+    const archiveDir = resolve('./data/archive');
+    if (!existsSync(archiveDir)) {
+      console.log('No archived requests found.');
+      return;
+    }
+
+    const files = readdirSync(archiveDir)
+      .filter(f => f.endsWith('.json'))
+      .map(f => f.replace('.json', ''));
+
+    if (files.length === 0) {
+      console.log('No archived requests found.');
+    } else {
+      console.log('Archived requests:');
+      files.forEach(f => console.log(`- ${f}`));
+    }
+  });
+
+  // --- COMMAND: show-archived ---
+program
+  .command('show-archived <id>')
+  .description('Show details of an archived request in YAML format')
+  .action((id: string) => {
+    const archivePath = resolve('./data/archive', `${id}.json`);
+    if (!existsSync(archivePath)) {
+      console.error(`❌ No archived request found with id: ${id}`);
+      process.exit(1);
+    }
+
+    const raw = readFileSync(archivePath, 'utf8');
+    const req = JSON.parse(raw);
+    console.log(YAML.stringify(req));
+  });
+
+
 // --- Global help info ---
 program
   .name('mcmms-services')
@@ -179,7 +269,10 @@ Examples:
   $ mcmm-services resume req-2025-001
   $ mcmm-services list
   $ mcmm-services show req-2025-001
-  $ mcmm-services delete req-2025-001`)
+  $ mcmm-services delete req-2025-001
+  $ mcmm-services cancel req-2025-001
+  $ mcmm-services list-archived req-2025-001
+  $ mcmm-services show-archived req-2025-001`)
   .version('1.0.0');
 
 // Show help if no args

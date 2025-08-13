@@ -20,9 +20,14 @@ export class StateManager {
 
   /**
    * Save a service request to persistent storage
+   * Overload: can accept just the request, or request and a custom path
    */
-  saveRequest(request: ServiceRequest): void {
-  const filePath = join(this.storePath, `${request.id}.json`);
+  saveRequest(request: ServiceRequest): void;
+  saveRequest(request: ServiceRequest, customPath: string): void;
+  saveRequest(request: ServiceRequest, customPath?: string): void {
+    const filePath = customPath
+      ? join(customPath, `${request.id}.json`)
+      : join(this.storePath, `${request.id}.json`);
     writeFileSync(filePath, JSON.stringify(request, null, 2));
   }
 

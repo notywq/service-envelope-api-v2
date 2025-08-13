@@ -1,0 +1,58 @@
+id: "SR-20250813-002"
+type: "MPASS Payment"
+initiator: "APPLICANT_202400001"
+overallStatus: "queued"
+createdAt: "2025-08-13T10:00:00Z"
+lastUpdated: "2025-08-13T10:05:00Z"
+history:
+  - status: queued
+    timestamp: 2025-08-12T10:00:00Z
+    envelope: request
+envelopes:
+  request:
+    status: "pending"
+    timestamp: "2025-08-13T10:00:00Z"
+    sourceSystem: "mapua_student_sis"
+    validationStatus: "passed"
+    parameters:
+      studentId: "APPLICANT_202400001"
+      mpassType: "Regular"
+      amountDue: 450
+      otherCharges:
+        - description: "Service Fee"
+          amount: 50
+  approval:
+    required: false
+    status: "pending"
+    timestamp: "2025-08-13T10:05:00Z"
+    approvers: []
+    approvalRules: 
+      type: "none"
+  payment:
+    required: true
+    status: "pending"
+    timestamp: "2025-08-12T10:10:00Z"
+    paymentMethod: "MAYA"
+    transactionId: "TXN-20250813-001"
+    charges:
+      - item: "MPASS Fee"
+        amount: 450.00
+        currency: "PHP"
+      - item: "Service Fee"
+        amount: 50.00
+        currency: "PHP"
+  processing:
+    status: "pending"
+    timestamp: "2025-08-13T10:05:00Z"
+    tasks:
+      - name: applicant-mpass-enable
+        status: pending
+  delivery:
+    required: false
+    timestamp: "2025-08-13T10:05:00Z"
+    status: "pending"
+    method: "email"
+  feedback:
+    required: true
+    timestamp: "2025-08-13T10:05:00Z"
+    status: "pending"

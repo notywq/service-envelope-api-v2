@@ -36,16 +36,17 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
         envelope.approvers = approvers;
 
         // If any approver is still pending_external, pause the whole envelope
-        if (approvers.some(a => a.status === 'pending_external')) {
+        if (approvers.some(a => a.status === 'pending')) {
           envelope.status = 'pending_external';
           envelope.timestamp = new Date().toISOString();
           this.stateManager.saveRequest(request);
-          this.logger.warn(`[Approval] Paused for external approvals on request ${request.id}`);
+          this.logger.warn(`\x1b[36m[PAUSED]\x1b[0m due to pending external approvals on request ${request.id}`);
           return envelope;
         }
 
         // Otherwise calculate the final status
         envelope.status = this.calculateApprovalStatus(envelope);
+       // this.logger.info(`${envelope.status.toUpperCase()} - Approval`);
         envelope.timestamp = new Date().toISOString();
         return envelope;
       })
@@ -92,6 +93,7 @@ private requestApproval(request: ServiceRequest, approver: Approver): Observable
       return 'failed';
     }
 
+   // this.logger.info(`${envelope.approvalRules.type} - ${approvedCount} approved, ${rejectedCount} denied`);
     switch (envelope.approvalRules.type) {
       case 'all_must_approve':
         return approvedCount === envelope.approvers.length ? 'completed' : 'pending';
