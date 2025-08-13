@@ -129,12 +129,12 @@ export type RequestStatus = 'queued' | 'pending_approval' | 'pending_payment' |
   'processing' | 'completed' | 'failed' | 'cancelled';
 
 export type EnvelopeStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 
-  'waived' | 'skipped';
+  'waived' | 'skipped'  | 'pending_external'; // NEW: waiting on human/external input;
 
 export type ValidationStatus = 'passed' | 'failed_schema' | 'failed_rules';
 
-export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'pending_external';
 
-export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'waiting' | 'pending_external'; // NEW: waiting on human/external input
 
 export type DeliveryMethod = 'email' | 'physical_mail' | 'sms' | 'digital_download';

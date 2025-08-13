@@ -11,7 +11,7 @@ import { Logger } from 'winston';
 export abstract class EnvelopeProcessor<T extends BaseEnvelope> {
   constructor(
     protected logger: Logger,
-    protected retryAttempts: number = 3,
+    protected retryAttempts: number = 0,
     protected retryDelay: number = 1000
   ) {}
 
@@ -29,11 +29,13 @@ export abstract class EnvelopeProcessor<T extends BaseEnvelope> {
         )
       ),
       map(result => {
-        this.logger.info(`Successfully processed ${this.getEnvelopeType()} envelope for request ${request.id}`);
+        // Green for success
+        this.logger.info(`\x1b[32m[SUCCESS]\x1b[0m - processed ${this.getEnvelopeType()} envelope for request ${request.id}`);
         return result;
       }),
       catchError(error => {
-        this.logger.error(`Failed to process ${this.getEnvelopeType()} envelope for request ${request.id}: ${error.message}`);
+        // Red for failed
+        this.logger.error(`\x1b[31m[FAILED]\x1b[0m to process ${this.getEnvelopeType()} envelope for request ${request.id}: ${error.message}`);
         return throwError(() => error);
       })
     );

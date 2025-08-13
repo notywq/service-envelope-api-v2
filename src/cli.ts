@@ -42,9 +42,9 @@ const validateServiceRequest = ajv.compile(serviceRequestSchema);
 const thirdPartyService = new ThirdPartyService(logger);
 const orchestrator = new ServiceOrchestrator(
   new RequestProcessor(logger),
-  new ApprovalProcessor(logger, thirdPartyService),
+  new ApprovalProcessor(logger, thirdPartyService, stateManager),
   new PaymentProcessor(logger, thirdPartyService),
-  new ProcessingProcessor(logger, thirdPartyService),
+  new ProcessingProcessor(logger, thirdPartyService, stateManager),
   new DeliveryProcessor(logger, thirdPartyService),
   new FeedbackProcessor(logger, thirdPartyService),
   stateManager,
