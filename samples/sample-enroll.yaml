@@ -36,14 +36,19 @@ envelopes:
   payment:
     required: true
     status: pending
-    timestamp: "2025-08-12T10:10:00Z"
-    paymentDetails:
-      method: "bank-transfer"
-      bankName: "Metrobank"
-      accountNumber: "1234-5678-9012"
-      referenceNumber: "MB-2025-000123"
+    timestamp: "2025-08-12T10:05:00Z"
+    paymentMethod: "MAYA"
+    transactionId: "TXN-20250813-001"
+    charges:
+      - item: "Enrollment Fee"
+        amount: 40000.00
+        currency: "PHP"
+      - item: "Miscellaneous Fees"
+        amount: 5000.00
+        currency: "PHP"
 
   processing:
+    required: true
     status: pending
     timestamp: "2025-08-12T10:15:00Z"
     tasks:

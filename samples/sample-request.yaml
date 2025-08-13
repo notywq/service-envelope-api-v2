@@ -30,6 +30,9 @@ envelopes:
       - id: registrar
         role: registrar
         status: pending
+      - id: treasury
+        role: treasury_teller
+        status: pending
     approvalRules:
       type: all_must_approve
 
@@ -37,8 +40,10 @@ envelopes:
     required: false
     status: pending
     timestamp: 2025-08-12T10:02:00Z
-    amount: 0
-    currency: PHP
+    charges:
+      - item: "Cancellation Fee"
+        amount: 1500.00
+        currency: PHP
     paymentMethod: scholarship
 
   processing:
