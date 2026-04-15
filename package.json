@@ -1,30 +1,35 @@
 {
-  "name": "service-envelope-cli",
+  "name": "service-envelope-api",
   "version": "1.0.0",
-  "description": "Service Envelope System CLI for orchestrating requests",
-  "main": "dist/index.js",
-  "bin": {
-    "mcmm-services": "dist/cli-v2.js"
-  },
+  "description": "Service Envelope System API Server",
+  "main": "dist/api/server.js",
+  "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/cli.js",
-    "dev": "ts-node src/cli.ts"
+    "start": "node dist/api/server.js",
+    "dev": "node --loader ts-node/esm src/api/server.ts"
   },
   "dependencies": {
     "ajv": "^8.12.0",
     "ajv-formats": "^3.0.1",
-    "chalk": "^5.3.0",
-    "commander": "^11.0.0",
-    "inquirer": "^9.2.10",
-    "ora": "^7.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongodb": "^7.1.1",
+    "mongoose": "^7.5.0",
+    "nodemailer": "^6.9.7",
     "rxjs": "^7.8.1",
     "winston": "^3.10.0",
     "yaml": "^2.3.2"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^4.17.21",
     "@types/inquirer": "^9.0.3",
+    "@types/jsonwebtoken": "^9.0.5",
     "@types/node": "^20.19.10",
+    "@types/nodemailer": "^6.4.14",
     "ts-node": "^10.9.1",
     "typescript": "^5.1.6"
   }

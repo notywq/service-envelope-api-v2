@@ -5,10 +5,10 @@
 
 import { Observable, of } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { EnvelopeProcessor } from '../core/envelope-processor';
-import { FeedbackEnvelope, ServiceRequest } from '../types/envelope.types';
+import { EnvelopeProcessor } from '../core/envelope-processor.js';
+import { FeedbackEnvelope, ServiceRequest } from '../types/envelope.types.js';
 import { Logger } from 'winston';
-import { ThirdPartyService } from '../services/third-party-service';
+import { ThirdPartyService } from '../services/third-party-service.js';
 
 export class FeedbackProcessor extends EnvelopeProcessor<FeedbackEnvelope> {
   constructor(

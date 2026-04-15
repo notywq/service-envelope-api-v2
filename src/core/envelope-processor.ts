@@ -5,7 +5,7 @@
 
 import { Observable, of, throwError, timer } from 'rxjs';
 import { map, catchError, retryWhen, take, delayWhen } from 'rxjs/operators';
-import { BaseEnvelope, ServiceRequest } from '../types/envelope.types';
+import { BaseEnvelope, ServiceRequest } from '../types/envelope.types.js';
 import { Logger } from 'winston';
 
 export abstract class EnvelopeProcessor<T extends BaseEnvelope> {

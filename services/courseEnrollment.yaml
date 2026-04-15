@@ -1,0 +1,61 @@
+id: courseEnrollment
+name: Course Enrollment Service
+description: Process for student course enrollment and registration
+type: courseEnrollment
+
+envelopes:
+  request:
+    required: true
+    parameters:
+      - studentId
+      - courseCode
+      - semester
+      - academicYear
+
+  approval:
+    required: true
+    approvers:
+      - id: registrar
+        role: Registrar
+        status: pending
+      - id: advisor
+        role: Academic Advisor
+        status: pending
+    approvalRules:
+      type: all_must_approve
+
+  payment:
+    required: true
+    charges:
+      - item: "Tuition Fee"
+        amount: 5000.00
+        currency: PHP
+      - item: "Lab Fee"
+        amount: 500.00
+        currency: PHP
+    paymentMethod: credit_card
+
+  processing:
+    required: true
+    tasks:
+      - name: validate_prerequisites
+        status: pending
+        notes: Check if student has completed prerequisites
+      - name: check_enrollment_capacity
+        status: pending
+        notes: Verify course section has available slots
+      - name: register_student
+        status: pending
+        notes: Add student to course roster
+
+  delivery:
+    required: true
+    method: email
+    details:
+      email:
+        subject: "Enrollment Confirmation - [COURSE_CODE]"
+        templateId: enrollment_confirmation
+
+  feedback:
+    required: true
+    autoCloseOnExpiry: "7 days"

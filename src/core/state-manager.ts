@@ -3,7 +3,7 @@
  * In a real implementation, this would integrate with a database
  */
 
-import { ServiceRequest } from '../types/envelope.types';
+import { ServiceRequest } from '../types/envelope.types.js';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';

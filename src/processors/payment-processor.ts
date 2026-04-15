@@ -5,10 +5,10 @@
 
 import { Observable, of } from 'rxjs';
 import { map, switchMap } from 'rxjs/operators';
-import { EnvelopeProcessor } from '../core/envelope-processor';
-import { PaymentEnvelope, ServiceRequest } from '../types/envelope.types';
+import { EnvelopeProcessor } from '../core/envelope-processor.js';
+import { PaymentEnvelope, ServiceRequest } from '../types/envelope.types.js';
 import { Logger } from 'winston';
-import { ThirdPartyService } from '../services/third-party-service';
+import { ThirdPartyService } from '../services/third-party-service.js';
 
 export class PaymentProcessor extends EnvelopeProcessor<PaymentEnvelope> {
   constructor(

@@ -5,8 +5,8 @@
 
 import { Observable, of, throwError } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { EnvelopeProcessor } from '../core/envelope-processor';
-import { RequestEnvelope, ServiceRequest } from '../types/envelope.types';
+import { EnvelopeProcessor } from '../core/envelope-processor.js';
+import { RequestEnvelope, ServiceRequest } from '../types/envelope.types.js';
 import { Logger } from 'winston';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';

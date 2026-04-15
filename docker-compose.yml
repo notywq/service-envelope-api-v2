@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7
+    container_name: service-envelope-db
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_DATABASE: service-envelope
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - service-envelope-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: service-envelope-api
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: 8000
+      NODE_ENV: development
+      JWT_SECRET: dev-secret-key-change-in-production
+      MONGODB_URI: mongodb://root:rootpassword@mongodb:27017/service-envelope?authSource=admin
+      EMAIL_FROM: noreply@mapua.edu.ph
+      API_BASE_URL: http://localhost:8000
+      SERVICES_PATH: ./services
+      APPROVAL_LINK_EXPIRY: 24
+      ENABLE_EMAIL: "false"
+    volumes:
+      - ./src:/app/src
+      - ./services:/app/services
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - service-envelope-network
+    command: npm run dev:api
+
+volumes:
+  mongodb_data:
+  mongodb_config:
+
+networks:
+  service-envelope-network:
+    driver: bridge

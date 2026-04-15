@@ -5,16 +5,16 @@
 
 import { Observable, of, throwError } from 'rxjs';
 import { switchMap, tap, catchError, map } from 'rxjs/operators';
-import { ServiceRequest, EnvelopeCollection } from '../types/envelope.types';
-import { RequestProcessor } from '../processors/request-processor';
-import { ApprovalProcessor } from '../processors/approval-processor';
-import { PaymentProcessor } from '../processors/payment-processor';
-import { ProcessingProcessor } from '../processors/processing-processor';
-import { DeliveryProcessor } from '../processors/delivery-processor';
-import { FeedbackProcessor } from '../processors/feedback-processor';
-import { StateManager } from './state-manager';
+import { ServiceRequest, EnvelopeCollection } from '../types/envelope.types.js';
+import { RequestProcessor } from '../processors/request-processor.js';
+import { ApprovalProcessor } from '../processors/approval-processor.js';
+import { PaymentProcessor } from '../processors/payment-processor.js';
+import { ProcessingProcessor } from '../processors/processing-processor.js';
+import { DeliveryProcessor } from '../processors/delivery-processor.js';
+import { FeedbackProcessor } from '../processors/feedback-processor.js';
+import { StateManager } from './state-manager.js';
 import { Logger } from 'winston';
-import { EnvelopeProcessor } from './envelope-processor';
+import { EnvelopeProcessor } from './envelope-processor.js';
 
 export class ServiceOrchestrator {
   constructor(

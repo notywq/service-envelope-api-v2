@@ -5,11 +5,11 @@
 
 import { Observable, of, forkJoin } from 'rxjs';
 import { map, switchMap } from 'rxjs/operators';
-import { EnvelopeProcessor } from '../core/envelope-processor';
-import { ApprovalEnvelope, ServiceRequest, Approver } from '../types/envelope.types';
+import { EnvelopeProcessor } from '../core/envelope-processor.js';
+import { ApprovalEnvelope, ServiceRequest, Approver } from '../types/envelope.types.js';
 import { Logger } from 'winston';
-import { ThirdPartyService } from '../services/third-party-service';
-import { StateManager } from '../core/state-manager';
+import { ThirdPartyService } from '../services/third-party-service.js';
+import { StateManager } from '../core/state-manager.js';
 
 export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
   constructor(
