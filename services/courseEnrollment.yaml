@@ -1,19 +1,21 @@
-id: courseEnrollment
+id: SERV-1-04152026
 name: Course Enrollment Service
 description: Process for student course enrollment and registration
 type: courseEnrollment
+serviceCode: courseEnrollment
 
 envelopes:
   request:
     required: true
     parameters:
-      - studentId
-      - courseCode
-      - semester
-      - academicYear
+      studentId: ""
+      courseCode: ""
+      semester: ""
+      academicYear: ""
 
   approval:
     required: true
+    emailTemplateId: SERV-1-approval
     approvers:
       - id: registrar
         role: Registrar

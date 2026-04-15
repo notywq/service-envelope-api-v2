@@ -3,7 +3,7 @@
  * Handles authorization workflows and approver notifications
  */
 
-import { Observable, of, forkJoin } from 'rxjs';
+import { Observable, of, forkJoin, from } from 'rxjs';
 import { map, switchMap } from 'rxjs/operators';
 import { EnvelopeProcessor } from '../core/envelope-processor.js';
 import { ApprovalEnvelope, ServiceRequest, Approver } from '../types/envelope.types.js';
@@ -15,7 +15,8 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
   constructor(
     logger: Logger,
     private thirdPartyService: ThirdPartyService,
-    private stateManager: StateManager // 💾 Needed to save state on pause
+    private stateManager: StateManager, // 💾 Needed to save state on pause
+    private uiBaseUrl: string = 'http://localhost:5173' // UI base URL for approval links (Phase 2 Dashboard)
   ) {
     super(logger);
   }
@@ -62,21 +63,26 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
    * This integrates with 3rd party notification services
    */
 private requestApproval(request: ServiceRequest, approver: Approver): Observable<Approver> {
-  return this.thirdPartyService.sendApprovalRequest(request, approver).pipe(
+  this.logger.info(`📧 Sending approval request to ${approver.id} for request ${request.id}...`);
+  
+  return from(this.thirdPartyService.sendApprovalRequest(request, approver, this.uiBaseUrl)).pipe(
     map(result => {
       if (result.status === 'pending_external') {
         // Set envelope to pending_external so orchestrator pauses
         approver.status = 'pending';
         request.envelopes.approval.status = 'pending_external';
+        this.logger.info(`⏳ Approval request pending for ${approver.id}`);
       }
       else if(result.status === 'denied') {
         approver.status = 'denied';
-        approver.approvedAt = new Date().toISOString();
+        approver.deniedAt = new Date().toISOString();
         request.envelopes.approval.status = 'failed';
-      }else {
+        this.logger.warn(`❌ Approval denied for ${approver.id}`);
+      } else if (result.status === 'approved') {
         approver.status = 'approved';
         approver.approvedAt = new Date().toISOString();
-      } 
+        this.logger.info(`✅ Approval granted by ${approver.id}`);
+      }
       return approver;
     })
   );

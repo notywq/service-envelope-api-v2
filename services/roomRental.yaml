@@ -1,0 +1,51 @@
+id: SERV-2-04152026
+name: Dormitory Room Rental
+description: Request and approval for on-campus dormitory room rental
+type: roomRental
+serviceCode: roomRental
+
+envelopes:
+  request:
+    required: true
+    parameters:
+      studentId: ""
+      semesterToRent: ""
+      preferredBuilding: ""
+
+  approval:
+    required: true
+    emailTemplateId: SERV-2-approval
+    approvers:
+      - id: housing@mapua.edu.ph
+        role: Housing Director
+    approvalRules:
+      type: any_one
+
+  payment:
+    required: true
+    charges:
+      - item: "Dormitory semester fee"
+        amount: 25000
+        currency: PHP
+      - item: "Security deposit"
+        amount: 5000
+        currency: PHP
+
+  processing:
+    required: true
+    tasks:
+      - name: verify_academic_standing
+        description: Verify student is in good academic standing
+      - name: check_room_availability
+        description: Check dorm room availability for semester
+      - name: assign_room
+        description: Assign specific room number
+
+  delivery:
+    required: true
+    method: email
+    details:
+      emailTemplate: roomRentalConfirmation
+
+  feedback:
+    required: true

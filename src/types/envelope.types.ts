@@ -64,6 +64,7 @@ export interface Approver {
   status: ApprovalStatus;
   comment?: string;
   approvedAt?: string;
+  deniedAt?: string;
 }
 
 

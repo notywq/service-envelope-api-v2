@@ -1,18 +1,18 @@
 /**
- * Service Registry - Loads and caches available service YAML definitions
- * Services are defined in YAML files and loaded at startup
+ * Service Registry - Loads and caches available service definitions
+ * Services are loaded exclusively from MongoDB at startup
+ * YAML files are no longer consulted - all service definitions must exist in MongoDB
  */
 
-import { readdir, readFile } from 'fs/promises';
-import { join } from 'path';
-import YAML from 'yaml';
 import { Logger } from 'winston';
+import type { MongoDBStateManager } from './mongodb-state-manager.js';
 
 export interface ServiceDefinition {
   id: string;
   name: string;
   description: string;
   type: string;
+  yaml?: string;
   envelopes?: {
     approval?: any;
     payment?: any;
@@ -27,30 +27,39 @@ export class ServiceRegistry {
   private services: Map<string, ServiceDefinition> = new Map();
 
   constructor(
-    private servicesPath: string,
-    private logger: Logger
+    private logger: Logger,
+    private stateManager?: MongoDBStateManager
   ) {}
 
   async loadServices(): Promise<void> {
     try {
-      const files = await readdir(this.servicesPath);
-      const yamlFiles = files.filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+      if (!this.stateManager) {
+        this.logger.error('❌ [ServiceRegistry] No MongoDB state manager available - cannot load services');
+        throw new Error('ServiceRegistry requires MongoDB state manager');
+      }
 
-      for (const file of yamlFiles) {
-        const filePath = join(this.servicesPath, file);
-        const content = await readFile(filePath, 'utf-8');
-        const serviceData = YAML.parse(content);
+      this.logger.info('📚 [ServiceRegistry] Loading services exclusively from MongoDB...');
+      const mongoServices = await this.stateManager.getAllServiceDefinitions();
+      
+      if (!mongoServices || mongoServices.length === 0) {
+        this.logger.warn('⚠️  No services found in MongoDB. Please create services via API admin endpoints.');
+        this.logger.warn('   POST /api/admin/services to create new services');
+        return;
+      }
 
-        if (serviceData.id) {
-          this.services.set(serviceData.id, serviceData);
-          this.logger.info(`✅ Loaded service: ${serviceData.id} (${serviceData.name || 'N/A'})`);
+      this.logger.debug(`   Found ${mongoServices.length} services in MongoDB`);
+      
+      for (const service of mongoServices) {
+        if (service.id) {
+          this.services.set(service.id, service);
+          this.logger.debug(`   ✅ Loaded: ${service.id} (${service.name})`);
         }
       }
 
-      this.logger.info(`📦 Loaded ${this.services.size} services from ${this.servicesPath}`);
+      this.logger.info(`📦 Successfully loaded ${this.services.size} services from MongoDB`);
     } catch (error) {
-      this.logger.warn(`⚠️  Services directory not found at ${this.servicesPath}. Starting with empty registry.`);
-      this.logger.debug(`Directory error: ${error}`);
+      this.logger.error('❌ [ServiceRegistry] Failed to load services from MongoDB:', error);
+      throw error;
     }
   }
 

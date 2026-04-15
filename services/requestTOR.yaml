@@ -1,0 +1,54 @@
+id: SERV-3-04152026
+name: Transcript of Records (TOR) Request
+description: Request official transcript of academic records from the Registrar
+type: requestTOR
+serviceCode: requestTOR
+
+envelopes:
+  request:
+    required: true
+    parameters:
+      studentId: ""
+      program: ""
+      numberOfCopies: ""
+      purpose: ""
+      deliveryAddress: ""
+
+  approval:
+    required: false
+    emailTemplateId: SERV-3-approval
+    approvers:
+      - id: barondimaranan@gmail.com
+        role: Registrar
+        status: pending
+    approvalRules:
+      type: all_must_approve
+
+  payment:
+    required: true
+    charges:
+      - item: "Transcript of Records (per copy)"
+        amount: 500
+        currency: PHP
+
+  processing:
+    required: true
+    tasks:
+      - name: verify_student_enrollment
+        description: Verify student is/was enrolled in MAPUA
+      - name: pull_academic_records
+        description: Pull complete academic records from system
+      - name: generate_tor_document
+        description: Generate official TOR document with seal
+      - name: validate_tor_content
+        description: Validate all entries and grades are accurate
+
+  delivery:
+    required: true
+    method: email
+    details:
+      emailTemplate: torDelivery
+      canSelectMethod: true
+
+  feedback:
+    required: true

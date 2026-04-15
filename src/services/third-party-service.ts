@@ -1,41 +1,100 @@
 import { Observable, of, delay } from 'rxjs';
 import { Logger } from 'winston';
-import { Approver, ServiceRequest, ProcessingTask, Charge } from '../types/envelope.types';
+import { Approver, ServiceRequest, ProcessingTask, Charge } from '../types/envelope.types.js';
+import { EmailService } from './email-service.js';
+import type { StateManager } from '../core/state-manager.js';
 
 export class ThirdPartyService {
-  constructor(private logger: Logger) {}
+  constructor(
+    private logger: Logger,
+    private emailService?: EmailService,
+    private stateManager?: StateManager
+  ) {}
 
   /**
-   * Simulates sending an approval request.
-   * Some requests will be "waiting" (human approval), triggering pending_external.
+   * Send approval request via email
+   * Integrates with EmailService to send formatted approval emails with approval/deny links
+   * Links redirect to Phase 2 UI (Dashboard) for approvers to handle decisions
    */
-  sendApprovalRequest(req: ServiceRequest, approver: Approver): Observable<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }> {
-  // Cyan color for approval request
-  this.logger.info(`\x1b[36m[Approval Request]\x1b[0m Simulating for ${approver.role} - ${approver.id}`);
+  async sendApprovalRequest(req: ServiceRequest, approver: Approver, uiBaseUrl: string = 'http://localhost:5173'): Promise<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }> {
+    try {
+      // Validate that approver email is present
+      if (!approver.id || !approver.id.includes('@')) {
+        this.logger.error(`❌ Invalid approver email format: ${approver.id}`);
+        throw new Error(`Invalid approver email: ${approver.id}`);
+      }
 
-    // Simulate network delay
-    const isWaiting = Math.random() < 0.5; // 50% chance to be "waiting"
-    if (isWaiting) {
-      // Yellow color for waiting
-      //approver.status = 'pending';
-      this.logger.warn(`\x1b[36m[Approval Request]\x1b[0m for ${approver.id} is \x1b[33m[WAITING]\x1b[0m for external input`);
-      return of<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }>({ status: 'pending_external', approver });
+      // Check if email service is available
+      if (!this.emailService) {
+        this.logger.warn(`⚠️  EmailService not initialized - approval request cannot be sent to ${approver.id}`);
+        throw new Error('EmailService not initialized');
+      }
+
+      // Generate approval token and save to DB
+      const { generateApprovalToken } = await import('../api/routes/approvals.js');
+      const token = await generateApprovalToken(req.id, approver.id);
+      this.logger.debug(`🔐 Generated approval token for request ${req.id}`);
+
+      // Build approval and deny links - point to Phase 2 UI
+      const approvalLink = `${uiBaseUrl}/approvals/${token}`;
+      const denyLink = `${uiBaseUrl}/approvals/${token}`;
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+      // Try to fetch service-specific email template
+      let htmlTemplate: string | undefined;
+      if (this.stateManager) {
+        try {
+          const service = await (this.stateManager as any).getServiceDefinitionByType(req.type);
+          if (service?.approval?.emailTemplateId) {
+            const template = await (this.stateManager as any).getEmailTemplate(service.approval.emailTemplateId);
+            if (template?.htmlBody) {
+              htmlTemplate = template.htmlBody;
+              this.logger.info(`📧 Using email template ${service.approval.emailTemplateId} for service ${req.type}`);
+            }
+          }
+        } catch (error) {
+          this.logger.debug(`Note: Could not fetch email template - will use default: ${error}`);
+        }
+      }
+
+      // Send approval email
+      this.logger.info(`📨 Sending approval email to ${approver.id} for request ${req.id}...`);
+      const emailSent = await this.emailService.sendApprovalEmail({
+        approverEmail: approver.id,
+        requestId: req.id,
+        serviceType: req.type,
+        initiatorName: req.initiator,
+        approvalToken: token,
+        approvalLink,
+        denyLink,
+        expiresAt,
+        htmlTemplate, // Pass template if found
+      });
+
+      if (!emailSent) {
+        this.logger.error(`❌ Failed to send approval email to ${approver.id}`);
+        throw new Error(`Email sending failed for ${approver.id}`);
+      }
+
+      this.logger.info(`✅ Approval email successfully sent to ${approver.id}`);
+
+      // Set approver status to pending and return pending_external
+      approver.status = 'pending';
+      this.logger.info(`⏳ Awaiting approval decision from ${approver.id} (expires: ${expiresAt})`);
+
+      return {
+        status: 'pending_external',
+        approver,
+      };
+    } catch (error) {
+      this.logger.error(`❌ Error in approval workflow for ${approver.id}: ${error}`);
+      // Return pending_external anyway - don't fail the whole flow
+      approver.status = 'pending';
+      return {
+        status: 'pending_external',
+        approver,
+      };
     }
-
-    const isFailing = Math.random() < 0.3;
-    if (isFailing) {
-      approver.comment="This request was denied due to missing requirements - namely THIS FILE.";
-  // Red color for denied
-  //approver.status = 'denied';
-  this.logger.warn(`\x1b[36m[Approval Request]\x1b[0m for ${approver.id} is \x1b[31m[DENIED]\x1b[0m`);
-      return of<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }>({ status: 'denied', approver });
-    }
-    // Auto-approve for simulation
-    approver.status = 'approved';
-    approver.approvedAt = new Date().toISOString();
-    this.logger.warn(`\x1b[36m[Approval Request]\x1b[0m for ${approver.id} is \x1b[32m[APPROVED]\x1b[0m`);
-
-    return of<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }>({ status: 'approved', approver })
   }
 
 

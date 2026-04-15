@@ -42,6 +42,88 @@ const ServiceRequestModel = mongoose.model<ServiceRequestDoc>(
   ServiceRequestSchema
 );
 
+// Define Approval Token Schema
+const ApprovalTokenSchema = new Schema({
+  token: { type: String, unique: true, required: true, index: true },
+  requestId: { type: String, required: true, index: true },
+  approverId: { type: String, required: true },
+  expiresAt: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now },
+  used: { type: Boolean, default: false },
+});
+
+interface ApprovalTokenDoc extends Document {
+  token: string;
+  requestId: string;
+  approverId: string;
+  expiresAt: Date;
+  createdAt: Date;
+  used: boolean;
+}
+
+const ApprovalTokenModel = mongoose.model<ApprovalTokenDoc>(
+  'ApprovalToken',
+  ApprovalTokenSchema
+);
+
+// Define Service Definition Schema
+const ServiceDefinitionSchema = new Schema({
+  id: { type: String, unique: true, required: true, index: true },
+  name: { type: String, required: true },
+  type: { type: String, required: true, index: true },
+  initiator: String,
+  description: String,
+  yaml: { type: String, required: true },
+  definition: Schema.Types.Mixed,
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+interface ServiceDefinitionDoc extends Document {
+  id: string;
+  name: string;
+  type: string;
+  initiator: string;
+  description: string;
+  yaml: string;
+  definition: any;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const ServiceDefinitionModel = mongoose.model<ServiceDefinitionDoc>(
+  'ServiceDefinition',
+  ServiceDefinitionSchema
+);
+
+// Define Email Template Schema
+const EmailTemplateSchema = new Schema({
+  id: { type: String, unique: true, required: true, index: true },
+  name: { type: String, required: true },
+  subject: { type: String, required: true },
+  htmlBody: { type: String, required: true },
+  description: String,
+  variables: [String], // e.g., ['studentName', 'requestType', 'approverName']
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+interface EmailTemplateDoc extends Document {
+  id: string;
+  name: string;
+  subject: string;
+  htmlBody: string;
+  description: string;
+  variables: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const EmailTemplateModel = mongoose.model<EmailTemplateDoc>(
+  'EmailTemplate',
+  EmailTemplateSchema
+);
+
 export class MongoDBStateManager {
   constructor(private logger: Logger) {}
 
@@ -146,6 +228,165 @@ export class MongoDBStateManager {
     } catch (error) {
       this.logger.error(`Failed to find requests with type ${type}:`, error);
       return [];
+    }
+  }
+
+  // Approval Token Methods
+  async saveApprovalToken(token: string, requestId: string, approverId: string, expiryHours: number = 24): Promise<void> {
+    try {
+      const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
+      await ApprovalTokenModel.create({
+        token,
+        requestId,
+        approverId,
+        expiresAt,
+      });
+      this.logger.debug(`Saved approval token ${token} to MongoDB`);
+    } catch (error) {
+      this.logger.error(`Failed to save approval token ${token}:`, error);
+      throw error;
+    }
+  }
+
+  async getApprovalToken(token: string): Promise<any> {
+    try {
+      const doc = await ApprovalTokenModel.findOne({ token });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get approval token ${token}:`, error);
+      return null;
+    }
+  }
+
+  async markApprovalTokenAsUsed(token: string): Promise<void> {
+    try {
+      await ApprovalTokenModel.updateOne({ token }, { used: true });
+      this.logger.debug(`Marked approval token ${token} as used`);
+    } catch (error) {
+      this.logger.error(`Failed to mark token ${token} as used:`, error);
+      throw error;
+    }
+  }
+
+  async deleteExpiredTokens(): Promise<number> {
+    try {
+      const result = await ApprovalTokenModel.deleteMany({ expiresAt: { $lt: new Date() } });
+      this.logger.debug(`Deleted ${result.deletedCount} expired approval tokens`);
+      return result.deletedCount || 0;
+    } catch (error) {
+      this.logger.error('Failed to delete expired tokens:', error);
+      return 0;
+    }
+  }
+
+  // Service Definition Methods
+  async saveServiceDefinition(service: any): Promise<void> {
+    try {
+      await ServiceDefinitionModel.findOneAndUpdate(
+        { id: service.id },
+        {
+          ...service,
+          updatedAt: new Date(),
+        },
+        { upsert: true, new: true }
+      );
+      this.logger.debug(`Saved service definition ${service.id} to MongoDB`);
+    } catch (error) {
+      this.logger.error(`Failed to save service definition ${service.id}:`, error);
+      throw error;
+    }
+  }
+
+  async getServiceDefinition(serviceId: string): Promise<any> {
+    try {
+      const doc = await ServiceDefinitionModel.findOne({ id: serviceId });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get service definition ${serviceId}:`, error);
+      return null;
+    }
+  }
+
+  async getAllServiceDefinitions(): Promise<any[]> {
+    try {
+      const docs = await ServiceDefinitionModel.find({}).sort({ createdAt: -1 });
+      return docs.map(doc => doc.toObject());
+    } catch (error) {
+      this.logger.error('Failed to get all service definitions:', error);
+      return [];
+    }
+  }
+
+  async getServiceDefinitionByType(type: string): Promise<any> {
+    try {
+      const doc = await ServiceDefinitionModel.findOne({ type });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get service definition by type ${type}:`, error);
+      return null;
+    }
+  }
+
+  async deleteServiceDefinition(serviceId: string): Promise<boolean> {
+    try {
+      const result = await ServiceDefinitionModel.deleteOne({ id: serviceId });
+      return result.deletedCount > 0;
+    } catch (error) {
+      this.logger.error(`Failed to delete service definition ${serviceId}:`, error);
+      return false;
+    }
+  }
+
+  // Email Template Methods
+  async saveEmailTemplate(template: any): Promise<void> {
+    try {
+      // Auto-extract variable names from htmlBody ({{variableName}} format)
+      const variableMatches = template.htmlBody.match(/\{\{(\w+)\}\}/g) || [];
+      const variables = [...new Set(variableMatches.map((match: string) => match.replace(/\{\{|\}\}/g, '')))];
+
+      await EmailTemplateModel.findOneAndUpdate(
+        { id: template.id },
+        {
+          ...template,
+          variables,
+          updatedAt: new Date(),
+        },
+        { upsert: true, new: true }
+      );
+      this.logger.debug(`Saved email template ${template.id} to MongoDB`);
+    } catch (error) {
+      this.logger.error(`Failed to save email template ${template.id}:`, error);
+      throw error;
+    }
+  }
+
+  async getEmailTemplate(templateId: string): Promise<any> {
+    try {
+      const doc = await EmailTemplateModel.findOne({ id: templateId });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get email template ${templateId}:`, error);
+      return null;
+    }
+  }
+
+  async getAllEmailTemplates(): Promise<any[]> {
+    try {
+      const docs = await EmailTemplateModel.find({}).sort({ createdAt: -1 });
+      return docs.map(doc => doc.toObject());
+    } catch (error) {
+      this.logger.error('Failed to get all email templates:', error);
+      return [];
+    }
+  }
+
+  async deleteEmailTemplate(templateId: string): Promise<boolean> {
+    try {
+      const result = await EmailTemplateModel.deleteOne({ id: templateId });
+      return result.deletedCount > 0;
+    } catch (error) {
+      this.logger.error(`Failed to delete email template ${templateId}:`, error);
+      return false;
     }
   }
 }

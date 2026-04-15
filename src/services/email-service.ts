@@ -22,6 +22,7 @@ export interface ApprovalEmailPayload {
   approvalLink: string;
   denyLink: string;
   expiresAt: string;
+  htmlTemplate?: string; // Optional custom HTML template with {{variable}} placeholders
 }
 
 export class EmailService {
@@ -50,11 +51,12 @@ export class EmailService {
 
   async sendEmail(payload: EmailPayload): Promise<boolean> {
     if (!this.transporter) {
-      this.logger.error('Email service not initialized');
+      this.logger.error(`❌ Email service not initialized - cannot send email to ${payload.to}`);
       return false;
     }
 
     try {
+      this.logger.debug(`📨 Sending email to ${payload.to} with subject: ${payload.subject}`);
       const info = await this.transporter.sendMail({
         from: process.env.EMAIL_FROM || 'noreply@mapua.edu.ph',
         to: payload.to,
@@ -63,16 +65,22 @@ export class EmailService {
         replyTo: payload.replyTo,
       });
 
-      this.logger.info(`✅ Email sent to ${payload.to} (ID: ${info.messageId})`);
+      this.logger.info(`✅ Email successfully sent to ${payload.to} (Message ID: ${info.messageId})`);
       return true;
     } catch (error) {
-      this.logger.error(`❌ Failed to send email to ${payload.to}:`, error);
+      this.logger.error(`❌ Failed to send email to ${payload.to}: ${error}`);
       return false;
     }
   }
 
   async sendApprovalEmail(payload: ApprovalEmailPayload): Promise<boolean> {
-    const html = `
+    if (!this.transporter) {
+      this.logger.error(`❌ Email service not initialized - cannot send approval email to ${payload.approverEmail}`);
+      return false;
+    }
+
+    // Use custom template if provided, otherwise use default
+    let html = payload.htmlTemplate || `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px;">
           <h2 style="color: #333;">Approval Request</h2>
@@ -81,17 +89,17 @@ export class EmailService {
           <p>A new service request requires your approval:</p>
           
           <div style="background-color: white; padding: 15px; border-left: 4px solid #1976d2; margin: 20px 0;">
-            <p><strong>Request ID:</strong> ${payload.requestId}</p>
-            <p><strong>Service Type:</strong> ${payload.serviceType}</p>
-            <p><strong>Requested by:</strong> ${payload.initiatorName}</p>
-            <p><strong>Expires at:</strong> ${payload.expiresAt}</p>
+            <p><strong>Request ID:</strong> {{requestId}}</p>
+            <p><strong>Service Type:</strong> {{serviceType}}</p>
+            <p><strong>Requested by:</strong> {{initiatorName}}</p>
+            <p><strong>Expires at:</strong> {{expiresAt}}</p>
           </div>
           
           <p style="margin: 20px 0;">Please review and approve or deny this request:</p>
           
           <div style="display: flex; gap: 10px; margin: 20px 0;">
-            <a href="${payload.approvalLink}" style="background-color: #4caf50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">✓ Approve</a>
-            <a href="${payload.denyLink}" style="background-color: #f44336; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">✗ Deny</a>
+            <a href="{{approvalLink}}" style="background-color: #4caf50; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">✓ Approve</a>
+            <a href="{{denyLink}}" style="background-color: #f44336; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">✗ Deny</a>
           </div>
           
           <p style="font-size: 12px; color: #999; margin-top: 30px;">
@@ -101,54 +109,34 @@ export class EmailService {
       </div>
     `;
 
-    return this.sendEmail({
-      to: payload.approverEmail,
-      subject: `Approval Required: ${payload.serviceType} Request (${payload.requestId})`,
-      html,
-      replyTo: process.env.EMAIL_FROM,
-    });
-  }
+    // Replace placeholders with actual values
+    html = html
+      .replace(/\{\{requestId\}\}/g, payload.requestId)
+      .replace(/\{\{serviceType\}\}/g, payload.serviceType)
+      .replace(/\{\{initiatorName\}\}/g, payload.initiatorName)
+      .replace(/\{\{approvalLink\}\}/g, payload.approvalLink)
+      .replace(/\{\{denyLink\}\}/g, payload.denyLink)
+      .replace(/\{\{expiresAt\}\}/g, payload.expiresAt);
 
-  async sendCompletionEmail(
-    to: string,
-    requestId: string,
-    serviceType: string,
-    status: string
-  ): Promise<boolean> {
-    const statusColor = status === 'completed' ? '#4caf50' : '#f44336';
-    const statusEmoji = status === 'completed' ? '✓' : '✗';
+    try {
+      this.logger.info(`📧 Preparing approval email for ${payload.approverEmail} (Request: ${payload.requestId})`);
+      const emailSent = await this.sendEmail({
+        to: payload.approverEmail,
+        subject: `Approval Required: ${payload.serviceType} Request (${payload.requestId})`,
+        html,
+        replyTo: process.env.EMAIL_FROM,
+      });
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px;">
-          <h2 style="color: #333;">Request ${statusEmoji} ${status.toUpperCase()}</h2>
-          
-          <p>Hello,</p>
-          <p>Your service request has been processed.</p>
-          
-          <div style="background-color: white; padding: 15px; border-left: 4px solid ${statusColor}; margin: 20px 0;">
-            <p><strong>Request ID:</strong> ${requestId}</p>
-            <p><strong>Service Type:</strong> ${serviceType}</p>
-            <p><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: bold;">${status}</span></p>
-          </div>
-          
-          <p style="font-size: 12px; color: #999; margin-top: 30px;">
-            If you have any questions, please contact the service administrator.
-          </p>
-        </div>
-      </div>
-    `;
+      if (emailSent) {
+        this.logger.info(`✅ Approval email successfully delivered to ${payload.approverEmail}`);
+      } else {
+        this.logger.error(`❌ Approval email delivery failed for ${payload.approverEmail}`);
+      }
 
-    return this.sendEmail({
-      to,
-      subject: `Service Request ${requestId} - ${status.toUpperCase()}`,
-      html,
-    });
-  }
-
-  // Mock mode for development/testing
-  async sendMockEmail(payload: EmailPayload): Promise<boolean> {
-    this.logger.info(`📧 [MOCK] Email to ${payload.to}: ${payload.subject}`);
-    return true;
+      return emailSent;
+    } catch (error) {
+      this.logger.error(`❌ Exception sending approval email to ${payload.approverEmail}: ${error}`);
+      return false;
+    }
   }
 }

@@ -70,16 +70,8 @@ router.get('/:requestId', async (req: Request, res: Response) => {
       status: request.overallStatus,
       createdAt: request.createdAt,
       lastUpdated: request.lastUpdated,
-      envelopes: {
-        request: request.envelopes.request.status,
-        approval: request.envelopes.approval.status,
-        payment: request.envelopes.payment.status,
-        processing: request.envelopes.processing.status,
-        delivery: request.envelopes.delivery.status,
-        feedback: request.envelopes.feedback.status,
-      },
+      envelopes: request.envelopes,
       history: request.history,
-      details: request.envelopes,
     });
   } catch (error) {
     appContext.logger.error('Error getting request:', error);

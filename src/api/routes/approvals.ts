@@ -10,26 +10,13 @@ import { randomUUID } from 'crypto';
 
 const router = Router();
 
-// In-memory approval token store (in production, use MongoDB)
-// Format: { token: string, requestId: string, approverId: string, expiresAt: Date }
-const approvalTokens = new Map<string, any>();
-
 /**
  * Generate an approval token for a request
  * This is called internally when a request enters approval envelope
  */
 export async function generateApprovalToken(requestId: string, approverId: string, expiryHours: number = 24): Promise<string> {
   const token = randomUUID();
-  const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
-
-  approvalTokens.set(token, {
-    requestId,
-    approverId,
-    expiresAt,
-    createdAt: new Date(),
-    used: false,
-  });
-
+  await appContext.stateManager.saveApprovalToken(token, requestId, approverId, expiryHours);
   appContext.logger.info(`🔐 Generated approval token for request ${requestId}`);
   return token;
 }
@@ -43,7 +30,7 @@ router.post('/:token/approve', async (req: Request, res: Response) => {
     const { token } = req.params;
     const { comment } = req.body;
 
-    const tokenData = approvalTokens.get(token);
+    const tokenData = await appContext.stateManager.getApprovalToken(token);
 
     if (!tokenData) {
       return res.status(404).json({ error: 'Approval token not found' });
@@ -53,7 +40,7 @@ router.post('/:token/approve', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Approval token already used' });
     }
 
-    if (new Date() > tokenData.expiresAt) {
+    if (new Date() > new Date(tokenData.expiresAt)) {
       return res.status(400).json({ error: 'Approval token expired' });
     }
 
@@ -81,7 +68,7 @@ router.post('/:token/approve', async (req: Request, res: Response) => {
     });
 
     // Mark token as used
-    tokenData.used = true;
+    await appContext.stateManager.markApprovalTokenAsUsed(token);
 
     // Save the request
     await appContext.stateManager.saveRequest(request);
@@ -122,7 +109,7 @@ router.post('/:token/deny', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Reason for denial required' });
     }
 
-    const tokenData = approvalTokens.get(token);
+    const tokenData = await appContext.stateManager.getApprovalToken(token);
 
     if (!tokenData) {
       return res.status(404).json({ error: 'Approval token not found' });
@@ -132,7 +119,7 @@ router.post('/:token/deny', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Approval token already used' });
     }
 
-    if (new Date() > tokenData.expiresAt) {
+    if (new Date() > new Date(tokenData.expiresAt)) {
       return res.status(400).json({ error: 'Approval token expired' });
     }
 
@@ -160,7 +147,7 @@ router.post('/:token/deny', async (req: Request, res: Response) => {
     });
 
     // Mark token as used
-    tokenData.used = true;
+    await appContext.stateManager.markApprovalTokenAsUsed(token);
 
     // Save the request
     await appContext.stateManager.saveRequest(request);
@@ -182,16 +169,16 @@ router.post('/:token/deny', async (req: Request, res: Response) => {
  * GET /api/approvals/:token
  * Check approval token status
  */
-router.get('/:token', (req: Request, res: Response) => {
+router.get('/:token', async (req: Request, res: Response) => {
   try {
     const { token } = req.params;
-    const tokenData = approvalTokens.get(token);
+    const tokenData = await appContext.stateManager.getApprovalToken(token);
 
     if (!tokenData) {
       return res.status(404).json({ error: 'Token not found' });
     }
 
-    const isExpired = new Date() > tokenData.expiresAt;
+    const isExpired = new Date() > new Date(tokenData.expiresAt);
 
     res.json({
       token,
