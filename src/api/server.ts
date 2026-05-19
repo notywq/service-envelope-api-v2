@@ -216,7 +216,7 @@ async function initializeApp(): Promise<Express> {
 
   // Instantiate all processors
   const apiBaseUrl = process.env.API_BASE_URL || 'http://localhost:8000';
-  const uiBaseUrl = process.env.UI_BASE_URL || 'http://localhost:5175'; // Phase 2 Dashboard URL for approval links
+  const uiBaseUrl = process.env.UI_BASE_URL || 'http://localhost:5173'; // Phase 2 Dashboard URL for approval links
   const thirdPartyService = new ThirdPartyService(logger, emailService, stateManager as any);
   const requestProcessor = new RequestProcessor(logger);
   const approvalProcessor = new ApprovalProcessor(logger, thirdPartyService, stateManager as any, uiBaseUrl);
