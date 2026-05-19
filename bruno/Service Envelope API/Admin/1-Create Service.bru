@@ -1,0 +1,22 @@
+meta {
+  name: Create Service Definition
+  type: http
+  seq: 1
+}
+
+post {
+  url: http://localhost:8000/api/admin/services
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body {
+  json {
+    name: Course Enrollment Service
+    type: courseEnrollment
+    initiator: admin
+    yaml: "id: SERV-1-NEW\nname: Course Enrollment Service\ndescription: Process for student course enrollment\n\nenvelopes:\n  request:\n    required: true\n    parameters:\n      studentId: \"\"\n      courseCode: \"\"\n  approval:\n    required: true\n  payment:\n    required: true\n    charges:\n      - item: \"Tuition Fee\"\n        amount: 5000\n  processing:\n    required: true\n    tasks:\n      - name: validate_prerequisites\n  delivery:\n    required: true\n    method: email\n  feedback:\n    required: true"
+  }
+}

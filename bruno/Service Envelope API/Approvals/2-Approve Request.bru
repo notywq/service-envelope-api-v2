@@ -1,0 +1,23 @@
+meta {
+  name: Approve Request via Token
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://localhost:8000/api/approvals/550e8400-e29b-41d4-a716-446655440000/approve
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body {
+  json {
+    comment: Approved - all prerequisites satisfied
+  }
+}
+
+vars {
+  token: 550e8400-e29b-41d4-a716-446655440000
+}

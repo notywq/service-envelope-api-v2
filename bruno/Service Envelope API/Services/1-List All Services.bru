@@ -1,0 +1,13 @@
+meta {
+  name: List All Services
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://localhost:8000/api/services
+}
+
+headers {
+  Content-Type: application/json
+}

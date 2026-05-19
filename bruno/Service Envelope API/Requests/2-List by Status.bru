@@ -1,0 +1,19 @@
+meta {
+  name: List Requests by Status
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://localhost:8000/api/requests?status=completed&limit=20&offset=0
+}
+
+headers {
+  Content-Type: application/json
+}
+
+query {
+  status: completed
+  limit: 20
+  offset: 0
+}

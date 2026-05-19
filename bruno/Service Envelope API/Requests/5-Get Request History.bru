@@ -1,0 +1,17 @@
+meta {
+  name: Get Request History
+  type: http
+  seq: 5
+}
+
+get {
+  url: http://localhost:8000/api/requests/req-1234567890-abcdef12/history
+}
+
+headers {
+  Content-Type: application/json
+}
+
+vars {
+  requestId: req-1234567890-abcdef12
+}

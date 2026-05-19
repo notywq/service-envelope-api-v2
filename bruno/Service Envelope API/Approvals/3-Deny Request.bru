@@ -1,0 +1,23 @@
+meta {
+  name: Deny Request via Token
+  type: http
+  seq: 3
+}
+
+post {
+  url: http://localhost:8000/api/approvals/550e8400-e29b-41d4-a716-446655440000/deny
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body {
+  json {
+    reason: Insufficient prerequisites completed
+  }
+}
+
+vars {
+  token: 550e8400-e29b-41d4-a716-446655440000
+}
