@@ -77,7 +77,7 @@ const ServiceDefinitionSchema = new Schema({
   definition: Schema.Types.Mixed,
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
-});
+}, { collection: 'servicedefinitions' });
 
 interface ServiceDefinitionDoc extends Document {
   id: string;
@@ -309,10 +309,19 @@ export class MongoDBStateManager {
 
   async getAllServiceDefinitions(): Promise<any[]> {
     try {
+      this.logger.debug('[ServiceRegistry] Querying servicedefinitions collection...');
       const docs = await ServiceDefinitionModel.find({}).sort({ createdAt: -1 });
+      this.logger.debug(`[ServiceRegistry] Found ${docs.length} service definitions`);
+      if (docs.length === 0) {
+        this.logger.warn('[ServiceRegistry] No documents found in servicedefinitions collection');
+      }
       return docs.map(doc => doc.toObject());
     } catch (error) {
       this.logger.error('Failed to get all service definitions:', error);
+      if (error instanceof Error) {
+        this.logger.error('Error details:', error.message);
+        this.logger.error('Error stack:', error.stack);
+      }
       return [];
     }
   }
