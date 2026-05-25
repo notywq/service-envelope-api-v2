@@ -8,15 +8,19 @@ import { map } from 'rxjs/operators';
 import { EnvelopeProcessor } from '../core/envelope-processor.js';
 import { RequestEnvelope, ServiceRequest } from '../types/envelope.types.js';
 import { Logger } from 'winston';
+// @ts-ignore - ajv exports for ES modules
 import Ajv from 'ajv';
+// @ts-ignore - ajv-formats exports for ES modules
 import addFormats from 'ajv-formats';
 
 export class RequestProcessor extends EnvelopeProcessor<RequestEnvelope> {
-  private ajv: Ajv;
+  private ajv: any;
 
     constructor(logger: Logger) {
     super(logger);
+    // @ts-ignore - ajv CommonJS/ES module interop
     this.ajv = new Ajv({ allErrors: true });
+    // @ts-ignore - ajv-formats CommonJS/ES module interop
     addFormats(this.ajv); // ✅ Adds "date-time", "email", "uri", etc.
   }
 
