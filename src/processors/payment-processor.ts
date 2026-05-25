@@ -24,22 +24,15 @@ export class PaymentProcessor extends EnvelopeProcessor<PaymentEnvelope> {
       return of(envelope);
     }
 
-    return this.processPayment(request, envelope).pipe(
-      map(paymentResult => {
-        envelope.transactionId = paymentResult.transactionId;
-        envelope.paymentGatewayResponse = paymentResult.response;
-        envelope.timestamp = new Date().toISOString();
-        if(paymentResult.response.code === 'PENDING') {
-          envelope.status = 'pending_external';
-          this.logger.warn(`\x1b[36m[PAUSED]\x1b[0m due to pending payment verification for request ${request.id}`);
-        }
-        else {
-            envelope.status = paymentResult.success ? 'completed' : 'failed';
-        }
-
-        return envelope;
-      })
-    );
+    // Payment is NOT automatic
+    // The payment envelope enters pending_external state and waits for user to complete payment
+    // User must initiate payment through the payment interface
+    envelope.status = 'pending_external';
+    envelope.timestamp = new Date().toISOString();
+    this.logger.info(`⏳ [PENDING] Payment envelope awaiting user payment through payment interface for request ${request.id}`);
+    this.logger.debug(`💰 Total charges: ₱${envelope.charges.reduce((sum, c) => sum + c.amount, 0).toFixed(2)} (awaiting user confirmation)`);
+    
+    return of(envelope);
   }
 
   protected getEnvelopeType(): string {

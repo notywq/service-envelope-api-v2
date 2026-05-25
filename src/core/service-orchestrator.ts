@@ -55,6 +55,16 @@ export class ServiceOrchestrator {
       }),
 
       catchError(error => {
+        const errorMsg = error.message || '';
+        
+        // If this is a pending_external pause, don't mark as failed
+        // The status has already been set correctly in processEnvelope
+        if (errorMsg.includes('pending_external')) {
+          this.logger.info(`Request ${request.id} paused - waiting for external processes`);
+          return throwError(() => error);
+        }
+        
+        // For other errors, mark as failed
         this.logger.error(`Request ${request.id} failed: ${error.message}`);
         request.overallStatus = 'failed';
         this.addHistoryEntry(request, 'failed', 'system', error.message);
@@ -102,6 +112,9 @@ export class ServiceOrchestrator {
           this.logger.warn(
             `\x1b[36m[PAUSING PIPELINE]\x1b[0m — ${envelopeType} is waiting for external processes to complete (request ${request.id})`
           );
+          // Update overall status to reflect the current stage
+          request.overallStatus = this.mapEnvelopeToOverallStatus(envelopeType);
+          request.lastUpdated = new Date().toISOString();
           this.stateManager.saveRequest(request);
           return throwError(() => new Error('[PIPELINE PAUSED]: pending_external'));
         }
@@ -111,6 +124,8 @@ export class ServiceOrchestrator {
           this.logger.warn(
             `[PAUSING PIPELINE] ${envelopeType.toUpperCase()} failed for request ${request.id} — will allow retry on resume`
           );
+          request.overallStatus = this.mapEnvelopeToOverallStatus(envelopeType);
+          request.lastUpdated = new Date().toISOString();
           this.stateManager.saveRequest(request);
           return throwError(() => new Error(`[PIPELINE PAUSED]: ${envelopeType} envelope failed`));
         }
@@ -156,5 +171,26 @@ export class ServiceOrchestrator {
       envelope,
       notes
     });
+  }
+
+  /**
+   * Map envelope type to a meaningful overall status
+   * Used when an envelope is waiting on external processes (pending_external)
+   */
+  private mapEnvelopeToOverallStatus(envelopeType: keyof EnvelopeCollection): 'pending_approval' | 'pending_payment' | 'processing' | 'pending_delivery' | 'pending_feedback' | 'process_pending' {
+    switch (envelopeType) {
+      case 'approval':
+        return 'pending_approval';
+      case 'payment':
+        return 'pending_payment';
+      case 'processing':
+        return 'processing';
+      case 'delivery':
+        return 'pending_delivery';
+      case 'feedback':
+        return 'pending_feedback';
+      default:
+        return 'process_pending';
+    }
   }
 }

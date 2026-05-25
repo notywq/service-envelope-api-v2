@@ -19,7 +19,7 @@ export abstract class EnvelopeProcessor<T extends BaseEnvelope> {
    * Process an envelope with retry logic and error handling
    */
   process(request: ServiceRequest, envelope: T): Observable<T> {
-  this.logger.info(`Processing ${this.getEnvelopeType()} envelope for request ${request.id}`);
+    this.logger.info(`Processing ${this.getEnvelopeType()} envelope for request ${request.id}`);
     
     return this.processInternal(request, envelope).pipe(
       retryWhen(errors => 
@@ -29,8 +29,12 @@ export abstract class EnvelopeProcessor<T extends BaseEnvelope> {
         )
       ),
       map(result => {
-        // Green for success
-        this.logger.info(`\x1b[32m[SUCCESS]\x1b[0m - Processed ${this.getEnvelopeType()} envelope for request ${request.id}`);
+        // Log status based on envelope status
+        if (result.status === 'pending_external') {
+          this.logger.info(`⏳ [PENDING] ${this.getEnvelopeType()} envelope awaiting external processes for request ${request.id}`);
+        } else {
+          this.logger.info(`\x1b[32m[SUCCESS]\x1b[0m - Processed ${this.getEnvelopeType()} envelope for request ${request.id}`);
+        }
         return result;
       }),
       catchError(error => {

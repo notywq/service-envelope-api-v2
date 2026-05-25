@@ -88,7 +88,21 @@
               "required": ["type"],
               "additionalProperties": true,
               "properties": {
-                "type": { "type": "string" }
+                "type": { 
+                  "type": "string",
+                  "enum": ["all_must_approve", "any_one", "specific_approver", "complex"]
+                },
+                "specificApprover": { "type": "string" },
+                "requiredApprovers": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "List of approver emails that all must approve"
+                },
+                "atLeastOneOf": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "List of approver emails where at least one must approve"
+                }
               }
             }
           }

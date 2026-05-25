@@ -1,0 +1,15 @@
+{
+  "initiatorName": "Test User",
+  "initiatorEmail": "test@mapua.edu.ph",
+  "type": "transcriptOfRecords",
+  "serviceData": {
+    "studentId": "2020-01234",
+    "firstName": "Test",
+    "lastName": "User",
+    "email": "test@mapua.edu.ph",
+    "program": "BS Chemistry",
+    "purpose": "Job Application",
+    "numberOfCopies": 1,
+    "deliveryAddress": "123 Test Street, Manila"
+  }
+}

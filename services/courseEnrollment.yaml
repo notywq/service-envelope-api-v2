@@ -3,61 +3,98 @@ name: Course Enrollment Service
 description: Process for student course enrollment and registration
 type: courseEnrollment
 serviceCode: courseEnrollment
+initiator: Student
 
 envelopes:
   request:
     required: true
     parameters:
-      studentId: ""
-      courseCode: ""
-      semester: ""
-      academicYear: ""
+      studentId: String (e.g., 2020-00123)
+      email: String (student email)
+      courseCode: String (e.g., CS101)
+      courseName: String
+      section: String (e.g., A, B, C)
+      semester: String (1st, 2nd, Summer)
+      academicYear: String (e.g., 2025-2026)
 
   approval:
     required: true
     emailTemplateId: SERV-1-approval
     approvers:
-      - id: registrar
+      - id: registrar@mapua.edu.ph
         role: Registrar
-        status: pending
-      - id: advisor
+      - id: advisor@mapua.edu.ph
         role: Academic Advisor
-        status: pending
     approvalRules:
       type: all_must_approve
+    expiryHours: 24
 
   payment:
     required: true
+    paymentProvider: maya
     charges:
-      - item: "Tuition Fee"
+      - item: Tuition Fee
         amount: 5000.00
         currency: PHP
-      - item: "Lab Fee"
+      - item: Lab Fee
         amount: 500.00
         currency: PHP
-    paymentMethod: credit_card
 
   processing:
     required: true
+    stopOnFailure: true
     tasks:
       - name: validate_prerequisites
-        status: pending
-        notes: Check if student has completed prerequisites
+        description: Check if student has completed prerequisites
+        type: built_in
+        builtIn:
+          function: validate_prerequisites
+          parameters:
+            studentId: "{{studentId}}"
+            courseCode: "{{courseCode}}"
+
       - name: check_enrollment_capacity
-        status: pending
-        notes: Verify course section has available slots
+        description: Verify course section has available slots
+        type: webhook
+        webhook:
+          url: https://sis-api.mapua.edu.ph/courses/check-capacity
+          method: POST
+          timeout: 30000
+          retries: 3
+
       - name: register_student
-        status: pending
-        notes: Add student to course roster
+        description: Add student to course roster
+        type: webhook
+        webhook:
+          url: https://sis-api.mapua.edu.ph/enrollment/register
+          method: POST
+          timeout: 30000
+          retries: 2
 
   delivery:
     required: true
     method: email
-    details:
-      email:
-        subject: "Enrollment Confirmation - [COURSE_CODE]"
-        templateId: enrollment_confirmation
+    emailTemplateId: SERV-1-delivery
+    email:
+      subject: "Course Enrollment Confirmation - [COURSE_CODE]"
+      recipient: "{{email}}"
+      attachmentInclude:
+        - enrollment_confirmation
+        - course_syllabus
 
   feedback:
     required: true
-    autoCloseOnExpiry: "7 days"
+    emailTemplateId: SERV-1-feedback
+    surveyUrl: "{UI_BASE_URL}/feedback/{token}"
+    deliveryMethod: email
+    expiryDays: 7
+    questions:
+      - id: enrollment_experience
+        type: rating
+        question: How was your course enrollment experience?
+      - id: process_clarity
+        type: rating
+        question: Was the enrollment process clear and easy to follow?
+      - id: improvements
+        type: text
+        question: How can we improve this service?

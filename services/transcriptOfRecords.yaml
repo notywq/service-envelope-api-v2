@@ -1,0 +1,102 @@
+id: SERV-3-05262026
+name: Transcript of Records (TOR)
+description: Request and approval for official transcript of records
+type: transcriptOfRecords
+serviceCode: TOR
+initiator: Student
+
+envelopes:
+  request:
+    required: true
+    parameters:
+      studentId: String (e.g., 2020-00123)
+      email: String (student email)
+      firstName: String
+      lastName: String
+      numberOfCopies: Number (1-5)
+      purposes: String (e.g., Scholarship, Employment, Transfer)
+      deliveryMode: String (Pickup, Mail, Email)
+      mailingAddress: String (optional, if Mail selected)
+
+  approval:
+    required: true
+    emailTemplateId: SERV-3-approval
+    approvers:
+      - id: barondimaranan@gmail.com
+        role: Head Teller (Required)
+      - id: baron@fowlstudios.com
+        role: Sub Teller 1
+      - id: barbargbf@gmail.com
+        role: Sub Teller 2
+    approvalRules:
+      type: complex
+      requiredApprovers:
+        - barondimaranan@gmail.com
+      atLeastOneOf:
+        - baron@fowlstudios.com
+        - barbargbf@gmail.com
+    expiryHours: 48
+
+  payment:
+    required: true
+    paymentProvider: maya
+    charges:
+      - item: TOR processing fee
+        amount: 500
+        currency: PHP
+      - item: Printing and delivery
+        amount: 200
+        currency: PHP
+
+  processing:
+    required: true
+    stopOnFailure: true
+    tasks:
+      - name: verify_academic_record
+        description: Verify student academic record exists
+        type: built_in
+        builtIn:
+          function: verify_academic_record
+          parameters:
+            studentId: "{{studentId}}"
+
+      - name: generate_transcript
+        description: Generate official transcript document
+        type: webhook
+        webhook:
+          url: https://registrar-api.mapua.edu.ph/transcripts/generate
+          method: POST
+          timeout: 60000
+          retries: 2
+
+      - name: digitally_sign
+        description: Apply digital signature
+        type: webhook
+        webhook:
+          url: https://registrar-api.mapua.edu.ph/transcripts/sign
+          method: POST
+          timeout: 30000
+          retries: 2
+
+  delivery:
+    required: true
+    method: "{{deliveryMode}}"
+    emailTemplateId: SERV-3-delivery
+    email:
+      subject: Your Official Transcript of Records - MAPUA
+      recipient: "{{email}}"
+      attachmentInclude:
+        - transcript_document
+    pickup:
+      location: Registrar's Office, 2nd Floor, Admin Building
+      hoursAvailable: "8:00 AM - 5:00 PM, Monday - Friday"
+    mail:
+      address: "{{mailingAddress}}"
+
+  feedback:
+    required: true
+    emailTemplateId: SERV-3-feedback
+    surveyQuestions:
+      - Did you receive your transcript on time?
+      - Was the document quality satisfactory?
+      - How would you rate the overall process?

@@ -1,0 +1,387 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Service Definition Schema",
+  "description": "Canonical schema for Service Envelope service definitions covering all 6 envelope types",
+  "type": "object",
+  "required": ["id", "name", "type", "description", "initiator", "envelopes"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^SERV-[0-9]+-[0-9]{8}$",
+      "description": "Unique service identifier: SERV-#-MMDDYYYY (e.g., SERV-3-04152026)"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable service name"
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Service type identifier (e.g., courseEnrollment, roomRental, requestTOR)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description of what the service does"
+    },
+    "initiator": {
+      "type": "string",
+      "description": "Type of initiator (e.g., Student, Faculty, Administrator)"
+    },
+    "serviceCode": {
+      "type": "string",
+      "description": "Internal service code for reference"
+    },
+    "envelopes": {
+      "type": "object",
+      "required": ["request", "approval", "payment", "processing", "delivery", "feedback"],
+      "properties": {
+        "request": {
+          "$ref": "#/definitions/requestEnvelope"
+        },
+        "approval": {
+          "$ref": "#/definitions/approvalEnvelope"
+        },
+        "payment": {
+          "$ref": "#/definitions/paymentEnvelope"
+        },
+        "processing": {
+          "$ref": "#/definitions/processingEnvelope"
+        },
+        "delivery": {
+          "$ref": "#/definitions/deliveryEnvelope"
+        },
+        "feedback": {
+          "$ref": "#/definitions/feedbackEnvelope"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "requestEnvelope": {
+      "type": "object",
+      "description": "Request envelope: validates incoming user parameters",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "description": "Is this envelope required for the service?"
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Schema of parameters accepted from user. Keys are parameter names, values are descriptions or types",
+          "additionalProperties": true
+        },
+        "schema": {
+          "type": "object",
+          "description": "Optional JSON Schema for parameter validation"
+        }
+      }
+    },
+    "approvalEnvelope": {
+      "type": "object",
+      "description": "Approval envelope: multi-person authorization workflow",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "emailTemplateId": {
+          "type": "string",
+          "description": "MongoDB email template ID for approval emails (e.g., SERV-3-approval)"
+        },
+        "approvers": {
+          "type": "array",
+          "description": "List of approvers with roles",
+          "items": {
+            "type": "object",
+            "required": ["id", "role"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Email address of approver"
+              },
+              "role": {
+                "type": "string",
+                "description": "Role/title of approver (e.g., Registrar, Housing Director)"
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "approved", "denied"],
+                "description": "Current approval status (runtime, not in YAML definition)"
+              }
+            }
+          }
+        },
+        "approvalRules": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["all_must_approve", "any_one", "specific_approver"],
+              "description": "Rule governing approval decision logic"
+            },
+            "threshold": {
+              "type": "number",
+              "description": "For any_one: how many must approve before pipeline continues"
+            }
+          }
+        },
+        "expiryHours": {
+          "type": "number",
+          "default": 24,
+          "description": "Hours before approval token expires"
+        }
+      }
+    },
+    "paymentEnvelope": {
+      "type": "object",
+      "description": "Payment envelope: financial transaction processing",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "charges": {
+          "type": "array",
+          "description": "List of charges/items to be paid",
+          "items": {
+            "type": "object",
+            "required": ["item", "amount", "currency"],
+            "properties": {
+              "item": {
+                "type": "string",
+                "description": "Description of charge item"
+              },
+              "amount": {
+                "type": "number",
+                "minimum": 0,
+                "description": "Cost amount"
+              },
+              "currency": {
+                "type": "string",
+                "default": "PHP",
+                "description": "Currency code (e.g., PHP, USD)"
+              },
+              "quantity": {
+                "type": "number",
+                "default": 1,
+                "description": "Quantity of item"
+              }
+            }
+          }
+        },
+        "paymentProvider": {
+          "type": "string",
+          "enum": ["maya", "stripe", "paypal"],
+          "default": "maya",
+          "description": "Payment gateway provider"
+        },
+        "emailTemplateId": {
+          "type": "string",
+          "description": "Optional: Email template for payment notification"
+        }
+      }
+    },
+    "processingEnvelope": {
+      "type": "object",
+      "description": "Processing envelope: sequential business logic task execution",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "tasks": {
+          "type": "array",
+          "description": "Sequential list of tasks to execute",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Task name/identifier"
+              },
+              "description": {
+                "type": "string",
+                "description": "Human-readable task description"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["webhook", "built_in"],
+                "description": "Task execution type"
+              },
+              "webhook": {
+                "type": "object",
+                "description": "Webhook configuration (required if type=webhook)",
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "description": "POST endpoint URL to call"
+                  },
+                  "method": {
+                    "type": "string",
+                    "enum": ["GET", "POST", "PUT", "PATCH"],
+                    "default": "POST"
+                  },
+                  "timeout": {
+                    "type": "number",
+                    "default": 30000,
+                    "description": "Timeout in milliseconds"
+                  },
+                  "retries": {
+                    "type": "number",
+                    "default": 3,
+                    "description": "Number of retry attempts on failure"
+                  }
+                }
+              },
+              "builtIn": {
+                "type": "object",
+                "description": "Built-in function configuration (required if type=built_in)",
+                "properties": {
+                  "function": {
+                    "type": "string",
+                    "description": "Function name (e.g., verify_student_enrollment)"
+                  },
+                  "parameters": {
+                    "type": "object",
+                    "description": "Function parameters"
+                  }
+                }
+              },
+              "status": {
+                "type": "string",
+                "enum": ["pending", "in_progress", "completed", "failed"],
+                "description": "Runtime status"
+              }
+            }
+          }
+        },
+        "stopOnFailure": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, pause pipeline on first task failure; if false, continue to next task"
+        }
+      }
+    },
+    "deliveryEnvelope": {
+      "type": "object",
+      "description": "Delivery envelope: send service outputs to recipient",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["email", "sms", "physical_mail", "portal"],
+          "description": "Delivery method"
+        },
+        "emailTemplateId": {
+          "type": "string",
+          "description": "Email template ID for delivery notification (required if method=email)"
+        },
+        "email": {
+          "type": "object",
+          "description": "Email-specific delivery configuration",
+          "properties": {
+            "subject": {
+              "type": "string",
+              "description": "Email subject line"
+            },
+            "recipient": {
+              "type": "string",
+              "description": "Recipient email (e.g., {{requestorEmail}} for dynamic)",
+              "default": "{{requestorEmail}}"
+            },
+            "attachmentInclude": {
+              "type": "array",
+              "description": "What to attach (e.g., TOR document, confirmation PDF)",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "sms": {
+          "type": "object",
+          "description": "SMS-specific delivery configuration",
+          "properties": {
+            "phone": {
+              "type": "string",
+              "description": "Recipient phone number"
+            },
+            "message": {
+              "type": "string",
+              "description": "SMS message template"
+            }
+          }
+        },
+        "physicalMail": {
+          "type": "object",
+          "description": "Physical mail delivery configuration",
+          "properties": {
+            "address": {
+              "type": "string",
+              "description": "Recipient mailing address"
+            },
+            "trackingRequired": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        }
+      }
+    },
+    "feedbackEnvelope": {
+      "type": "object",
+      "description": "Feedback envelope: post-completion feedback collection",
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean"
+        },
+        "surveyUrl": {
+          "type": "string",
+          "description": "Base URL for feedback survey (e.g., {UI_BASE_URL}/feedback/{token})"
+        },
+        "emailTemplateId": {
+          "type": "string",
+          "description": "Email template ID for feedback request"
+        },
+        "deliveryMethod": {
+          "type": "string",
+          "enum": ["email", "sms"],
+          "default": "email",
+          "description": "How to deliver feedback link to requestor"
+        },
+        "expiryDays": {
+          "type": "number",
+          "default": 7,
+          "description": "Days before feedback link expires"
+        },
+        "questions": {
+          "type": "array",
+          "description": "Optional: predefined feedback questions",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["rating", "text", "yes_no"]
+              },
+              "question": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

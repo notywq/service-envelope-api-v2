@@ -367,5 +367,48 @@ router.delete('/email-templates/:templateId', async (req: Request, res: Response
   }
 });
 
+/**
+ * GET /api/admin/approval-tokens/:requestId
+ * Get approval tokens for a request (for testing/admin purposes)
+ */
+router.get('/approval-tokens/:requestId', async (req: Request, res: Response) => {
+  try {
+    const { requestId } = req.params;
+
+    const request = await appContext.stateManager.loadRequest(requestId);
+    if (!request) {
+      return res.status(404).json({ error: `Request ${requestId} not found` });
+    }
+
+    // Get tokens for this request (will need to add method to StateManager)
+    // For now, return approvers and link to get tokens via approval processor
+    const approvers = request.envelopes.approval.approvers;
+    const tokens: any[] = [];
+
+    for (const approver of approvers) {
+      // In a real scenario, we'd retrieve the actual tokens from the database
+      // For testing, we'll show placeholder tokens
+      tokens.push({
+        approverId: approver.id,
+        approverRole: approver.role,
+        approverStatus: approver.status,
+        note: 'Approval tokens are generated when request enters approval envelope and sent via email',
+      });
+    }
+
+    res.json({
+      requestId,
+      approvalRules: request.envelopes.approval.approvalRules,
+      message: 'Approval tokens are generated and sent via email to approvers',
+      approvers: tokens,
+    });
+  } catch (error: any) {
+    appContext.logger.error('Error retrieving approval tokens:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve approval tokens: ' + (error.message || 'Unknown error'),
+    });
+  }
+});
+
 export default router;
 

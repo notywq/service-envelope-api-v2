@@ -66,6 +66,30 @@ const ApprovalTokenModel = mongoose.model<ApprovalTokenDoc>(
   ApprovalTokenSchema
 );
 
+// Define Feedback Token Schema
+const FeedbackTokenSchema = new Schema({
+  token: { type: String, unique: true, required: true, index: true },
+  requestId: { type: String, required: true, index: true },
+  expiresAt: { type: Date, required: true },
+  createdAt: { type: Date, default: Date.now },
+  used: { type: Boolean, default: false },
+  feedback: Schema.Types.Mixed, // Store feedback responses when submitted
+});
+
+interface FeedbackTokenDoc extends Document {
+  token: string;
+  requestId: string;
+  expiresAt: Date;
+  createdAt: Date;
+  used: boolean;
+  feedback?: any;
+}
+
+const FeedbackTokenModel = mongoose.model<FeedbackTokenDoc>(
+  'FeedbackToken',
+  FeedbackTokenSchema
+);
+
 // Define Service Definition Schema
 const ServiceDefinitionSchema = new Schema({
   id: { type: String, unique: true, required: true, index: true },
@@ -258,6 +282,16 @@ export class MongoDBStateManager {
     }
   }
 
+  async getApprovalTokensByRequest(requestId: string): Promise<any[]> {
+    try {
+      const docs = await ApprovalTokenModel.find({ requestId });
+      return docs.map(doc => doc.toObject());
+    } catch (error) {
+      this.logger.error(`Failed to get approval tokens for request ${requestId}:`, error);
+      return [];
+    }
+  }
+
   async markApprovalTokenAsUsed(token: string): Promise<void> {
     try {
       await ApprovalTokenModel.updateOne({ token }, { used: true });
@@ -275,6 +309,53 @@ export class MongoDBStateManager {
       return result.deletedCount || 0;
     } catch (error) {
       this.logger.error('Failed to delete expired tokens:', error);
+      return 0;
+    }
+  }
+
+  // Feedback Token Methods
+  async saveFeedbackToken(tokenData: { token: string; requestId: string; expiresAt: string; createdAt: string; used: boolean }): Promise<void> {
+    try {
+      await FeedbackTokenModel.create({
+        token: tokenData.token,
+        requestId: tokenData.requestId,
+        expiresAt: new Date(tokenData.expiresAt),
+        used: tokenData.used,
+      });
+      this.logger.debug(`Saved feedback token ${tokenData.token} to MongoDB`);
+    } catch (error) {
+      this.logger.error(`Failed to save feedback token ${tokenData.token}:`, error);
+      throw error;
+    }
+  }
+
+  async getFeedbackToken(token: string): Promise<any> {
+    try {
+      const doc = await FeedbackTokenModel.findOne({ token });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get feedback token ${token}:`, error);
+      return null;
+    }
+  }
+
+  async markFeedbackTokenAsUsed(token: string, feedback: any): Promise<void> {
+    try {
+      await FeedbackTokenModel.updateOne({ token }, { used: true, feedback });
+      this.logger.debug(`Marked feedback token ${token} as used`);
+    } catch (error) {
+      this.logger.error(`Failed to mark feedback token ${token} as used:`, error);
+      throw error;
+    }
+  }
+
+  async deleteExpiredFeedbackTokens(): Promise<number> {
+    try {
+      const result = await FeedbackTokenModel.deleteMany({ expiresAt: { $lt: new Date() } });
+      this.logger.debug(`Deleted ${result.deletedCount} expired feedback tokens`);
+      return result.deletedCount || 0;
+    } catch (error) {
+      this.logger.error('Failed to delete expired feedback tokens:', error);
       return 0;
     }
   }

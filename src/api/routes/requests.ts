@@ -9,6 +9,125 @@ import { appContext } from '../server.js';
 const router = Router();
 
 /**
+ * POST /api/requests
+ * Submit a new service request
+ * This creates a request and starts the 6-envelope pipeline
+ */
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    const { type, initiator, parameters } = req.body;
+
+    // Validate required fields
+    if (!type || !initiator || !parameters) {
+      return res.status(400).json({
+        error: 'Missing required fields: type, initiator, parameters',
+      });
+    }
+
+    // Get service definition from registry/MongoDB
+    const serviceDefinition = await appContext.stateManager.getServiceDefinitionByType(type);
+    if (!serviceDefinition) {
+      return res.status(400).json({
+        error: `Service type "${type}" not found`,
+      });
+    }
+
+    // Create request ID (format: REQ-YYYYMMDD-###)
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0].replace(/-/g, '');
+    const requestId = `REQ-${dateStr}-${String(Math.floor(Math.random() * 1000)).padStart(3, '0')}`;
+
+    // Create initial request with all 6 envelopes
+    const newRequest = {
+      id: requestId,
+      type,
+      initiator,
+      overallStatus: 'queued',
+      createdAt: now.toISOString(),
+      lastUpdated: now.toISOString(),
+      history: [
+        {
+          status: 'queued',
+          timestamp: now.toISOString(),
+          envelope: 'request',
+          notes: 'Request submitted',
+        },
+      ],
+      envelopes: {
+        request: {
+          status: 'completed',
+          parameters,
+          timestamp: now.toISOString(),
+          required: true,
+        },
+        approval: {
+          status: 'pending',
+          approvers: serviceDefinition.definition?.envelopes?.approval?.approvers || [],
+          approvalRules: serviceDefinition.definition?.envelopes?.approval?.approvalRules || {},
+          timestamp: now.toISOString(),
+          required: serviceDefinition.definition?.envelopes?.approval?.required !== false,
+        },
+        payment: {
+          status: 'pending',
+          charges: serviceDefinition.definition?.envelopes?.payment?.charges || [],
+          paymentMethod: 'credit_card',
+          timestamp: now.toISOString(),
+          required: serviceDefinition.definition?.envelopes?.payment?.required !== false,
+        },
+        processing: {
+          status: 'queued',
+          tasks: serviceDefinition.definition?.envelopes?.processing?.tasks || [],
+          timestamp: now.toISOString(),
+          required: serviceDefinition.definition?.envelopes?.processing?.required !== false,
+        },
+        delivery: {
+          status: 'queued',
+          method: serviceDefinition.definition?.envelopes?.delivery?.method || 'email',
+          details: serviceDefinition.definition?.envelopes?.delivery?.details || {},
+          deliveryAttempts: 0,
+          timestamp: now.toISOString(),
+          required: serviceDefinition.definition?.envelopes?.delivery?.required !== false,
+        },
+        feedback: {
+          status: 'queued',
+          expiryDays: serviceDefinition.definition?.envelopes?.feedback?.expiryDays || 7,
+          emailTemplateId: serviceDefinition.definition?.envelopes?.feedback?.emailTemplateId,
+          timestamp: now.toISOString(),
+          required: serviceDefinition.definition?.envelopes?.feedback?.required !== false,
+        },
+      },
+    };
+
+    // Save to MongoDB
+    await appContext.stateManager.saveRequest(newRequest as any);
+    appContext.logger.info(`📝 New request created: ${requestId} | Type: ${type}`);
+
+    // Start orchestration pipeline
+    appContext.orchestrator.processRequest(newRequest as any).subscribe({
+      next: (result) => {
+        appContext.logger.info(`📊 Request processing: ${result.id} -> ${result.overallStatus}`);
+      },
+      error: (err) => {
+        appContext.logger.error(`❌ Error processing request: ${err.message}`);
+      },
+    });
+
+    res.status(201).json({
+      success: true,
+      requestId: newRequest.id,
+      status: newRequest.overallStatus,
+      envelopes: newRequest.envelopes,
+      message: 'Request submitted successfully. Processing initiated.',
+    });
+  } catch (error: any) {
+    appContext.logger.error('Error creating request:', error);
+    res.status(500).json({
+      error: 'Failed to create request: ' + (error.message || 'Unknown error'),
+    });
+  }
+});
+
+/**
  * GET /api/requests
  * List all requests with pagination and filtering
  */

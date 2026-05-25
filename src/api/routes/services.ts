@@ -26,6 +26,26 @@ async function submitServiceRequest(serviceId: string, parameters: Record<string
     appContext.logger.info(`📝 Submitting request for service: ${serviceId}`);
     appContext.logger.debug(`Parameters: ${JSON.stringify(parameters)}`);
 
+    // Flatten serviceData into parameters for email template placeholders
+    if (parameters.serviceData && typeof parameters.serviceData === 'object') {
+      parameters = {
+        ...parameters,
+        ...parameters.serviceData,
+      };
+    }
+
+    // Parse service YAML if needed to extract envelope configurations
+    let serviceEnvelopes = service.envelopes;
+    if (!serviceEnvelopes && service.yaml) {
+      try {
+        const parsedYaml = YAML.parse(service.yaml);
+        serviceEnvelopes = parsedYaml.envelopes;
+        appContext.logger.debug(`Parsed envelopes from YAML for service ${serviceId}`);
+      } catch (err) {
+        appContext.logger.warn(`Failed to parse YAML for service ${serviceId}:`, err);
+      }
+    }
+
     // Create ServiceRequest object
     const requestId = `req-${Date.now()}-${randomUUID().substring(0, 8)}`;
     const now = new Date().toISOString();
@@ -43,41 +63,41 @@ async function submitServiceRequest(serviceId: string, parameters: Record<string
       approval: {
         status: 'pending',
         timestamp: now,
-        required: service.envelopes?.approval?.required || false,
-        approvers: service.envelopes?.approval?.approvers || [],
-        approvalRules: service.envelopes?.approval?.approvalRules || { type: 'all_must_approve' },
+        required: serviceEnvelopes?.approval?.required || false,
+        approvers: serviceEnvelopes?.approval?.approvers || [],
+        approvalRules: serviceEnvelopes?.approval?.approvalRules || { type: 'all_must_approve' },
       } as ApprovalEnvelope,
       payment: {
         status: 'pending',
         timestamp: now,
-        required: service.envelopes?.payment?.required || false,
-        charges: service.envelopes?.payment?.charges || [],
+        required: serviceEnvelopes?.payment?.required || false,
+        charges: serviceEnvelopes?.payment?.charges || [],
         paymentMethod: 'credit_card',
       } as PaymentEnvelope,
       processing: {
         status: 'pending',
         timestamp: now,
         required: true,
-        tasks: service.envelopes?.processing?.tasks || [],
+        tasks: serviceEnvelopes?.processing?.tasks || [],
       } as ProcessingEnvelope,
       delivery: {
         status: 'pending',
         timestamp: now,
-        required: service.envelopes?.delivery?.required || false,
-        method: service.envelopes?.delivery?.method || 'email',
-        details: service.envelopes?.delivery?.details || {},
+        required: serviceEnvelopes?.delivery?.required || false,
+        method: serviceEnvelopes?.delivery?.method || 'email',
+        details: serviceEnvelopes?.delivery?.details || {},
         deliveryAttempts: 0,
       } as DeliveryEnvelope,
       feedback: {
         status: 'pending',
         timestamp: now,
-        required: service.envelopes?.feedback?.required || false,
+        required: serviceEnvelopes?.feedback?.required || false,
       } as FeedbackEnvelope,
     };
 
     const serviceRequest: ServiceRequest = {
       id: requestId,
-      type: serviceId,
+      type: service.type || serviceId,
       initiator: parameters.initiator || parameters.studentId || 'unknown',
       overallStatus: 'queued',
       createdAt: now,

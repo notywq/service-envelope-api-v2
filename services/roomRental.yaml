@@ -3,14 +3,22 @@ name: Dormitory Room Rental
 description: Request and approval for on-campus dormitory room rental
 type: roomRental
 serviceCode: roomRental
+initiator: Student
 
 envelopes:
   request:
     required: true
     parameters:
-      studentId: ""
-      semesterToRent: ""
-      preferredBuilding: ""
+      studentId: String (e.g., 2020-00123)
+      email: String (student email)
+      firstName: String
+      lastName: String
+      semesterToRent: String (1st, 2nd, Summer)
+      academicYear: String (e.g., 2025-2026)
+      preferredBuilding: String (e.g., Building A, Building B)
+      preferredFloor: Number (optional)
+      roomType: String (Single, Double, Triple)
+      guestName: String (for verification)
 
   approval:
     required: true
@@ -20,32 +28,89 @@ envelopes:
         role: Housing Director
     approvalRules:
       type: any_one
+    expiryHours: 24
 
   payment:
     required: true
+    paymentProvider: maya
     charges:
-      - item: "Dormitory semester fee"
+      - item: Dormitory semester fee
         amount: 25000
         currency: PHP
-      - item: "Security deposit"
+      - item: Security deposit
         amount: 5000
+        currency: PHP
+      - item: Utility fee (estimated)
+        amount: 2000
         currency: PHP
 
   processing:
     required: true
+    stopOnFailure: true
     tasks:
       - name: verify_academic_standing
         description: Verify student is in good academic standing
+        type: built_in
+        builtIn:
+          function: verify_academic_standing
+          parameters:
+            studentId: "{{studentId}}"
+
       - name: check_room_availability
         description: Check dorm room availability for semester
+        type: webhook
+        webhook:
+          url: https://housing-api.mapua.edu.ph/rooms/check-availability
+          method: POST
+          timeout: 30000
+          retries: 3
+
       - name: assign_room
         description: Assign specific room number
+        type: webhook
+        webhook:
+          url: https://housing-api.mapua.edu.ph/rooms/assign
+          method: POST
+          timeout: 30000
+          retries: 2
+
+      - name: send_room_details
+        description: Send room details and move-in instructions
+        type: built_in
+        builtIn:
+          function: generate_room_assignment_details
+          parameters:
+            studentId: "{{studentId}}"
+            semester: "{{semesterToRent}}"
 
   delivery:
     required: true
     method: email
-    details:
-      emailTemplate: roomRentalConfirmation
+    emailTemplateId: SERV-2-delivery
+    email:
+      subject: Your Dormitory Room Assignment - MAPUA
+      recipient: "{{email}}"
+      attachmentInclude:
+        - room_assignment
+        - move_in_instructions
+        - house_rules
 
   feedback:
     required: true
+    emailTemplateId: SERV-2-feedback
+    surveyUrl: "{UI_BASE_URL}/feedback/{token}"
+    deliveryMethod: email
+    expiryDays: 14
+    questions:
+      - id: room_satisfaction
+        type: rating
+        question: How satisfied are you with your assigned room?
+      - id: assignment_process
+        type: rating
+        question: Was the room assignment process smooth and efficient?
+      - id: facilities_quality
+        type: rating
+        question: How would you rate the dormitory facilities?
+      - id: improvements
+        type: text
+        question: What improvements would you suggest?

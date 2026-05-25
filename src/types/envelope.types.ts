@@ -71,8 +71,11 @@ export interface Approver {
 
 
 export interface ApprovalRules {
-  type: 'all_must_approve' | 'any_one' | 'specific_approver';
+  type: 'all_must_approve' | 'any_one' | 'specific_approver' | 'complex';
   specificApprover?: string;
+  // Complex rule support: required approvers (all must approve) + at least one from a set
+  requiredApprovers?: string[];
+  atLeastOneOf?: string[];
 }
 
 export interface PaymentEnvelope extends BaseEnvelope {
@@ -86,12 +89,14 @@ export interface Charge {
   item: string;
   amount: number;
   currency: string;
+  quantity?: number;
 }
 
 export interface ProcessingEnvelope extends BaseEnvelope {
   processorId?: string;
   currentTask?: string;
   tasks: ProcessingTask[];
+  stopOnFailure?: boolean;
 }
 
 export interface ProcessingTask {
@@ -101,6 +106,42 @@ export interface ProcessingTask {
   startedAt?: string;
   completedAt?: string;
   errorMessage?: string;
+  type?: 'webhook' | 'api_call' | 'custom_function' | 'built_in' | 'generic';
+  
+  // Webhook task configuration
+  webhook?: {
+    url: string;
+    method: string;
+    timeout?: number;
+    retries?: number;
+  };
+  
+  // API call task configuration
+  apiCall?: {
+    url: string;
+    method: string;
+    payload?: Record<string, any>;
+    timeout?: number;
+    retries?: number;
+  };
+  
+  // Custom function task configuration
+  customFunction?: {
+    function: string;
+    parameters?: Record<string, any>;
+  };
+  
+  // Built-in function task configuration
+  builtIn?: {
+    function: string;
+    parameters?: Record<string, any>;
+  };
+  
+  // Response data from executed tasks
+  webhookResponse?: any;
+  webhookError?: string;
+  apiResponse?: any;
+  customFunctionResponse?: any;
 }
 
 export interface DeliveryEnvelope extends BaseEnvelope {
@@ -129,16 +170,20 @@ export interface DeliveryDetails {
 
 export interface FeedbackEnvelope extends BaseEnvelope {
   feedbackLink?: string;
+  feedbackToken?: string;
   submissionDate?: string;
   autoCloseOnExpiry?: string;
+  expiresAt?: string;
+  expiryDays?: number;
+  emailTemplateId?: string;
 }
 
 // Enums for various statuses
-export type RequestStatus = 'queued' | 'pending_approval' | 'pending_payment' | 
-  'processing' | 'completed' | 'failed' | 'cancelled';
+export type RequestStatus = 'queued' | 'pending_approval' | 'pending_payment' | 'pending_delivery' | 'pending_feedback' |
+  'processing' | 'completed' | 'failed' | 'cancelled' | 'process_pending';
 
 export type EnvelopeStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 
-  'waived' | 'skipped'  | 'pending_external'; // NEW: waiting on human/external input;
+  'waived' | 'skipped'  | 'pending_external' | 'cancelled'; // NEW: waiting on human/external input;
 
 export type ValidationStatus = 'passed' | 'failed_schema' | 'failed_rules';
 
