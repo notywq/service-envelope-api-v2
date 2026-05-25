@@ -1,0 +1,27 @@
+info:
+  name: Login Admin
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: {{baseUrl}}/api/auth/login
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "email": "admin@mapua.edu.ph",
+        "password": "admin123"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Login as admin user to get JWT token

@@ -1,0 +1,25 @@
+{
+  "name": "Production",
+  "variables": [
+    {
+      "name": "baseUrl",
+      "value": "https://api.mapua-service-envelope.edu.ph",
+      "enabled": true
+    },
+    {
+      "name": "requestId",
+      "value": "",
+      "enabled": false
+    },
+    {
+      "name": "serviceId",
+      "value": "",
+      "enabled": false
+    },
+    {
+      "name": "token",
+      "value": "",
+      "enabled": false
+    }
+  ]
+}

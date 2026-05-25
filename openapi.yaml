@@ -1,0 +1,911 @@
+openapi: 3.0.0
+info:
+  title: Service Envelope API
+  version: 1.0.0
+  description: Complete API for the Service Envelope System - manages service requests, approvals, and processing workflows
+  contact:
+    name: Service Envelope Team
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://api.mapua.edu.ph
+    description: Production server
+
+paths:
+  /health:
+    get:
+      tags:
+        - Admin
+      summary: Health Check
+      description: Verify API server is running and healthy
+      operationId: healthCheck
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/info:
+    get:
+      tags:
+        - Admin
+      summary: Get API Info
+      description: Get API version and information
+      operationId: getApiInfo
+      responses:
+        '200':
+          description: API information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  name:
+                    type: string
+                    example: Service Envelope API
+                  endpoints:
+                    type: integer
+
+  /api/services:
+    get:
+      tags:
+        - Services
+      summary: List All Services
+      description: Get all available services from MongoDB
+      operationId: listAllServices
+      responses:
+        '200':
+          description: List of services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceDefinition'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/services/ids:
+    get:
+      tags:
+        - Services
+      summary: Get Service IDs
+      description: Get quick reference of all service IDs and names
+      operationId: getServiceIds
+      responses:
+        '200':
+          description: List of service IDs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+
+  /api/services/{serviceId}:
+    get:
+      tags:
+        - Services
+      summary: Get Service Details
+      description: Get detailed information about a specific service
+      operationId: getServiceDetails
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceDefinition'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/services/{serviceId}/submit:
+    post:
+      tags:
+        - Services
+      summary: Submit Service Request (By ID)
+      description: Submit a new service request using the service ID in the path
+      operationId: submitServiceRequestById
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceRequestPayload'
+      responses:
+        '201':
+          description: Service request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/services/submit:
+    post:
+      tags:
+        - Services
+      summary: Submit Service Request (Unified)
+      description: Submit service request with service ID in body
+      operationId: submitServiceRequestUnified
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ServiceRequestPayload'
+                - type: object
+                  required:
+                    - serviceId
+                  properties:
+                    serviceId:
+                      type: string
+      responses:
+        '201':
+          description: Service request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/requests:
+    get:
+      tags:
+        - Requests
+      summary: List All Requests
+      description: List all service requests with pagination
+      operationId: listAllRequests
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceRequest'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/requests?status={status}:
+    get:
+      tags:
+        - Requests
+      summary: List Requests by Status
+      description: Filter requests by status (completed, pending, etc.)
+      operationId: listRequestsByStatus
+      parameters:
+        - name: status
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [pending, in_progress, completed, rejected, paused]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of requests filtered by status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceRequest'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/requests?type={type}:
+    get:
+      tags:
+        - Requests
+      summary: List Requests by Type
+      description: Filter requests by service type (courseEnrollment, roomRental, etc.)
+      operationId: listRequestsByType
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: List of requests filtered by type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceRequest'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/requests/{requestId}:
+    get:
+      tags:
+        - Requests
+      summary: Get Request Details
+      description: Get detailed information about a specific request
+      operationId: getRequestDetails
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    delete:
+      tags:
+        - Requests
+      summary: Cancel Request
+      description: Cancel a service request
+      operationId: cancelRequest
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request cancelled
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/requests/{requestId}/history:
+    get:
+      tags:
+        - Requests
+      summary: Get Request History
+      description: Get complete history of a request
+      operationId: getRequestHistory
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Request history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    status:
+                      type: string
+                    action:
+                      type: string
+                    actor:
+                      type: string
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/requests/{requestId}/resume:
+    post:
+      tags:
+        - Requests
+      summary: Resume Request
+      description: Resume processing of a paused request
+      operationId: resumeRequest
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Request resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/approvals/{token}:
+    get:
+      tags:
+        - Approvals
+      summary: Check Token Status
+      description: Check the status of an approval token
+      operationId: checkTokenStatus
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalToken'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/approvals/{token}/approve:
+    post:
+      tags:
+        - Approvals
+      summary: Approve Request
+      description: Approve a request using an approval token
+      operationId: approveRequest
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Request approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: approved
+                  message:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/approvals/{token}/deny:
+    post:
+      tags:
+        - Approvals
+      summary: Deny Request
+      description: Deny a request using an approval token
+      operationId: denyRequest
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Request denied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: denied
+                  message:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/auth/login:
+    post:
+      tags:
+        - Auth
+      summary: Login
+      description: Login with email and password to get JWT token
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    description: JWT token
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      email:
+                        type: string
+                      role:
+                        type: string
+                        enum: [admin, approver, requester]
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/auth/verify:
+    get:
+      tags:
+        - Auth
+      summary: Verify Token
+      description: Verify if JWT token is valid
+      operationId: verifyToken
+      responses:
+        '200':
+          description: Token is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      email:
+                        type: string
+                      role:
+                        type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/admin/services:
+    get:
+      tags:
+        - Admin
+      summary: Get All Services
+      description: Get all service definitions (admin view)
+      operationId: getAllServicesAdmin
+      responses:
+        '200':
+          description: List of all services
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ServiceDefinition'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+    post:
+      tags:
+        - Admin
+      summary: Create Service
+      description: Create a new service definition in MongoDB
+      operationId: createService
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServicePayload'
+      responses:
+        '201':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceDefinition'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/admin/services/{serviceId}:
+    put:
+      tags:
+        - Admin
+      summary: Update Service
+      description: Update an existing service definition
+      operationId: updateService
+      parameters:
+        - name: serviceId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateServicePayload'
+      responses:
+        '200':
+          description: Service updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceDefinition'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/admin/audit-logs:
+    get:
+      tags:
+        - Admin
+      summary: Get Audit Logs
+      description: Get audit logs for admin activities
+      operationId: getAuditLogs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Audit logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    action:
+                      type: string
+                    actor:
+                      type: string
+                    details:
+                      type: object
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+components:
+  schemas:
+    ServiceDefinition:
+      type: object
+      required:
+        - id
+        - name
+        - type
+      properties:
+        id:
+          type: string
+          example: SERV-1-04152026
+        name:
+          type: string
+          example: Course Enrollment Service
+        type:
+          type: string
+          example: courseEnrollment
+        description:
+          type: string
+        yaml:
+          type: string
+          description: YAML configuration
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ServiceRequest:
+      type: object
+      required:
+        - id
+        - serviceId
+        - status
+      properties:
+        id:
+          type: string
+          example: REQ-2025-001
+        serviceId:
+          type: string
+          example: SERV-1-04152026
+        studentId:
+          type: number
+        courseCode:
+          type: string
+        semester:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, completed, rejected, paused]
+        initiator:
+          type: string
+        envelopes:
+          type: object
+          properties:
+            request:
+              type: object
+            approval:
+              type: object
+            payment:
+              type: object
+            processing:
+              type: object
+            delivery:
+              type: object
+            feedback:
+              type: object
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ServiceRequestPayload:
+      type: object
+      required:
+        - studentId
+        - initiator
+      properties:
+        studentId:
+          type: number
+          example: 123456
+        courseCode:
+          type: string
+          example: IT101
+        semester:
+          type: string
+          example: "2025-1"
+        initiator:
+          type: string
+          example: student_portal
+
+    CreateServicePayload:
+      type: object
+      required:
+        - name
+        - type
+        - initiator
+      properties:
+        name:
+          type: string
+          example: Course Enrollment Service
+        type:
+          type: string
+          example: courseEnrollment
+        description:
+          type: string
+        initiator:
+          type: string
+          example: admin
+        yaml:
+          type: string
+          description: YAML configuration for service envelopes
+
+    UpdateServicePayload:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        yaml:
+          type: string
+        initiator:
+          type: string
+
+    ApprovalToken:
+      type: object
+      properties:
+        token:
+          type: string
+        requestId:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, denied]
+        expiresAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+
+  responses:
+    BadRequestError:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    UnauthorizedError:
+      description: Unauthorized - Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ForbiddenError:
+      description: Forbidden - User does not have permission
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFoundError:
+      description: Not Found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /api/auth/login
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Services
+    description: Service-related operations
+  - name: Requests
+    description: Service request operations
+  - name: Approvals
+    description: Request approval operations
+  - name: Auth
+    description: Authentication operations
+  - name: Admin
+    description: Administrative operations

@@ -1,12 +1,5 @@
 {
-  "version": "1",
-  "name": "Service Envelope API",
-  "uid": "service-envelope-api-collection",
-  "root": true,
-  "settings": {},
-  "headers": {},
-  "auth": null,
-  "proxy": null,
+  "name": "Development",
   "variables": [
     {
       "name": "baseUrl",
@@ -27,6 +20,16 @@
       "name": "token",
       "value": "550e8400-e29b-41d4-a716-446655440000",
       "enabled": true
+    },
+    {
+      "name": "adminToken",
+      "value": "",
+      "enabled": false
+    },
+    {
+      "name": "approverToken",
+      "value": "",
+      "enabled": false
     }
   ]
 }

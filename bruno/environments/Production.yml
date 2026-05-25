@@ -1,0 +1,7 @@
+vars:
+  baseUrl: https://api.mapua-service-envelope.edu.ph
+  requestId: ""
+  serviceId: ""
+  token: ""
+  adminToken: ""
+  approverToken: ""

@@ -1,0 +1,20 @@
+info:
+  name: Cancel Request
+  type: http
+  seq: 7
+
+http:
+  method: DELETE
+  url: {{baseUrl}}/api/requests/{{requestId}}
+  headers:
+    - name: Content-Type
+      value: application/json
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Cancel a request (marks as cancelled in database)

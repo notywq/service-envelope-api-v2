@@ -1,0 +1,29 @@
+info:
+  name: Update Service
+  type: http
+  seq: 2
+
+http:
+  method: PUT
+  url: {{baseUrl}}/api/admin/services/{{serviceId}}
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Course Enrollment Service",
+        "type": "courseEnrollment",
+        "initiator": "admin",
+        "yaml": "id: SERV-1-04152026\nname: Course Enrollment Service\ndescription: Updated description"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Update an existing service definition

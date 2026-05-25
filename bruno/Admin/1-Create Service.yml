@@ -1,0 +1,29 @@
+info:
+  name: Create Service
+  type: http
+  seq: 1
+
+http:
+  method: POST
+  url: {{baseUrl}}/api/admin/services
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Course Enrollment Service",
+        "type": "courseEnrollment",
+        "initiator": "admin",
+        "yaml": "id: SERV-1-NEW\nname: Course Enrollment Service\ndescription: Process for student course enrollment\n\nenvelopes:\n  request:\n    required: true\n  approval:\n    required: true\n  payment:\n    required: true\n  processing:\n    required: true\n  delivery:\n    required: true\n  feedback:\n    required: true"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+
+docs: Create a new service definition in MongoDB
