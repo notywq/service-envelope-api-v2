@@ -411,7 +411,7 @@ async function start(): Promise<void> {
     const app = await initializeApp();
     const port = process.env.PORT || 8000;
 
-    app.listen(port, () => {
+    app.listen(8000, "127.0.0.1", () => {
       logger.info(`🚀 Server listening on port ${port}`);
       logger.info(`📍 API available at http://localhost:${port}/api`);
       logger.info(`💚 Health check at http://localhost:${port}/health`);
