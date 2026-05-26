@@ -95,7 +95,7 @@ router.post('/', async (req: Request, res: Response) => {
           ),
           approvalRules: serviceDefinition.definition?.envelopes?.approval?.approvalRules || {},
           timestamp: now.toISOString(),
-          required: serviceDefinition.definition?.envelopes?.approval?.required !== false,
+          required: (serviceDefinition.definition?.envelopes?.approval?.required !== false) || (serviceDefinition.definition?.envelopes?.approval?.requiresApproval === true),
         },
         payment: {
           status: 'pending',

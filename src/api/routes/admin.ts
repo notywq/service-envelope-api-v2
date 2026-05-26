@@ -45,9 +45,11 @@ router.post('/services', async (req: Request, res: Response) => {
     }
 
     // Create service definition - merge parsed YAML properties into root level
-    // so that service.envelopes works (not service.definition.envelopes)
+    // Extract serviceId from YAML and store as top-level field
     const serviceDefinition = {
       ...parsedYaml, // Spread YAML properties (id, name, envelopes, etc.)
+      id: parsedYaml.id || parsedYaml.serviceId, // Use id if present, otherwise map serviceId to id
+      serviceId: parsedYaml.serviceId, // Extract and store serviceId as top-level field from YAML
       name: name, // Override name from form
       type,
       initiator,
@@ -129,8 +131,11 @@ router.put('/services/:serviceId', async (req: Request, res: Response) => {
     }
 
     // Create updated service definition - merge parsed YAML properties into root level
+    // Extract serviceId from YAML and store as top-level field
     const serviceDefinition = {
       ...parsedYaml, // Spread YAML properties (id, name, envelopes, etc.)
+      id: parsedYaml.id || parsedYaml.serviceId, // Use id if present, otherwise map serviceId to id
+      serviceId: parsedYaml.serviceId, // Extract and store serviceId as top-level field from YAML
       name: name, // Override name from form
       type,
       initiator,

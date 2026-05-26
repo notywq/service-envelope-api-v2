@@ -155,6 +155,7 @@ router.get('/', (req: Request, res: Response) => {
       count: services.length,
       services: services.map(s => {
         const serviceResponse = {
+          serviceId: (s as any).serviceId || s.id,  // Use serviceId from YAML if available, fallback to id
           id: s.id,
           name: s.name,
           description: s.description,
@@ -197,6 +198,7 @@ router.get('/ids', (req: Request, res: Response) => {
       count: services.length,
       serviceMap,
       services: services.map(s => ({
+        serviceId: (s as any).serviceId || s.id,  // Use serviceId from YAML if available, fallback to id
         id: s.id,
         name: s.name,
       })),
@@ -220,7 +222,10 @@ router.get('/:serviceId', (req: Request, res: Response) => {
     }
 
     res.json({
-      service_id: service.id,
+      serviceId: (service as any).serviceId || service.id,  // Use serviceId from YAML if available, fallback to id
+      id: service.id,
+      name: service.name,
+      service_id: (service as any).serviceId || service.id,  // For backward compatibility
       service_name: service.name,
       type: service.type,
       description: service.description,
