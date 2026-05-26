@@ -419,8 +419,18 @@ export class MongoDBStateManager {
 
   async deleteServiceDefinition(serviceId: string): Promise<boolean> {
     try {
-      const result = await ServiceDefinitionModel.deleteOne({ id: serviceId });
-      return result.deletedCount > 0;
+      this.logger.info(`🗑️  Deleting from MongoDB: ${serviceId}`);
+      
+      // Use findOneAndDelete to get confirmation of deletion
+      const result = await ServiceDefinitionModel.findOneAndDelete({ id: serviceId });
+      
+      if (result) {
+        this.logger.info(`✅ Deleted from MongoDB: ${serviceId} (${(result as any).name})`);
+        return true;
+      } else {
+        this.logger.warn(`⚠️  Service not found in MongoDB for deletion: ${serviceId}`);
+        return false;
+      }
     } catch (error) {
       this.logger.error(`Failed to delete service definition ${serviceId}:`, error);
       return false;

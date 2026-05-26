@@ -79,4 +79,13 @@ export class ServiceRegistry {
     this.services.set(service.id, service);
     this.logger.info(`✅ Registered service: ${service.id}`);
   }
+
+  removeService(serviceId: string): boolean {
+    const hadService = this.services.has(serviceId);
+    if (hadService) {
+      this.services.delete(serviceId);
+      this.logger.info(`🗑️  Removed service from registry: ${serviceId}`);
+    }
+    return hadService;
+  }
 }

@@ -269,4 +269,57 @@ router.post('/:serviceId/submit', async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * DELETE /api/services/:serviceId
+ * Delete a service definition from MongoDB
+ */
+router.delete('/:serviceId', async (req: Request, res: Response) => {
+  try {
+    const { serviceId } = req.params;
+
+    if (!serviceId) {
+      return res.status(400).json({ error: 'Service ID is required' });
+    }
+
+    appContext.logger.info(`🗑️  Attempting to delete service: ${serviceId}`);
+
+    // Check if service exists before deletion
+    const service = appContext.serviceRegistry.getService(serviceId);
+    if (!service) {
+      appContext.logger.warn(`⚠️  Service not found: ${serviceId}`);
+      return res.status(404).json({ error: `Service ${serviceId} not found` });
+    }
+
+    // Delete from MongoDB
+    const deleted = await appContext.stateManager.deleteServiceDefinition(serviceId);
+
+    if (!deleted) {
+      appContext.logger.warn(`⚠️  Failed to delete service from MongoDB: ${serviceId}`);
+      return res.status(500).json({ error: `Failed to delete service ${serviceId}` });
+    }
+
+    // Remove from in-memory registry
+    appContext.serviceRegistry.removeService(serviceId);
+
+    appContext.logger.info(`✅ Service deleted successfully: ${serviceId}`);
+
+    res.json({
+      success: true,
+      message: `Service ${serviceId} deleted successfully`,
+      serviceId,
+      deletedService: {
+        id: service.id,
+        name: service.name,
+        type: service.type,
+      },
+    });
+  } catch (error) {
+    appContext.logger.error('Error deleting service:', error);
+    res.status(500).json({
+      error: 'Failed to delete service',
+      details: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
 export default router;
