@@ -1,0 +1,249 @@
+serviceId: "SERV-CSD-001"
+type: "comprehensive-student-document"
+name: "Comprehensive Student Document Service"
+description: "Request and process comprehensive student documents including academic records, certifications, and official documents"
+
+request:
+  parameters:
+    studentId:
+      type: String
+      required: true
+      description: "Student ID (e.g., 2020-00123)"
+      minLength: 8
+      maxLength: 15
+      pattern: "^[0-9]{4}-[0-9]{5}$"
+      default: ""
+
+    firstName:
+      type: String
+      required: true
+      description: "Student's first name"
+      minLength: 2
+      maxLength: 50
+      default: ""
+
+    lastName:
+      type: String
+      required: true
+      description: "Student's last name"
+      minLength: 2
+      maxLength: 50
+      default: ""
+
+    email:
+      type: String
+      required: true
+      description: "Student email address"
+      minLength: 5
+      maxLength: 100
+      pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+      default: ""
+
+    documentTypes:
+      type: Checkboxes
+      required: true
+      description: "Select all required documents"
+      minSelected: 1
+      maxSelected: 5
+      options:
+        - label: "Academic Record"
+          value: "academic_record"
+        - label: "Official Transcript"
+          value: "official_transcript"
+        - label: "Enrollment Verification"
+          value: "enrollment_verification"
+        - label: "Certificate of Good Standing"
+          value: "certificate_good_standing"
+        - label: "Diploma Copy"
+          value: "diploma_copy"
+      default:
+        - "academic_record"
+        - "official_transcript"
+
+    purpose:
+      type: Dropdown
+      required: true
+      description: "Purpose for requesting documents"
+      searchable: true
+      clearable: false
+      options:
+        - label: "Employment"
+          value: "employment"
+        - label: "Graduate School Admission"
+          value: "graduate_admission"
+        - label: "Scholarship"
+          value: "scholarship"
+        - label: "Professional License"
+          value: "professional_license"
+        - label: "Personal Records"
+          value: "personal_records"
+        - label: "Other"
+          value: "other"
+      default: "employment"
+
+    numberOfCopies:
+      type: Number
+      required: true
+      description: "Number of physical copies needed"
+      min: 1
+      max: 10
+      step: 1
+      default: 1
+
+    deliveryMethod:
+      type: Radio
+      required: true
+      description: "How to receive the documents"
+      options:
+        - label: "Email"
+          value: "email"
+        - label: "Physical Mail"
+          value: "physical_mail"
+        - label: "Pick-up in Person"
+          value: "pickup"
+      default: "email"
+
+    mailingAddress:
+      type: String
+      required: false
+      description: "Mailing address (required if Physical Mail selected)"
+      maxLength: 300
+      default: ""
+
+    isUrgent:
+      type: Boolean
+      required: false
+      description: "Rush processing (additional fee applies)"
+      default: false
+
+    remarks:
+      type: String
+      required: false
+      description: "Additional remarks or special requests"
+      maxLength: 500
+      default: ""
+
+approval:
+  approvalRules:
+    type: all_must_approve
+    requiredApprovers:
+      - registrar
+      - department_head
+  emailTemplateStartEnvelope: "csd-approval-start"
+  emailTemplateEndEnvelope: "csd-approval-complete"
+  requiresApproval: true
+
+payment:
+  required: true
+  paymentProvider: maya
+  charges:
+    - item: "Document Processing Fee"
+      amount: 500
+      currency: PHP
+      quantity: 1
+    - item: "Certification Fee"
+      amount: 300
+      currency: PHP
+      quantity: 1
+  emailTemplateStartEnvelope: "csd-payment-start"
+  emailTemplateEndEnvelope: "csd-payment-complete"
+
+processing:
+  emailTemplateStartEnvelope: "csd-processing-start"
+  emailTemplateEndEnvelope: "csd-processing-complete"
+  stopOnFailure: true
+  tasks:
+    - type: api_call
+      name: "Verify Student Records"
+      method: POST
+      url: "https://sis-api.mapua.edu.ph/students/verify"
+      headers:
+        Authorization: "Bearer {{apiToken}}"
+        Content-Type: "application/json"
+      payload:
+        studentId: "{{studentId}}"
+        firstName: "{{firstName}}"
+        lastName: "{{lastName}}"
+      timeout: 30000
+      retries: 3
+      successCodes: [200, 201]
+
+    - type: api_call
+      name: "Generate Academic Record"
+      method: POST
+      url: "https://registry-api.mapua.edu.ph/documents/generate-record"
+      headers:
+        Authorization: "Bearer {{apiToken}}"
+        Content-Type: "application/json"
+      payload:
+        studentId: "{{studentId}}"
+        documentType: "academic_record"
+        numberOfCopies: "{{numberOfCopies}}"
+      timeout: 45000
+      retries: 3
+      successCodes: [200, 201]
+
+    - type: api_call
+      name: "Generate Transcript"
+      method: POST
+      url: "https://registry-api.mapua.edu.ph/documents/generate-transcript"
+      headers:
+        Authorization: "Bearer {{apiToken}}"
+        Content-Type: "application/json"
+      payload:
+        studentId: "{{studentId}}"
+        numberOfCopies: "{{numberOfCopies}}"
+      timeout: 45000
+      retries: 3
+      successCodes: [200, 201]
+
+    - type: api_call
+      name: "Prepare Delivery Package"
+      method: POST
+      url: "https://registry-api.mapua.edu.ph/documents/prepare-delivery"
+      headers:
+        Authorization: "Bearer {{apiToken}}"
+        Content-Type: "application/json"
+      payload:
+        studentId: "{{studentId}}"
+        documentTypes: "{{documentTypes}}"
+        deliveryMethod: "{{deliveryMethod}}"
+        numberOfCopies: "{{numberOfCopies}}"
+      timeout: 60000
+      retries: 2
+      successCodes: [200, 201]
+
+delivery:
+  emailTemplateStartEnvelope: "csd-delivery-start"
+  emailTemplateEndEnvelope: "csd-delivery-complete"
+  deliveryMethods:
+    email:
+      enabled: true
+      subject: "Your Student Documents - {{firstName}} {{lastName}}"
+      recipient: "{{email}}"
+      attachmentUrls:
+        - "https://documents.mapua.edu.ph/{{requestId}}/documents.pdf"
+    physical_mail:
+      enabled: true
+      address: "{{mailingAddress}}"
+      requiresSignature: false
+      trackingEnabled: true
+      carrier: "LBC"
+      estimatedDays: 5
+      costPercentage: 15
+      requiresApprovalBeforeShip: true
+    pickup:
+      enabled: true
+      location: "MAPUA Registrar's Office, Room 201, Ground Floor, MAPUA Campus"
+      hoursOfOperation: "Monday-Friday, 8:00 AM - 5:00 PM"
+      requiresIDVerification: true
+      pickupDeadlineDays: 30
+      notificationRequired: true
+
+feedback:
+  required: true
+  expiryDays: 14
+  emailTemplateStartEnvelope: "csd-feedback-start"
+  emailTemplateEndEnvelope: "csd-feedback-complete"
+  notificationRequired: true
+  reminderDaysBefore: 3

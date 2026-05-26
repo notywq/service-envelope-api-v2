@@ -1,0 +1,112 @@
+# Example Service Definition with Parameter Schemas
+# Shows all supported parameter types with Option 1 format
+
+serviceId: EXAMPLE-001
+name: "Example Service with All Parameter Types"
+description: "Demonstrates String, Number, Boolean, Date, Dropdown, Radio, and Checkboxes parameters"
+
+request:
+  parameters:
+    # Simple scalar types
+    firstName:
+      type: String
+      required: true
+      description: "Student's first name"
+      minLength: 2
+      maxLength: 50
+
+    lastName:
+      type: String
+      required: true
+      description: "Student's last name"
+      minLength: 2
+      maxLength: 50
+
+    numberOfCopies:
+      type: Number
+      required: true
+      description: "Number of document copies needed"
+      min: 1
+      max: 10
+      default: 1
+
+    isUrgent:
+      type: Boolean
+      required: false
+      description: "Mark request as urgent"
+      default: false
+
+    requestDate:
+      type: Date
+      required: true
+      description: "Date of the request"
+      format: YYYY-MM-DD
+
+    # Selection types with options
+    purpose:
+      type: Dropdown
+      required: true
+      description: "Purpose of the request"
+      options:
+        - Employment
+        - Graduate School
+        - Scholarship
+        - Professional License
+        - Personal Use
+        - Other
+      searchable: true
+      clearable: false
+
+    deliveryMode:
+      type: Radio
+      required: true
+      description: "How to deliver the document"
+      options:
+        - label: "Email"
+          value: "email"
+        - label: "Physical Mail"
+          value: "mail"
+        - label: "Pick-up in Person"
+          value: "pickup"
+
+    requiredDocuments:
+      type: Checkboxes
+      required: true
+      description: "Select all required documents"
+      minSelected: 1
+      maxSelected: 5
+      options:
+        - Academic Record
+        - Diploma Copy
+        - Transcript of Records
+        - Certificate of Enrollment
+        - Good Moral Character
+
+approval:
+  approvalRules:
+    type: all_must_approve
+    requiredApprovers:
+      - registrar
+      - department_head
+
+payment:
+  required: true
+  paymentProvider: maya
+  charges:
+    - item: "Document Processing Fee"
+      amount: 500
+      currency: PHP
+
+processing:
+  tasks:
+    - type: custom_function
+      function: verify_student
+
+delivery:
+  channels:
+    - email
+    - physical_mail
+
+feedback:
+  required: true
+  surveyId: SURVEY-001

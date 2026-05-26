@@ -1,0 +1,793 @@
+# Service Definition Rules
+# Complete specification for creating Service Envelope YAML definitions
+# All new services MUST follow this structure and validation rules
+
+# ============================================================================
+# 1. SERVICE METADATA
+# ============================================================================
+serviceId: "SERVICE-001"  # Unique identifier (required, format: UPPERCASE-###)
+type: "transcript-of-records"  # Lowercase with hyphens (required, used to link requests)
+name: "Transcript of Records"  # Display name (required)
+description: "Official transcript request service"  # Optional but recommended
+
+# ============================================================================
+# 2. REQUEST ENVELOPE - PARAMETER SCHEMA DEFINITION
+# ============================================================================
+# 
+# RULES for Request Parameters:
+# - Parameters are STRONGLY TYPED using the schema system
+# - Phase 2 UI generates form fields based on parameter schema
+# - All parameters must have a 'type' field
+# - All parameters should have 'required' field (default: false)
+# - Each parameter should have 'description' for UI help text
+#
+# SUPPORTED PARAMETER TYPES:
+#   - String      (text input)
+#   - Number      (numeric input with constraints)
+#   - Boolean     (toggle/checkbox)
+#   - Date        (date picker)
+#   - Dropdown    (select with options)
+#   - Radio       (single choice from options)
+#   - Checkboxes  (multiple choice from options)
+
+request:
+  parameters:
+    # ========================================================================
+    # STRING TYPE
+    # ========================================================================
+    # RULES:
+    #   - minLength: minimum character count
+    #   - maxLength: maximum character count
+    #   - pattern: regex pattern for validation
+    #   - default: default value if not provided
+    firstName:
+      type: String
+      required: true
+      description: "Student's first name"
+      minLength: 2
+      maxLength: 50
+      default: ""
+
+    lastName:
+      type: String
+      required: true
+      description: "Student's last name"
+      minLength: 2
+      maxLength: 50
+
+    mailingAddress:
+      type: String
+      required: false
+      description: "Mailing address for physical delivery"
+      maxLength: 200
+
+    # ========================================================================
+    # NUMBER TYPE
+    # ========================================================================
+    # RULES:
+    #   - min: minimum value
+    #   - max: maximum value
+    #   - step: increment step for spinners (default: 1)
+    #   - default: default value if not provided
+    numberOfCopies:
+      type: Number
+      required: true
+      description: "Number of document copies needed"
+      min: 1
+      max: 10
+      step: 1
+      default: 1
+
+    processingDays:
+      type: Number
+      required: false
+      description: "Desired processing time in days"
+      min: 1
+      max: 30
+      step: 1
+
+    # ========================================================================
+    # BOOLEAN TYPE
+    # ========================================================================
+    # RULES:
+    #   - default: true or false (default: false)
+    # NO additional validation rules
+    isUrgent:
+      type: Boolean
+      required: false
+      description: "Mark this request as urgent"
+      default: false
+
+    # ========================================================================
+    # DATE TYPE
+    # ========================================================================
+    # RULES:
+    #   - format: Date format (YYYY-MM-DD, DD-MM-YYYY, MM-DD-YYYY, ISO8601)
+    #   - min: earliest allowed date (optional)
+    #   - max: latest allowed date (optional)
+    #   - default: default date (optional)
+    requestDate:
+      type: Date
+      required: true
+      description: "Date of the request"
+      format: YYYY-MM-DD
+      min: "2020-01-01"
+      max: "2030-12-31"
+
+    targetDeliveryDate:
+      type: Date
+      required: false
+      description: "Desired delivery date"
+      format: YYYY-MM-DD
+      min: "2026-05-27"
+
+    # ========================================================================
+    # DROPDOWN TYPE
+    # ========================================================================
+    # RULES:
+    #   - options: Array of strings OR objects with label/value pairs
+    #   - searchable: Allow searching in dropdown (default: true)
+    #   - clearable: Allow clearing selection (default: false)
+    #   - default: default selected value (must match an option)
+    # If options are objects:
+    #   - label: Display text
+    #   - value: Actual value to submit
+    #   - disabled: Disable this option (optional)
+    purpose:
+      type: Dropdown
+      required: true
+      description: "Purpose of the request"
+      searchable: true
+      clearable: false
+      options:
+        - Employment
+        - Graduate School
+        - Scholarship
+        - Professional License
+        - Personal Use
+        - Other
+      default: "Employment"
+
+    # Complex dropdown with label/value pairs
+    program:
+      type: Dropdown
+      required: true
+      description: "Academic program"
+      options:
+        - label: "Bachelor of Science in Computer Science"
+          value: "BSCS"
+        - label: "Bachelor of Science in Information Technology"
+          value: "BSIT"
+        - label: "Master of Science in Computer Science"
+          value: "MSCS"
+        - label: "Doctorate in Computer Science"
+          value: "PhD-CS"
+          disabled: false
+
+    # ========================================================================
+    # RADIO TYPE
+    # ========================================================================
+    # RULES:
+    #   - options: Array of strings OR objects with label/value pairs
+    #   - Only ONE selection allowed
+    #   - Must have at least one option
+    #   - default: default selected value
+    deliveryMode:
+      type: Radio
+      required: true
+      description: "How to deliver the document"
+      options:
+        - label: "Email"
+          value: "email"
+        - label: "Physical Mail"
+          value: "mail"
+        - label: "Pick-up in Person"
+          value: "pickup"
+      default: "email"
+
+    documentType:
+      type: Radio
+      required: true
+      description: "Type of document"
+      options:
+        - Original
+        - Certified Copy
+        - Duplicate Original
+
+    # ========================================================================
+    # CHECKBOXES TYPE
+    # ========================================================================
+    # RULES:
+    #   - options: Array of strings OR objects with label/value pairs
+    #   - Multiple selections allowed
+    #   - minSelected: Minimum number of selections required (optional)
+    #   - maxSelected: Maximum number of selections allowed (optional)
+    #   - default: Array of default selected values (optional)
+    requiredDocuments:
+      type: Checkboxes
+      required: true
+      description: "Select all required documents"
+      minSelected: 1
+      maxSelected: 5
+      options:
+        - Academic Record
+        - Diploma Copy
+        - Transcript of Records
+        - Certificate of Enrollment
+        - Good Moral Character
+      default:
+        - "Transcript of Records"
+
+    # Complex checkboxes with label/value pairs
+    services:
+      type: Checkboxes
+      required: false
+      description: "Additional services"
+      minSelected: 0
+      maxSelected: 3
+      options:
+        - label: "Rush Processing"
+          value: "rush"
+        - label: "Notarization"
+          value: "notarize"
+        - label: "Special Packaging"
+          value: "special_package"
+        - label: "Insurance"
+          value: "insurance"
+
+# ============================================================================
+# 3. APPROVAL ENVELOPE
+# ============================================================================
+# RULES:
+#   - approvalRules: REQUIRED - defines who must approve
+#   - emailTemplateStartEnvelope: Template ID for approval request email (SERV-#-approval-start)
+#   - emailTemplateEndEnvelope: Template ID for approval completion email (SERV-#-approval-end)
+#   - Must specify either specific_approver OR all_must_approve OR complex rules
+#
+# APPROVAL RULE TYPES:
+#   1. all_must_approve: Every person in requiredApprovers must approve
+#   2. any_one: First person to approve moves request forward
+#   3. specific_approver: Single designated approver
+#   4. complex: Combines required approvers (all must approve) + atLeastOneOf (one from group)
+#
+# EMAIL TIMING:
+#   - emailTemplateStartEnvelope: Sent when approval process starts (to approvers)
+#   - emailTemplateEndEnvelope: Sent after approval completes (to requestor)
+
+approval:
+  # Rule Type 1: All must approve
+  approvalRules:
+    type: all_must_approve
+    requiredApprovers:
+      - registrar
+      - department_head
+
+  # Alternative: Rule Type 2: Any one approval
+  # approvalRules:
+  #   type: any_one
+  #   requiredApprovers:
+  #     - registrar
+  #     - assistant_registrar
+
+  # Alternative: Rule Type 3: Specific approver only
+  # approvalRules:
+  #   type: specific_approver
+  #   specificApprover: registrar
+
+  # Alternative: Rule Type 4: Complex rules (required + at least one)
+  # approvalRules:
+  #   type: complex
+  #   requiredApprovers:
+  #     - registrar  # MUST approve
+  #   atLeastOneOf:
+  #     - dean
+  #     - vice_dean
+  #     - academic_director
+  #   # Means: registrar MUST approve AND at least one of (dean, vice_dean, academic_director)
+
+  emailTemplateStartEnvelope: SERV-3-approval-start   # Email sent to approvers when process starts
+  emailTemplateEndEnvelope: SERV-3-approval-end       # Email sent to requestor when approved
+  requiresApproval: true
+
+# ============================================================================
+# 4. PAYMENT ENVELOPE
+# ============================================================================
+# RULES:
+#   - required: true/false - is payment required for this service
+#   - paymentProvider: Payment gateway (maya, stripe, gcash, etc.)
+#   - charges: Array of charge items with amount and currency
+#   - emailTemplateStartEnvelope: Template sent when payment is due (SERV-#-payment-start)
+#   - emailTemplateEndEnvelope: Template sent when payment is received (SERV-#-payment-end)
+#
+# CHARGE RULES:
+#   - item: Description of the charge
+#   - amount: Cost in smallest currency unit (e.g., cents for USD, pesos for PHP)
+#   - currency: ISO 4217 code (PHP, USD, etc.)
+#   - quantity: Number of units (optional, default: 1)
+#
+# EMAIL TIMING:
+#   - emailTemplateStartEnvelope: Sent to requestor when payment is required
+#   - emailTemplateEndEnvelope: Sent to requestor when payment is received
+
+payment:
+  required: true
+  paymentProvider: maya
+  charges:
+    - item: "Document Processing Fee"
+      amount: 500
+      currency: PHP
+      quantity: 1
+    - item: "Delivery Charge"
+      amount: 150
+      currency: PHP
+    - item: "Notarization (per page)"
+      amount: 50
+      currency: PHP
+      quantity: 0  # Dynamic, set per request if notarization selected
+  emailTemplateStartEnvelope: SERV-3-payment-start    # Email with payment link sent to requestor
+  emailTemplateEndEnvelope: SERV-3-payment-end        # Confirmation email after payment received
+
+# Alternative: No payment required
+# payment:
+#   required: false
+
+# ============================================================================
+# 5. PROCESSING ENVELOPE
+# ============================================================================
+# RULES:
+#   - tasks: Array of API call tasks to execute sequentially
+#   - stopOnFailure: Stop pipeline if any task fails (default: true)
+#   - emailTemplateStartEnvelope: Template sent when processing starts (SERV-#-processing-start)
+#   - emailTemplateEndEnvelope: Template sent when processing completes (SERV-#-processing-end)
+#
+# API TASK RULES:
+#   - type: MUST be "api_call"
+#   - name: Descriptive name of the task
+#   - method: HTTP method (GET, POST, PUT, DELETE, PATCH)
+#   - url: API endpoint URL (supports {{parameterName}} substitution)
+#   - headers: Key-value pairs for HTTP headers (supports {{parameterName}} substitution)
+#   - payload: Request body (for POST/PUT, supports {{parameterName}} substitution)
+#   - queryParams: Query string parameters (for GET/DELETE, supports {{parameterName}})
+#   - timeout: Timeout in milliseconds (default: 30000)
+#   - retries: Number of retry attempts on failure (default: 3)
+#   - successCodes: Array of HTTP status codes to consider success (default: [200, 201, 204])
+#
+# PARAMETER SUBSTITUTION:
+#   All string values support {{parameterName}} which will be replaced with values from request
+#   Examples: {{studentId}}, {{numberOfCopies}}, {{firstName}}, etc.
+#
+# EMAIL TIMING:
+#   - emailTemplateStartEnvelope: Sent to requestor when processing begins
+#   - emailTemplateEndEnvelope: Sent to requestor when all tasks complete
+
+processing:
+  emailTemplateStartEnvelope: SERV-3-processing-start   # Email sent when processing starts
+  emailTemplateEndEnvelope: SERV-3-processing-end       # Email sent when processing completes
+  stopOnFailure: true  # Stop if any task fails
+
+  tasks:
+    # Task 1: Verify Student (GET)
+    - type: api_call
+      name: "Verify Student Enrollment"
+      method: GET
+      url: "https://student-records.mapua.edu.ph/api/students/{{studentId}}/enrollment"
+      headers:
+        Authorization: "Bearer {{apiToken}}"
+        Accept: "application/json"
+      timeout: 15000
+      retries: 2
+      successCodes: [200, 201]
+
+    # Task 2: Pull Student Transcript (POST)
+    - type: api_call
+      name: "Generate Student Transcript"
+      method: POST
+      url: "https://student-records.mapua.edu.ph/api/transcripts"
+      headers:
+        Authorization: "Bearer {{apiToken}}"
+        Content-Type: "application/json"
+      payload:
+        studentId: "{{studentId}}"
+        numberOfCopies: "{{numberOfCopies}}"
+        format: "PDF"
+        purpose: "{{purpose}}"
+      timeout: 30000
+      retries: 3
+
+    # Task 3: Update Request Status (PUT)
+    - type: api_call
+      name: "Update Request Status in Legacy System"
+      method: PUT
+      url: "https://legacy-system.mapua.edu.ph/api/requests/{{requestId}}"
+      headers:
+        Authorization: "Bearer {{legacyToken}}"
+        Content-Type: "application/json"
+      payload:
+        status: "processing_complete"
+        completedAt: "{{currentTimestamp}}"
+        notes: "Transcript generated successfully"
+      timeout: 10000
+      retries: 2
+
+    # Task 4: Notify External Service (POST with query params)
+    - type: api_call
+      name: "Notify Third-Party Service"
+      method: POST
+      url: "https://external-service.com/api/notifications"
+      queryParams:
+        webhookId: "MAPUA-TOR-001"
+        source: "transcript-service"
+      headers:
+        X-API-Key: "{{externalServiceKey}}"
+        Content-Type: "application/json"
+      payload:
+        eventType: "transcript_processed"
+        requestId: "{{requestId}}"
+        studentId: "{{studentId}}"
+        documentUrl: "https://documents.mapua.edu.ph/{{requestId}}/transcript.pdf"
+      timeout: 20000
+      retries: 3
+      successCodes: [200, 201, 202]
+
+# ============================================================================
+# 6. DELIVERY ENVELOPE
+# ============================================================================
+# RULES:
+#   - deliveryMethods: Array of delivery options (email, physical_mail, pickup)
+#   - emailTemplateStartEnvelope: Template sent when document is ready (SERV-#-delivery-start)
+#   - emailTemplateEndEnvelope: Template sent when delivery confirmed (SERV-#-delivery-end)
+#
+# DELIVERY METHOD RULES:
+#   1. EMAIL:
+#      - subject: Email subject (supports {{parameterName}} substitution)
+#      - recipient: Email address (supports {{parameterName}})
+#      - attachmentUrls: Array of document URLs to attach
+#      - defaultTemplate: Template to use if not customized
+#
+#   2. PHYSICAL_MAIL:
+#      - address: Mailing address (supports {{parameterName}})
+#      - requiresSignature: true/false - courier needs signature
+#      - trackingEnabled: true/false - provide tracking number
+#      - carrier: Courier name (e.g., "LBC", "JNT", "DHL")
+#      - estimatedDays: Estimated delivery days
+#      - costPercentage: Additional cost % for physical delivery
+#
+#   3. PICKUP:
+#      - location: Physical pickup location/address
+#      - hoursOfOperation: Pickup hours
+#      - requiresIDVerification: true/false
+#      - pickupDeadlineDays: Days until pickup window closes
+#      - notificationRequired: true/false - notify when ready for pickup
+#
+# EMAIL TIMING:
+#   - emailTemplateStartEnvelope: Sent to requestor when document is ready
+#   - emailTemplateEndEnvelope: Sent when delivery is confirmed/completed
+
+delivery:
+  emailTemplateStartEnvelope: SERV-3-delivery-start    # "Document ready for delivery" email
+  emailTemplateEndEnvelope: SERV-3-delivery-end        # "Delivery confirmed" email
+  
+  deliveryMethods:
+    # Method 1: Email Delivery
+    email:
+      enabled: true
+      subject: "Your {{purpose}} is Ready"
+      recipient: "{{email}}"
+      attachmentUrls:
+        - "https://documents.mapua.edu.ph/{{requestId}}/transcript.pdf"
+        - "https://documents.mapua.edu.ph/{{requestId}}/cover_letter.pdf"
+      defaultTemplate: SERV-3-delivery-email
+
+    # Method 2: Physical Mail Delivery
+    physical_mail:
+      enabled: true
+      address: "{{mailingAddress}}"
+      requiresSignature: false
+      trackingEnabled: true
+      carrier: "LBC"  # Logistics company
+      estimatedDays: 3
+      costPercentage: 20  # 20% additional cost for physical delivery
+      requiresApprovalBeforeShip: true
+
+    # Method 3: Pick-up Delivery
+    pickup:
+      enabled: true
+      location: "MAPUA Registrar's Office, Room 201, Ground Floor"
+      hoursOfOperation: "Monday-Friday, 8:00 AM - 5:00 PM"
+      requiresIDVerification: true
+      pickupDeadlineDays: 30
+      notificationRequired: true
+      notificationTemplate: SERV-3-delivery-pickup-ready
+
+# ============================================================================
+# 7. FEEDBACK ENVELOPE
+# ============================================================================
+# RULES:
+#   - required: true/false - is feedback required
+#   - expiryDays: Days before feedback link expires (optional, default: 30)
+#   - surveyId: ID of survey tool integration
+#   - emailTemplateStartEnvelope: Template sent to request feedback (SERV-#-feedback-start)
+#   - emailTemplateEndEnvelope: Template sent after feedback received (SERV-#-feedback-end)
+#   - notificationRequired: Send email reminder before expiry (default: false)
+#   - reminderDaysBefore: Days before expiry to send reminder (default: 3)
+#
+# EMAIL TIMING:
+#   - emailTemplateStartEnvelope: Sent to requestor with feedback survey link
+#   - emailTemplateEndEnvelope: Sent to requestor when feedback is received (optional thank you)
+#
+# API ROUTE (Phase 2 UI):
+#   POST /api/requests/{requestId}/feedback/submit
+#   - Purpose: Finalize feedback and mark feedback envelope as complete
+#   - Body: {
+#       ratings: { question1: 5, question2: 4, ... },
+#       comments: "User feedback text",
+#       submittedAt: "ISO8601 timestamp"
+#     }
+#   - Response: { success: true, message: "Feedback recorded" }
+#   - Updates: request.envelopes.feedback.status = "completed"
+#   - Triggers: Send emailTemplateEndEnvelope (if configured)
+
+feedback:
+  required: true
+  expiryDays: 30
+  surveyId: SURVEY-TOR-001
+  emailTemplateStartEnvelope: SERV-3-feedback-start    # Survey invitation email
+  emailTemplateEndEnvelope: SERV-3-feedback-end        # Thank you email after feedback
+  notificationRequired: true
+  reminderDaysBefore: 3
+
+# ============================================================================
+# EMAIL TEMPLATE IDs - NAMING CONVENTION
+# ============================================================================
+# RULE: Email template IDs follow pattern: SERV-{serviceNumber}-{envelopeType}-{phase}
+#       where phase is "start" (envelope begins) or "end" (envelope completes)
+# 
+# Each envelope can send TWO emails:
+#   - emailTemplateStartEnvelope: Sent when envelope process STARTS
+#   - emailTemplateEndEnvelope: Sent when envelope process COMPLETES
+#
+# APPROVAL ENVELOPE:
+#   SERV-3-approval-start      -> Email to approvers: "Approval needed"
+#   SERV-3-approval-end        -> Email to requestor: "Approved, payment required"
+#
+# PAYMENT ENVELOPE:
+#   SERV-3-payment-start       -> Email to requestor: "Payment required with link"
+#   SERV-3-payment-end         -> Email to requestor: "Payment received, processing starts"
+#
+# PROCESSING ENVELOPE:
+#   SERV-3-processing-start    -> Email to requestor: "Processing has begun"
+#   SERV-3-processing-end      -> Email to requestor: "Processing complete, ready for delivery"
+#
+# DELIVERY ENVELOPE:
+#   SERV-3-delivery-start      -> Email to requestor: "Document ready to be delivered"
+#   SERV-3-delivery-end        -> Email to requestor: "Delivery confirmed"
+#   SERV-3-delivery-email      -> Template for email delivery method (if different)
+#   SERV-3-delivery-pickup-ready -> Notification when document ready for pickup
+#
+# FEEDBACK ENVELOPE:
+#   SERV-3-feedback-start      -> Email to requestor: "Please take survey"
+#   SERV-3-feedback-end        -> Email to requestor: "Thank you for feedback" (optional)
+#
+# All templates are managed via Phase 2 UI API endpoints
+# No email templates are seeded in the CLI - all come from MongoDB
+
+# ============================================================================
+# COMPLETE VALIDATION RULES SUMMARY
+# ============================================================================
+# REQUEST ENVELOPE:
+#   ✓ All parameters must have a 'type' field
+#   ✓ String: Validate minLength, maxLength, pattern regex
+#   ✓ Number: Validate min, max, step
+#   ✓ Date: Validate format and date range (min/max)
+#   ✓ Dropdown/Radio: Value must be in options list
+#   ✓ Checkboxes: Each value in array must be in options list
+#   ✓ Each parameter with required: true must be provided by user
+#   ✓ Default values must match the parameter type and constraints
+#
+# APPROVAL ENVELOPE:
+#   ✓ Must specify one of: all_must_approve, any_one, specific_approver, complex
+#   ✓ complex type REQUIRES requiredApprovers AND atLeastOneOf
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
+#   ✓ emailTemplateEndEnvelope must exist in MongoDB templates
+#
+# PAYMENT ENVELOPE:
+#   ✓ If required: true, must have at least one charge
+#   ✓ Each charge must have: item, amount, currency
+#   ✓ amount must be > 0 (if quantity > 0)
+#   ✓ paymentProvider must be valid (maya, stripe, gcash, etc.)
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
+#   ✓ emailTemplateEndEnvelope must exist in MongoDB templates
+#
+# PROCESSING ENVELOPE:
+#   ✓ All tasks must be type: "api_call"
+#   ✓ Each task must have: name, method, url, timeout, retries
+#   ✓ method must be one of: GET, POST, PUT, DELETE, PATCH
+#   ✓ url must be valid HTTPS endpoint (supports {{parameterName}})
+#   ✓ headers are optional but recommended (can include Authorization)
+#   ✓ payload optional for GET/DELETE, required for POST/PUT
+#   ✓ queryParams optional (supports {{parameterName}} substitution)
+#   ✓ timeout must be positive number (milliseconds)
+#   ✓ retries must be 0-10 (number of retry attempts)
+#   ✓ successCodes defaults to [200, 201, 204]
+#   ✓ stopOnFailure: if true, stop on first failure
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
+#   ✓ emailTemplateEndEnvelope must exist in MongoDB templates
+#
+# DELIVERY ENVELOPE:
+#   ✓ At least one delivery method must be enabled (email, physical_mail, or pickup)
+#   ✓ EMAIL method: requires recipient ({{parameterName}} supported)
+#   ✓ PHYSICAL_MAIL: requires address, carrier, estimatedDays
+#   ✓ PHYSICAL_MAIL: requiresSignature and trackingEnabled are optional
+#   ✓ PICKUP: requires location, hoursOfOperation, pickupDeadlineDays
+#   ✓ PICKUP: requiresIDVerification and notificationRequired are optional
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
+#   ✓ emailTemplateEndEnvelope must exist in MongoDB templates
+#
+# FEEDBACK ENVELOPE:
+#   ✓ expiryDays must be positive number (1-365)
+#   ✓ surveyId must be valid survey identifier
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
+#   ✓ emailTemplateEndEnvelope optional but recommended
+#   ✓ reminderDaysBefore: 0-30 (days before expiry to remind)
+#   ✓ Phase 2 UI must call: POST /api/requests/{requestId}/feedback/submit
+#
+# ALL ENVELOPES:
+#   ✓ emailTemplateStartEnvelope and emailTemplateEndEnvelope references must exist in MongoDB
+#   ✓ {{parameterName}} in templates/URLs must match request parameters
+#   ✓ All parameter references use double curly braces: {{parameterName}}
+
+# ============================================================================
+# TEMPLATE VARIABLE SUBSTITUTION RULES
+# ============================================================================
+# All strings in YAML can include {{parameterName}} substitution:
+#   - Email templates
+#   - API URLs in processing tasks
+#   - API headers in processing tasks
+#   - API payloads in processing tasks
+#   - Query parameters in processing tasks
+#   - Delivery addresses
+#
+# AUTOMATIC REPLACEMENTS (System Variables):
+#   {{requestId}}       -> Unique request identifier (e.g., "REQ-2025-001")
+#   {{totalAmount}}     -> Calculated payment total (payment envelope only)
+#   {{paymentLink}}     -> Link to payment gateway (payment envelope only)
+#   {{feedbackLink}}    -> Link to feedback survey (feedback envelope only)
+#   {{currentTimestamp}} -> Current ISO8601 timestamp
+#   {{approvalToken}}   -> Token for approval action link (approval envelope only)
+#
+# AUTOMATIC REPLACEMENTS (Request Parameters):
+#   {{firstName}}       -> From request.parameters.firstName
+#   {{lastName}}        -> From request.parameters.lastName
+#   {{email}}           -> From request.parameters.email
+#   {{studentId}}       -> From request.parameters.studentId
+#   {{numberOfCopies}}  -> From request.parameters.numberOfCopies
+#   {{purpose}}         -> From request.parameters.purpose
+#   {{deliveryMode}}    -> From request.parameters.deliveryMode
+#   {{mailingAddress}}  -> From request.parameters.mailingAddress
+#   {{anyCustomParam}}  -> ANY parameter from request.parameters
+#
+# PROCESSING TASK SPECIFICS:
+#   - URL substitution happens before API call
+#   - Header values with {{param}} are replaced
+#   - Payload values with {{param}} are replaced
+#   - Query params with {{param}} are replaced
+#   - Example: {{studentId}} in URL becomes "2024-12345" if studentId is "2024-12345"
+#
+# EMAIL TEMPLATE SPECIFICS:
+#   - {{param}} replaced in email HTML body
+#   - {{param}} replaced in email subject line
+#   - Unknown parameters are replaced with empty string
+#   - Example: {{program}} becomes "BSCS" if program parameter is "BSCS"
+
+# ============================================================================
+# EXAMPLE COMPLETE SERVICE
+# ============================================================================
+# See PARAMETER_SCHEMA_EXAMPLE.yaml for a complete working example
+# with all parameter types and all envelope configurations.
+
+# ============================================================================
+# YAML FORMAT REQUIREMENTS
+# ============================================================================
+# - Use 2-space indentation (NOT tabs)
+# - Use lowercase with hyphens for IDs and types (e.g., "transcript-of-records")
+# - Use UPPERCASE for constants (e.g., "PHP", "BSCS")
+# - Use camelCase for nested object keys
+# - Strings with special characters must be quoted
+# - Arrays use dash notation: - item1
+#                             - item2
+# - Objects use key: value pairs
+# - Comments use #
+
+# ============================================================================
+# SERVICE ENVELOPE PROCESS FLOW - STEP BY STEP
+# ============================================================================
+# Every service follows this 6-envelope sequence:
+#
+# 1. REQUEST ENVELOPE
+#    - CLI receives request with parameters matching schema
+#    - Parameters validated against type constraints
+#    - Request stored in MongoDB
+#    - Status: pending_approval
+#
+# 2. APPROVAL ENVELOPE (if approval.requiresApproval = true)
+#    a) CLI sends emailTemplateStartEnvelope to approvers
+#    b) Approvers use Phase 2 UI or email links to approve/deny
+#    c) ApprovalRules determine if all must approve, one, or complex rules
+#    d) Once approved, CLI sends emailTemplateEndEnvelope to requestor
+#    e) Status: pending_payment (or processing if no payment)
+#
+# 3. PAYMENT ENVELOPE (if payment.required = true)
+#    a) CLI sends emailTemplateStartEnvelope with payment link
+#    b) Requestor completes payment via Phase 2 UI (MAYA provider)
+#    c) CLI receives payment callback from payment provider
+#    d) CLI sends emailTemplateEndEnvelope confirming payment received
+#    e) Status: processing
+#
+# 4. PROCESSING ENVELOPE
+#    a) CLI sends emailTemplateStartEnvelope to requestor
+#    b) CLI executes all API call tasks in sequence
+#    c) Each task makes HTTP call (GET/POST/PUT/DELETE) to external API
+#    d) Parameters substituted into URL, headers, payload, query params
+#    e) If stopOnFailure=true, stops on first failure
+#    f) If all tasks succeed, CLI sends emailTemplateEndEnvelope
+#    g) Status: pending_delivery
+#
+# 5. DELIVERY ENVELOPE
+#    a) CLI sends emailTemplateStartEnvelope to requestor
+#    b) Requestor selects delivery method via Phase 2 UI or defaults to config
+#       - EMAIL: Document sent via email with attachments
+#       - PHYSICAL_MAIL: Document queued for shipping (LBC/JNT/DHL)
+#       - PICKUP: Document flagged ready for pickup, sends pickup notification
+#    c) CLI sends emailTemplateEndEnvelope when delivery confirmed
+#    d) Status: pending_feedback
+#
+# 6. FEEDBACK ENVELOPE (if feedback.required = true)
+#    a) CLI sends emailTemplateStartEnvelope with survey link
+#    b) Requestor fills survey via Phase 2 UI feedback form
+#    c) Phase 2 UI calls: POST /api/requests/{requestId}/feedback/submit
+#    d) CLI receives feedback and marks envelope complete
+#    e) CLI sends emailTemplateEndEnvelope (if configured)
+#    f) Status: completed
+#
+# ============================================================================
+# PHASE 2 UI API ENDPOINTS REQUIRED
+# ============================================================================
+# The Phase 2 UI must be able to:
+#
+# 1. GET /api/services/{serviceId}
+#    - Returns service definition with parameter schema
+#    - UI uses schema to render dynamic form fields
+#    - UI validates input against constraints before submission
+#
+# 2. POST /api/requests
+#    - Submit new service request with parameters
+#    - Body: { type: "transcript-of-records", parameters: {...} }
+#    - Returns: { id: "REQ-2025-001", status: "pending_approval" }
+#
+# 3. GET /api/requests/{requestId}
+#    - Retrieve request status and envelope details
+#    - Shows which stage in pipeline (approval, payment, processing, etc.)
+#
+# 4. POST /api/requests/{requestId}/payment-complete
+#    - Called after MAYA payment callback received
+#    - Marks payment envelope as completed
+#    - Triggers transition to processing envelope
+#
+# 5. POST /api/requests/{requestId}/delivery-method
+#    - User selects delivery method (email, physical_mail, pickup)
+#    - Updates delivery envelope with choice
+#    - Triggers delivery process
+#
+# 6. POST /api/requests/{requestId}/feedback/submit
+#    - User submits feedback survey responses
+#    - Body: { ratings: {...}, comments: "..." }
+#    - Marks feedback envelope as completed
+#    - Completes entire service request pipeline
+#
+# 7. GET /api/email-templates
+#    - Phase 2 UI retrieves all templates to customize/create
+#    - Lists SERV-#-envelope-{start|end} template names
+#
+# 8. POST /api/admin/email-templates/{templateId}
+#    - Phase 2 UI creates/updates email templates
+#    - Used to set custom HTML for each envelope phase

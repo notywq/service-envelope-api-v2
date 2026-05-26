@@ -1,8 +1,8 @@
-# Service Envelope System CLI
+# Service Envelope System CLI - v2
 
-A **TypeScript + RxJS-powered orchestration CLI** for processing complex, multi-step service requests in a **configurable, dynamic, and future-proof way**.
+A **TypeScript + RxJS-powered orchestration engine** for processing complex, multi-step service requests in a **configurable, dynamic, and future-proof way**.
 
-This tool executes "envelopes" that simulate a pipeline (discrete processing stages) such as:
+This system executes "envelopes" that simulate a pipeline (discrete processing stages) such as:
 - Request validation
 - Approval routing
 - Payment handling

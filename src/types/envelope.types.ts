@@ -3,6 +3,8 @@
  * Defines the structure of service requests, envelopes, and their states
  */
 
+import { ParameterDefinitions } from './parameter-schema.types.js';
+
 export type Envelope =
   | RequestEnvelope
   | ApprovalEnvelope
@@ -51,11 +53,16 @@ export interface RequestEnvelope extends BaseEnvelope {
   validationStatus: ValidationStatus;
   validationErrors: string[];
   parameters: Record<string, any>;
+  parameterSchema?: ParameterDefinitions; // Schema that defines allowed parameters
 }
 
 export interface ApprovalEnvelope extends BaseEnvelope {
   approvers: Approver[];
   approvalRules: ApprovalRules;
+  emailTemplateStartEnvelope?: string;    // Email template sent when approval starts
+  emailTemplateEndEnvelope?: string;      // Email template sent when approval completes
+  startEmailSentAt?: string;
+  endEmailSentAt?: string;
 }
 
 export interface Approver {
@@ -83,6 +90,10 @@ export interface PaymentEnvelope extends BaseEnvelope {
   paymentMethod: string;
   transactionId?: string;
   paymentGatewayResponse?: any;
+  emailTemplateStartEnvelope?: string;   // Email template sent when payment is required
+  emailTemplateEndEnvelope?: string;     // Email template sent when payment is received
+  startEmailSentAt?: string;
+  endEmailSentAt?: string;
 }
 
 export interface Charge {
@@ -97,58 +108,60 @@ export interface ProcessingEnvelope extends BaseEnvelope {
   currentTask?: string;
   tasks: ProcessingTask[];
   stopOnFailure?: boolean;
+  emailTemplateStartEnvelope?: string;   // Email template sent when processing starts
+  emailTemplateEndEnvelope?: string;     // Email template sent when processing completes
+  startEmailSentAt?: string;
+  endEmailSentAt?: string;
 }
 
 export interface ProcessingTask {
   name: string;
+  type: 'api_call';  // Only api_call is supported
   status: TaskStatus;
   notes?: string;
   startedAt?: string;
   completedAt?: string;
   errorMessage?: string;
-  type?: 'webhook' | 'api_call' | 'custom_function' | 'built_in' | 'generic';
   
-  // Webhook task configuration
-  webhook?: {
-    url: string;
-    method: string;
-    timeout?: number;
-    retries?: number;
-  };
+  // API call task configuration - generic HTTP support
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  url: string;  // Supports {{parameterName}} substitution
+  headers?: Record<string, string>;  // Supports {{parameterName}} substitution
+  payload?: Record<string, any>;  // For POST/PUT - supports {{parameterName}} substitution
+  queryParams?: Record<string, string>;  // For GET/DELETE - supports {{parameterName}} substitution
+  timeout?: number;  // milliseconds, default 30000
+  retries?: number;  // number of retries, default 3
+  successCodes?: number[];  // HTTP success codes, default [200, 201, 204]
   
-  // API call task configuration
-  apiCall?: {
-    url: string;
-    method: string;
-    payload?: Record<string, any>;
-    timeout?: number;
-    retries?: number;
-  };
-  
-  // Custom function task configuration
-  customFunction?: {
-    function: string;
-    parameters?: Record<string, any>;
-  };
-  
-  // Built-in function task configuration
-  builtIn?: {
-    function: string;
-    parameters?: Record<string, any>;
-  };
-  
-  // Response data from executed tasks
-  webhookResponse?: any;
-  webhookError?: string;
-  apiResponse?: any;
-  customFunctionResponse?: any;
+  // Response data from executed task
+  responseStatus?: number;
+  responseData?: any;
+  responseError?: string;
 }
 
 export interface DeliveryEnvelope extends BaseEnvelope {
-  method: DeliveryMethod;
-  details: DeliveryDetails;
+  method?: DeliveryMethod;  // email, physical_mail, or pickup
+  details?: DeliveryDetails;
+  availableMethods?: Record<string, any>;  // Store all available delivery methods from service definition
   deliveryAttempts: number;
   lastAttemptAt?: string;
+  emailTemplateStartEnvelope?: string;   // Email template sent when delivery starts (document ready)
+  emailTemplateEndEnvelope?: string;     // Email template sent when delivery completes
+  startEmailSentAt?: string;
+  endEmailSentAt?: string;
+  // Delivery tracking - history of all status updates
+  currentStatus?: string;  // Latest status: in_transit, out_for_delivery, received, failed, returned
+  lastStatusUpdate?: string;  // ISO timestamp of last update
+  deliveryHistory?: DeliveryStatusUpdate[];  // Array of all status updates
+}
+
+export interface DeliveryStatusUpdate {
+  status: string;  // in_transit, out_for_delivery, received, failed, returned, etc.
+  timestamp: string;  // ISO timestamp
+  location?: string;  // Current location
+  notes?: string;  // Additional notes
+  trackingId?: string;  // Tracking reference
+  updateSequence: number;  // Order in history
 }
 
 export interface DeliveryDetails {
@@ -158,13 +171,19 @@ export interface DeliveryDetails {
     templateId?: string;
     attachmentUrls?: string[];
   };
-  physicalMail?: {
+  physical_mail?: {
     address: string;
+    carrier?: string;  // LBC, JNT, DHL, etc.
     trackingId?: string;
+    requiresSignature?: boolean;
+    estimatedDays?: number;
+    shippedAt?: string;
   };
-  sms?: {
-    phoneNumber: string;
-    message: string;
+  pickup?: {
+    location: string;
+    hoursOfOperation?: string;
+    pickedUpAt?: string;
+    pickupDeadlineAt?: string;
   };
 }
 
@@ -175,20 +194,111 @@ export interface FeedbackEnvelope extends BaseEnvelope {
   autoCloseOnExpiry?: string;
   expiresAt?: string;
   expiryDays?: number;
-  emailTemplateId?: string;
+  emailTemplateStartEnvelope?: string;   // Email template sent with survey invite
+  emailTemplateEndEnvelope?: string;     // Email template sent after feedback submitted
+  startEmailSentAt?: string;
+  endEmailSentAt?: string;
+  feedback?: {
+    ratings?: Record<string, number>;
+    comments?: string;
+    submittedAt?: string;
+  };
 }
 
 // Enums for various statuses
-export type RequestStatus = 'queued' | 'pending_approval' | 'pending_payment' | 'pending_delivery' | 'pending_feedback' |
-  'processing' | 'completed' | 'failed' | 'cancelled' | 'process_pending';
+export type RequestStatus = 'queued' | 'pending_approval' | 'approval_started' | 'pending_payment' | 
+  'payment_started' | 'processing' | 'processing_started' | 'processing_complete' | 'pending_delivery' | 'delivery_started' | 
+  'delivery_complete' | 'pending_feedback' | 'feedback_started' | 'feedback_complete' |
+  'completed' | 'failed' | 'cancelled' | 'process_pending';
 
-export type EnvelopeStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 
-  'waived' | 'skipped'  | 'pending_external' | 'cancelled'; // NEW: waiting on human/external input;
+export type EnvelopeStatus = 'pending' | 'started' | 'in_progress' | 'completed' | 'failed' | 
+  'waived' | 'skipped' | 'pending_external' | 'cancelled';
 
 export type ValidationStatus = 'passed' | 'failed_schema' | 'failed_rules';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'pending_external';
 
-export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'waiting' | 'pending_external'; // NEW: waiting on human/external input
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'waiting' | 'pending_external';
 
-export type DeliveryMethod = 'email' | 'physical_mail' | 'sms' | 'digital_download';
+export type DeliveryMethod = 'email' | 'physical_mail' | 'pickup';
+
+/**
+ * Service Definition Type
+ * Defines the complete structure of a service including all 6 envelopes
+ */
+export interface ServiceDefinition {
+  serviceId: string;
+  type: string; // Used as request.type to link requests to service definition
+  name: string;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  
+  request: {
+    parameters: ParameterDefinitions; // Parameter schema for Phase 2 UI
+  };
+
+  approval: {
+    approvalRules: ApprovalRules;
+    emailTemplateStartEnvelope?: string;  // Email sent when approval process starts
+    emailTemplateEndEnvelope?: string;    // Email sent when approval completes
+    requiresApproval?: boolean;
+  };
+
+  payment?: {
+    required: boolean;
+    paymentProvider?: string;
+    charges: Charge[];
+    emailTemplateStartEnvelope?: string;  // Email sent when payment is required
+    emailTemplateEndEnvelope?: string;    // Email sent when payment received
+  };
+
+  processing?: {
+    tasks: ProcessingTask[];
+    stopOnFailure?: boolean;
+    emailTemplateStartEnvelope?: string;  // Email sent when processing starts
+    emailTemplateEndEnvelope?: string;    // Email sent when processing completes
+  };
+
+  delivery?: {
+    deliveryMethods?: {
+      email?: {
+        enabled: boolean;
+        subject?: string;
+        recipient?: string;
+        attachmentUrls?: string[];
+        defaultTemplate?: string;
+      };
+      physical_mail?: {
+        enabled: boolean;
+        address?: string;
+        carrier?: string;
+        requiresSignature?: boolean;
+        trackingEnabled?: boolean;
+        estimatedDays?: number;
+        costPercentage?: number;
+      };
+      pickup?: {
+        enabled: boolean;
+        location?: string;
+        hoursOfOperation?: string;
+        requiresIDVerification?: boolean;
+        pickupDeadlineDays?: number;
+        notificationRequired?: boolean;
+        notificationTemplate?: string;
+      };
+    };
+    emailTemplateStartEnvelope?: string;  // Email sent when document ready for delivery
+    emailTemplateEndEnvelope?: string;    // Email sent when delivery completes
+  };
+
+  feedback?: {
+    required: boolean;
+    expiryDays?: number;
+    surveyId?: string;
+    emailTemplateStartEnvelope?: string;  // Email sent with survey invite
+    emailTemplateEndEnvelope?: string;    // Email sent after feedback received
+    notificationRequired?: boolean;
+    reminderDaysBefore?: number;
+  };
+}

@@ -1,78 +1,31 @@
 /**
  * Processor for Request Envelopes
- * Handles validation of request parameters and initialization
+ * Initializes request envelope - actual parameter validation happens at POST /api/requests
  */
 
-import { Observable, of, throwError } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { Observable, of } from 'rxjs';
 import { EnvelopeProcessor } from '../core/envelope-processor.js';
 import { RequestEnvelope, ServiceRequest } from '../types/envelope.types.js';
 import { Logger } from 'winston';
-// @ts-ignore - ajv exports for ES modules
-import Ajv from 'ajv';
-// @ts-ignore - ajv-formats exports for ES modules
-import addFormats from 'ajv-formats';
 
 export class RequestProcessor extends EnvelopeProcessor<RequestEnvelope> {
-  private ajv: any;
-
-    constructor(logger: Logger) {
+  constructor(logger: Logger) {
     super(logger);
-    // @ts-ignore - ajv CommonJS/ES module interop
-    this.ajv = new Ajv({ allErrors: true });
-    // @ts-ignore - ajv-formats CommonJS/ES module interop
-    addFormats(this.ajv); // ✅ Adds "date-time", "email", "uri", etc.
   }
 
   protected processInternal(request: ServiceRequest, envelope: RequestEnvelope): Observable<RequestEnvelope> {
-    // Validate request parameters
-    const validationResult = this.validateParameters(envelope.parameters, request.type);
+    // Request envelope is already validated at submission time (POST /api/requests)
+    // This processor simply marks it as completed and initializes the envelope
     
-    if (!validationResult.isValid) {
-      envelope.validationStatus = 'failed_schema';
-      envelope.validationErrors = validationResult.errors;
-      envelope.status = 'failed';
-      return of(envelope);
-    }
-
-    // Mark as completed if validation passes
-    envelope.validationStatus = 'passed';
-    envelope.validationErrors = [];
     envelope.status = 'completed';
     envelope.timestamp = new Date().toISOString();
 
+    this.logger.info(`[REQUEST-INIT] Request ${request.id} | Envelope initialized`);
+    
     return of(envelope);
   }
 
   protected getEnvelopeType(): string {
     return 'Request';
-  }
-
-  /**
-   * Validate request parameters against service-specific schema
-   * This is where you can implement custom validation logic
-   */
-  private validateParameters(parameters: Record<string, any>, serviceType: string): { isValid: boolean; errors: string[] } {
-    const errors: string[] = [];
-
-    // Example validation for course enrollment
-    if (serviceType === 'courseEnrollment') {
-      if (!parameters.studentId) {
-        errors.push('Student ID is required');
-      }
-      if (!parameters.courseCode) {
-        errors.push('Course code is required');
-      }
-      if (!parameters.semester) {
-        errors.push('Semester is required');
-      }
-    }
-
-    // Add more service-specific validations here
-    
-    return {
-      isValid: errors.length === 0,
-      errors
-    };
   }
 }

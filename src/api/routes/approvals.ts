@@ -28,38 +28,59 @@ async function sendPaymentNotificationEmail(request: ServiceRequest) {
 
     // Calculate total amount to pay
     const totalAmount = request.envelopes.payment.charges?.reduce((sum, charge) => sum + charge.amount, 0) || 0;
-    const phase2PaymentLink = `http://localhost:5173/payment?requestId=${request.id}`;
+    const frontendBaseUrl = process.env.FRONTEND_BASE_URL || 'http://localhost:5173';
+    const phase2PaymentLink = `${frontendBaseUrl}/payment?requestId=${request.id}`;
 
     // Try to fetch service-specific payment template
     let htmlTemplate: string | undefined;
+    appContext.logger.debug(`🔍 [PAYMENT-EMAIL-TEMPLATE] Looking up template for service: ${request.type}`);
     
     try {
       // Step 1: Get service definition by type
       const service = await (appContext.stateManager as any).getServiceDefinitionByType(request.type);
       
-      if (service && service.definition?.envelopes?.payment?.emailTemplateId) {
+      if (!service) {
+        appContext.logger.debug(`❌ [PAYMENT-EMAIL-TEMPLATE] Service definition NOT found for type: ${request.type}`);
+      } else if (!service.definition?.envelopes?.payment?.emailTemplateId) {
+        appContext.logger.debug(`❌ [PAYMENT-EMAIL-TEMPLATE] No emailTemplateId configured in YAML`);
+      } else {
         const templateId = service.definition.envelopes.payment.emailTemplateId;
+        appContext.logger.debug(`✅ [PAYMENT-EMAIL-TEMPLATE] Found emailTemplateId in YAML: ${templateId}`);
         
         // Step 2: Fetch the template from MongoDB
         const template = await (appContext.stateManager as any).getEmailTemplate(templateId);
         
-        if (template && template.htmlBody) {
+        if (!template) {
+          appContext.logger.warn(`⚠️  [PAYMENT-EMAIL-TEMPLATE] Template NOT found in MongoDB: ${templateId}`);
+        } else if (!template.htmlBody) {
+          appContext.logger.warn(`⚠️  [PAYMENT-EMAIL-TEMPLATE] Template exists but has no htmlBody: ${templateId}`);
+        } else {
           htmlTemplate = template.htmlBody;
-          appContext.logger.info(`✅ [TEMPLATE-LOOKUP-SUCCESS] Loaded custom payment template: ${templateId}`);
+          appContext.logger.info(`✅ [PAYMENT-EMAIL-SENT] Payment notification template loaded and applied: ${templateId}`);
         }
       }
     } catch (error) {
-      appContext.logger.debug(`📧 Could not load payment template: ${error}`);
+      appContext.logger.error(`❌ [PAYMENT-EMAIL-TEMPLATE] Error loading template: ${error}`);
     }
 
     // Replace placeholders if using custom template
     if (htmlTemplate) {
-      htmlTemplate = htmlTemplate.replace(/\{\{firstName\}\}/g, request.envelopes.request.parameters?.firstName || requestorName);
-      htmlTemplate = htmlTemplate.replace(/\{\{requestId\}\}/g, request.id);
-      htmlTemplate = htmlTemplate.replace(/\{\{totalAmount\}\}/g, totalAmount.toFixed(2));
-      htmlTemplate = htmlTemplate.replace(/\{\{numberOfCopies\}\}/g, request.envelopes.request.parameters?.numberOfCopies || '');
-      htmlTemplate = htmlTemplate.replace(/\{\{purpose\}\}/g, request.envelopes.request.parameters?.purpose || '');
-      htmlTemplate = htmlTemplate.replace(/\{\{paymentLink\}\}/g, phase2PaymentLink);
+      // First replace system-level placeholders
+      let processedHtml = htmlTemplate;
+      processedHtml = processedHtml.replace(/\{\{requestId\}\}/g, request.id);
+      processedHtml = processedHtml.replace(/\{\{totalAmount\}\}/g, totalAmount.toFixed(2));
+      processedHtml = processedHtml.replace(/\{\{paymentLink\}\}/g, phase2PaymentLink);
+      processedHtml = processedHtml.replace(/\{\{firstName\}\}/g, request.envelopes.request.parameters?.firstName || requestorName);
+      
+      // Then replace all service parameters dynamically
+      if (request.envelopes.request.parameters) {
+        Object.entries(request.envelopes.request.parameters).forEach(([key, value]) => {
+          const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+          const stringValue = typeof value === 'string' ? value : (value ? String(value) : '');
+          processedHtml = processedHtml.replace(placeholder, stringValue);
+        });
+      }
+      htmlTemplate = processedHtml;
     }
 
     // Use custom template if available
@@ -248,7 +269,7 @@ router.post('/:token/approve', async (req: Request, res: Response) => {
       appContext.logger.info(`✅ Approval complete for request ${tokenData.requestId} (${ruleType}) - resuming pipeline`);
       
       // Send payment notification email to requestor before resuming
-      sendPaymentNotificationEmail(request);
+      await sendPaymentNotificationEmail(request);
       
       // Resume processing
       appContext.orchestrator.processRequest(request).subscribe({

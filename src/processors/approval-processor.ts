@@ -1,35 +1,138 @@
 /**
  * Processor for Approval Envelopes
- * Handles authorization workflows and approver notifications
+ * Handles authorization workflows and approver notifications with email support
  */
 
 import { Observable, of, forkJoin, from } from 'rxjs';
 import { map, switchMap, tap } from 'rxjs/operators';
 import { EnvelopeProcessor } from '../core/envelope-processor.js';
-import { ApprovalEnvelope, ServiceRequest, Approver } from '../types/envelope.types.js';
+import { ApprovalEnvelope, ServiceRequest, Approver, ServiceDefinition } from '../types/envelope.types.js';
 import { Logger } from 'winston';
 import { ThirdPartyService } from '../services/third-party-service.js';
 import { StateManager } from '../core/state-manager.js';
 import { EmailService } from '../services/email-service.js';
+import { EmailTemplateLoader } from '../utils/email-template-loader.js';
 
 export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
+  private templateLoader: EmailTemplateLoader;
+
   constructor(
     logger: Logger,
     private thirdPartyService: ThirdPartyService,
     private stateManager: StateManager, // 💾 Needed to save state on pause
     private emailService?: EmailService, // Optional email service
-    private uiBaseUrl: string = 'http://localhost:5173', // UI base URL for approval links (Phase 2 Dashboard)
-    private phase2PaymentUrl: string = 'http://localhost:5173' // Phase 2 payment UI base URL
+    private uiBaseUrl: string = process.env.FRONTEND_BASE_URL || 'http://localhost:5173', // UI base URL for approval links (Phase 2 Dashboard)
+    private phase2PaymentUrl: string = process.env.FRONTEND_BASE_URL || 'http://localhost:5173' // Phase 2 payment UI base URL
   ) {
     super(logger);
+    this.templateLoader = new EmailTemplateLoader(stateManager, logger);
   }
 
   protected processInternal(request: ServiceRequest, envelope: ApprovalEnvelope): Observable<ApprovalEnvelope> {
     if (!envelope.required) {
       envelope.status = 'waived';
+      this.logger.info(`[APPROVAL-WAIVED] Request ${request.id} | Approval not required`);
       return of(envelope);
     }
 
+    // On initial start: send start email and transition to pending_external
+    if (envelope.status === 'pending' && !envelope.startEmailSentAt) {
+      return from(this.sendStartEmail(request, envelope)).pipe(
+        switchMap(() => this.requestApprovals(request, envelope))
+      );
+    }
+
+    // If pending_external: keep waiting for approvals
+    if (envelope.status === 'pending_external') {
+      return of(envelope);
+    }
+
+    // If completed: send end email
+    if (envelope.status === 'completed' && !envelope.endEmailSentAt) {
+      return from(this.sendEndEmail(request, envelope)).pipe(
+        map(() => envelope)
+      );
+    }
+
+    return of(envelope);
+  }
+
+  protected getEnvelopeType(): string {
+    return 'Approval';
+  }
+
+  /**
+   * Send approval request start email
+   */
+  private async sendStartEmail(request: ServiceRequest, envelope: ApprovalEnvelope): Promise<void> {
+    try {
+      const serviceDefinition = await (this.stateManager as any).getServiceDefinitionByType(request.type);
+      if (!serviceDefinition?.approval?.emailTemplateStartEnvelope) {
+        this.logger.debug(`[APPROVAL-EMAIL-TEMPLATE] No start email configured for service ${request.type}`);
+        envelope.startEmailSentAt = new Date().toISOString();
+        return;
+      }
+
+      const template = await this.templateLoader.fetchAndRenderTemplate(
+        serviceDefinition.approval.emailTemplateStartEnvelope,
+        request,
+        'Approval'
+      );
+
+      if (template) {
+        await this.emailService?.sendEmail({
+          to: request.envelopes.request.parameters?.initiatorEmail || '',
+          subject: template.subject,
+          html: template.htmlBody,
+        });
+        this.logger.info(`✅ [APPROVAL-EMAIL] Start email sent for request ${request.id}`);
+      }
+
+      envelope.startEmailSentAt = new Date().toISOString();
+    } catch (error) {
+      this.logger.error(`❌ [APPROVAL-EMAIL] Error sending start email: ${(error as Error).message}`);
+      envelope.startEmailSentAt = new Date().toISOString(); // Mark sent anyway to avoid retry loop
+    }
+  }
+
+  /**
+   * Send approval request end email (after all approvals complete)
+   */
+  private async sendEndEmail(request: ServiceRequest, envelope: ApprovalEnvelope): Promise<void> {
+    try {
+      const serviceDefinition = await (this.stateManager as any).getServiceDefinitionByType(request.type);
+      if (!serviceDefinition?.approval?.emailTemplateEndEnvelope) {
+        this.logger.debug(`[APPROVAL-EMAIL-TEMPLATE] No end email configured for service ${request.type}`);
+        envelope.endEmailSentAt = new Date().toISOString();
+        return;
+      }
+
+      const template = await this.templateLoader.fetchAndRenderTemplate(
+        serviceDefinition.approval.emailTemplateEndEnvelope,
+        request,
+        'Approval'
+      );
+
+      if (template) {
+        await this.emailService?.sendEmail({
+          to: request.envelopes.request.parameters?.initiatorEmail || '',
+          subject: template.subject,
+          html: template.htmlBody,
+        });
+        this.logger.info(`✅ [APPROVAL-EMAIL] End email sent for request ${request.id}`);
+      }
+
+      envelope.endEmailSentAt = new Date().toISOString();
+    } catch (error) {
+      this.logger.error(`❌ [APPROVAL-EMAIL] Error sending end email: ${(error as Error).message}`);
+      envelope.endEmailSentAt = new Date().toISOString(); // Mark sent anyway to avoid retry loop
+    }
+  }
+
+  /**
+   * Request approvals from all required approvers
+   */
+  private requestApprovals(request: ServiceRequest, envelope: ApprovalEnvelope): Observable<ApprovalEnvelope> {
     // Send approval requests to all required approvers
     const approvalObservables = envelope.approvers.map(approver =>
       this.requestApproval(request, approver)
@@ -39,29 +142,22 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
       map(approvers => {
         envelope.approvers = approvers;
 
-        // If any approver is still pending_external, pause the whole envelope
+        // If any approver is still pending, pause the whole envelope
         if (approvers.some(a => a.status === 'pending')) {
           envelope.status = 'pending_external';
           envelope.timestamp = new Date().toISOString();
-          // Update request overall status to reflect we're waiting for approval
           request.overallStatus = 'pending_approval';
           this.stateManager.saveRequest(request);
-          this.logger.warn(`\x1b[36m[PAUSED]\x1b[0m due to pending external approvals on request ${request.id}`);
+          this.logger.info(`[APPROVAL-WAIT] Request ${request.id} | Waiting for approvers | Pending: ${approvers.filter((a: any) => a.status === 'pending').length}`);
           return envelope;
         }
 
-        // Otherwise calculate the final status
+        // Calculate final status
         envelope.status = this.calculateApprovalStatus(envelope);
-       // this.logger.info(`${envelope.status.toUpperCase()} - Approval`);
         envelope.timestamp = new Date().toISOString();
         
-        // If approval is now complete, send payment notification to requestor
         if (envelope.status === 'completed') {
-          this.logger.info(`📮 All approvals complete - sending payment notification email to requestor for request ${request.id}`);
-          // Fire-and-forget async call
-          this.sendPaymentNotificationToRequestor(request).catch(err => {
-            this.logger.error(`Error in payment notification: ${(err as Error).message}`);
-          });
+          this.logger.info(`[APPROVAL-COMPLETE] Request ${request.id} | All approvals granted`);
         }
         
         return envelope;
@@ -69,36 +165,29 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
     );
   }
 
-  protected getEnvelopeType(): string {
-    return 'Approval';
-  }
-
   /**
    * Request approval from a specific approver
-   * This integrates with 3rd party notification services
    */
-private requestApproval(request: ServiceRequest, approver: Approver): Observable<Approver> {
-  return from(this.thirdPartyService.sendApprovalRequest(request, approver, this.uiBaseUrl)).pipe(
-    map(result => {
-      if (result.status === 'pending_external') {
-        // Set envelope to pending_external so orchestrator pauses
-        approver.status = 'pending';
-        request.envelopes.approval.status = 'pending_external';
-      }
-      else if(result.status === 'denied') {
-        approver.status = 'denied';
-        approver.deniedAt = new Date().toISOString();
-        request.envelopes.approval.status = 'failed';
-        this.logger.warn(`❌ Approval denied for ${approver.id}`);
-      } else if (result.status === 'approved') {
-        approver.status = 'approved';
-        approver.approvedAt = new Date().toISOString();
-        this.logger.info(`✅ Approval granted by ${approver.id}`);
-      }
-      return approver;
-    })
-  );
-}
+  private requestApproval(request: ServiceRequest, approver: Approver): Observable<Approver> {
+    return from(this.thirdPartyService.sendApprovalRequest(request, approver, this.uiBaseUrl)).pipe(
+      map(result => {
+        if (result.status === 'pending_external') {
+          approver.status = 'pending';
+          request.envelopes.approval.status = 'pending_external';
+        } else if (result.status === 'denied') {
+          approver.status = 'denied';
+          approver.deniedAt = new Date().toISOString();
+          request.envelopes.approval.status = 'failed';
+          this.logger.warn(`[APPROVAL-DENIED] Request ${request.id} | Approver ${approver.id} denied`);
+        } else if (result.status === 'approved') {
+          approver.status = 'approved';
+          approver.approvedAt = new Date().toISOString();
+          this.logger.info(`[APPROVAL-APPROVED] Request ${request.id} | Approver ${approver.id} approved`);
+        }
+        return approver;
+      })
+    );
+  }
 
   /**
    * Calculate overall approval status based on approval rules
@@ -111,7 +200,6 @@ private requestApproval(request: ServiceRequest, approver: Approver): Observable
       return 'failed';
     }
 
-   // this.logger.info(`${envelope.approvalRules.type} - ${approvedCount} approved, ${rejectedCount} denied`);
     switch (envelope.approvalRules.type) {
       case 'all_must_approve':
         return approvedCount === envelope.approvers.length ? 'completed' : 'pending';
@@ -141,125 +229,5 @@ private requestApproval(request: ServiceRequest, approver: Approver): Observable
       default:
         return 'pending';
     }
-  }
-
-  /**
-   * Send payment notification email to requestor after approval is complete
-   */
-  private async sendPaymentNotificationToRequestor(request: ServiceRequest): Promise<void> {
-    try {
-      if (!this.emailService) {
-        this.logger.warn('⚠️  Email service not available - skipping payment notification');
-        return;
-      }
-
-      const requestorEmail = request.envelopes.request.parameters?.initiatorEmail;
-      const requestorName = request.envelopes.request.parameters?.initiatorName || 'Student';
-      
-      if (!requestorEmail) {
-        this.logger.warn(`⚠️  No requestor email found for request ${request.id}`);
-        return;
-      }
-
-      this.logger.info(`💌 Preparing payment notification email for ${requestorEmail}`);
-
-      // Calculate total amount to pay
-      const totalAmount = request.envelopes.payment.charges?.reduce((sum, charge) => sum + charge.amount, 0) || 0;
-      const phase2PaymentLink = `${this.phase2PaymentUrl}/payment?requestId=${request.id}`;
-
-      // Try to fetch service-specific payment template
-      let htmlTemplate: string | undefined;
-      
-      if (this.stateManager) {
-        try {
-          // Step 1: Get service definition by type
-          const service = await (this.stateManager as any).getServiceDefinitionByType(request.type);
-          
-          if (service && service.definition?.envelopes?.payment?.emailTemplateId) {
-            const templateId = service.definition.envelopes.payment.emailTemplateId;
-            
-            // Step 2: Fetch the template from MongoDB
-            const template = await (this.stateManager as any).getEmailTemplate(templateId);
-            
-            if (template && template.htmlBody) {
-              htmlTemplate = template.htmlBody;
-              this.logger.info(`✅ [TEMPLATE-LOOKUP-SUCCESS] Loaded custom payment template: ${templateId}`);
-            } else {
-              this.logger.debug(`📧 Payment template ${templateId} not found or missing htmlBody`);
-            }
-          } else {
-            this.logger.debug(`📧 No payment template configured for service type: ${request.type}`);
-          }
-        } catch (error) {
-          this.logger.debug(`📧 Could not load payment template: ${error}`);
-        }
-      }
-
-      // Use custom template if available, otherwise use default
-      const emailContent = {
-        to: requestorEmail,
-        subject: `Your Request Has Been Approved - Payment Required`,
-        html: htmlTemplate ? this.replacePaymentPlaceholders(htmlTemplate, {
-          firstName: request.envelopes.request.parameters?.firstName || requestorName,
-          requestId: request.id,
-          totalAmount: totalAmount.toFixed(2),
-          numberOfCopies: request.envelopes.request.parameters?.numberOfCopies,
-          purpose: request.envelopes.request.parameters?.purpose,
-          paymentLink: phase2PaymentLink,
-        }) : `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px;">
-              <h2 style="color: #003a70;">✅ Request Approved - Payment Required</h2>
-              
-              <p>Hello ${requestorName},</p>
-              <p>Great news! Your service request has been approved by all required approvers.</p>
-              
-              <div style="background-color: white; padding: 15px; border-left: 4px solid #003a70; margin: 20px 0;">
-                <p><strong>Request ID:</strong> ${request.id}</p>
-                <p><strong>Total Amount Due:</strong> ₱${totalAmount.toFixed(2)}</p>
-                <p><strong>Status:</strong> Ready for Payment</p>
-              </div>
-
-              <p>Please complete the payment through the secure payment gateway:</p>
-              
-              <p style="margin: 20px 0; text-align: center;">
-                <a href="${phase2PaymentLink}" style="background-color: #1976d2; color: white; padding: 14px 40px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold; font-size: 16px;">💳 Proceed to Payment</a>
-              </p>
-
-              <p style="margin-top: 20px; font-size: 13px; color: #666;">
-                This payment is required to complete your service request processing. Once payment is received, your request will be processed and you will receive confirmation via email.
-              </p>
-              
-              <p style="font-size: 11px; color: #999; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
-                Payment link expires in 7 days. If you need assistance, please contact the registrar's office.
-              </p>
-            </div>
-          </div>
-        `,
-      };
-
-      // Send email
-      try {
-        await this.emailService.sendEmail(emailContent);
-        this.logger.info(`📧 Payment notification email sent to ${requestorEmail} for request ${request.id}`);
-      } catch (err) {
-        this.logger.error(`❌ Failed to send payment notification email: ${(err as Error).message}`);
-      }
-
-    } catch (error) {
-      this.logger.error(`Error sending payment notification: ${(error as Error).message}`);
-    }
-  }
-
-  /**
-   * Replace placeholders in payment email template
-   */
-  private replacePaymentPlaceholders(html: string, data: Record<string, any>): string {
-    Object.keys(data).forEach(key => {
-      const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-      const value = data[key];
-      html = html.replace(placeholder, value !== null && value !== undefined ? String(value) : '');
-    });
-    return html;
   }
 }

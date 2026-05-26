@@ -22,7 +22,7 @@ export class ThirdPartyService {
    * Integrates with EmailService to send formatted approval emails with approval/deny links
    * Links redirect to Phase 2 UI (Dashboard) for approvers to handle decisions
    */
-  async sendApprovalRequest(req: ServiceRequest, approver: Approver, uiBaseUrl: string = 'http://localhost:5173'): Promise<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }> {
+  async sendApprovalRequest(req: ServiceRequest, approver: Approver, uiBaseUrl: string = process.env.FRONTEND_BASE_URL || 'http://localhost:5173'): Promise<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }> {
     try {
       // Validate that approver email is present
       if (!approver.id || !approver.id.includes('@')) {

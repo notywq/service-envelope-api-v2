@@ -21,13 +21,6 @@ envelopes:
   approval:
     required: true
     emailTemplateId: SERV-3-approval
-    approvers:
-      - id: barondimaranan@gmail.com
-        role: Head Teller (Required)
-      - id: baron@fowlstudios.com
-        role: Sub Teller 1
-      - id: barbargbf@gmail.com
-        role: Sub Teller 2
     approvalRules:
       type: complex
       requiredApprovers:
@@ -39,6 +32,7 @@ envelopes:
 
   payment:
     required: true
+    emailTemplateId: SERV-3-payment
     paymentProvider: maya
     charges:
       - item: TOR processing fee

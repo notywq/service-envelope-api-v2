@@ -66,4 +66,18 @@ export class StateManager {
     }
     return false;
   }
+
+  /**
+   * Get service definition (implemented in MongoDBStateManager)
+   */
+  async getServiceDefinition(serviceId: string): Promise<any> {
+    throw new Error('Not implemented in base StateManager');
+  }
+
+  /**
+   * Get email template (implemented in MongoDBStateManager)
+   */
+  async getEmailTemplate(templateId: string): Promise<any> {
+    throw new Error('Not implemented in base StateManager');
+  }
 }

@@ -50,11 +50,6 @@ export class MAYAPaymentProvider {
     // Initialize with environment or provided values
     this.apiKey = apiKey || process.env.MAYA_API_KEY || 'pk-test-placeholder';
     this.apiEndpoint = apiEndpoint || process.env.MAYA_API_ENDPOINT || 'https://pg-sandbox.paymaya.com';
-    
-    this.logger.info(`🏧 MAYA Payment Provider initialized`);
-    if (process.env.NODE_ENV === 'development' || process.env.MAYA_MOCK_MODE === 'true') {
-      this.logger.warn(`⚠️  MAYA running in MOCK mode (development)`);
-    }
   }
 
   /**

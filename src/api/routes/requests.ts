@@ -5,6 +5,23 @@
 
 import { Router, Request, Response } from 'express';
 import { appContext } from '../server.js';
+import { ParameterValidator } from '../../utils/parameter-validator.js';
+
+/**
+ * Helper function to transform approval rules into Approver objects
+ * Converts approvalRules.requiredApprovers (string array) into Approver objects
+ */
+function transformApprovalRulesToApprovers(approvalRules: any): any[] {
+  if (!approvalRules?.requiredApprovers || !Array.isArray(approvalRules.requiredApprovers)) {
+    return [];
+  }
+
+  return approvalRules.requiredApprovers.map((role: string) => ({
+    id: role,
+    role: role,
+    status: 'pending',
+  }));
+}
 
 const router = Router();
 
@@ -29,6 +46,16 @@ router.post('/', async (req: Request, res: Response) => {
     if (!serviceDefinition) {
       return res.status(400).json({
         error: `Service type "${type}" not found`,
+      });
+    }
+
+    // Validate parameters against service definition schema
+    const validator = new ParameterValidator(appContext.logger);
+    const validationResult = validator.validateAgainstSchema(parameters, serviceDefinition);
+    if (!validationResult.isValid) {
+      return res.status(400).json({
+        error: 'Invalid parameters',
+        validationErrors: validationResult.errors,
       });
     }
 
@@ -62,7 +89,10 @@ router.post('/', async (req: Request, res: Response) => {
         },
         approval: {
           status: 'pending',
-          approvers: serviceDefinition.definition?.envelopes?.approval?.approvers || [],
+          // Transform approval rules into Approver objects
+          approvers: transformApprovalRulesToApprovers(
+            serviceDefinition.definition?.envelopes?.approval?.approvalRules || {}
+          ),
           approvalRules: serviceDefinition.definition?.envelopes?.approval?.approvalRules || {},
           timestamp: now.toISOString(),
           required: serviceDefinition.definition?.envelopes?.approval?.required !== false,
@@ -82,8 +112,10 @@ router.post('/', async (req: Request, res: Response) => {
         },
         delivery: {
           status: 'queued',
-          method: serviceDefinition.definition?.envelopes?.delivery?.method || 'email',
-          details: serviceDefinition.definition?.envelopes?.delivery?.details || {},
+          // Store all available delivery methods from service definition
+          availableMethods: serviceDefinition.definition?.envelopes?.delivery?.deliveryMethods || {},
+          method: undefined, // User selects method later
+          details: undefined,
           deliveryAttempts: 0,
           timestamp: now.toISOString(),
           required: serviceDefinition.definition?.envelopes?.delivery?.required !== false,
