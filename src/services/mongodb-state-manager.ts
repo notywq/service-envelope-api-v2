@@ -127,6 +127,8 @@ const EmailTemplateSchema = new Schema({
   subject: { type: String, required: true },
   htmlBody: { type: String, required: true },
   description: String,
+  envelopeType: String, // e.g., 'request', 'approval', 'payment', 'processing', 'delivery', 'feedback'
+  phase: String, // e.g., 'confirmation', 'start', 'complete'
   variables: [String], // e.g., ['studentName', 'requestType', 'approverName']
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
@@ -138,6 +140,8 @@ interface EmailTemplateDoc extends Document {
   subject: string;
   htmlBody: string;
   description: string;
+  envelopeType?: string;
+  phase?: string;
   variables: string[];
   createdAt: Date;
   updatedAt: Date;
@@ -467,6 +471,25 @@ export class MongoDBStateManager {
     } catch (error) {
       this.logger.error(`Failed to get email template ${templateId}:`, error);
       return null;
+    }
+  }
+
+  async getEmailTemplateByName(name: string): Promise<any> {
+    try {
+      const doc = await EmailTemplateModel.findOne({ name });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get email template by name ${name}:`, error);
+      return null;
+    }
+  }
+
+  async countEmailTemplates(): Promise<number> {
+    try {
+      return await EmailTemplateModel.countDocuments();
+    } catch (error) {
+      this.logger.error('Failed to count email templates:', error);
+      return 0;
     }
   }
 

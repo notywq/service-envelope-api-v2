@@ -60,7 +60,7 @@ router.post('/services', async (req: Request, res: Response) => {
       updatedAt: new Date().toISOString(),
     };
 
-    appContext.logger.info(`📝 Creating new service: ${type} (${name})`);
+    appContext.logger.info(`📝 Creating new service: ${type} (${name})`);;
 
     // Save to MongoDB
     try {
@@ -223,7 +223,7 @@ router.get('/audit-logs', async (req: Request, res: Response) => {
  */
 router.post('/email-templates', async (req: Request, res: Response) => {
   try {
-    const { id, name, subject, htmlBody, description } = req.body;
+    const { id, name, subject, htmlBody, description, envelopeType, phase } = req.body;
 
     // Validate required fields
     if (!id || !name || !subject || !htmlBody) {
@@ -238,6 +238,8 @@ router.post('/email-templates', async (req: Request, res: Response) => {
       subject,
       htmlBody,
       description: description || '',
+      envelopeType: envelopeType || undefined,
+      phase: phase || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -252,7 +254,13 @@ router.post('/email-templates', async (req: Request, res: Response) => {
       template: {
         id: template.id,
         name: template.name,
+        subject: template.subject,
+        htmlBody: template.htmlBody,
+        description: template.description,
+        envelopeType: template.envelopeType,
+        phase: template.phase,
         createdAt: template.createdAt,
+        updatedAt: template.updatedAt,
       },
     });
   } catch (error: any) {
@@ -270,9 +278,20 @@ router.post('/email-templates', async (req: Request, res: Response) => {
 router.get('/email-templates', async (req: Request, res: Response) => {
   try {
     const templates = await appContext.stateManager.getAllEmailTemplates();
+    const formattedTemplates = templates.map(t => ({
+      id: t.id,
+      name: t.name,
+      subject: t.subject,
+      htmlBody: t.htmlBody,
+      description: t.description,
+      envelopeType: t.envelopeType,
+      phase: t.phase,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    }));
     res.json({
-      templates,
-      total: templates.length,
+      templates: formattedTemplates,
+      total: formattedTemplates.length,
     });
   } catch (error) {
     appContext.logger.error('Error fetching email templates:', error);
@@ -293,7 +312,17 @@ router.get('/email-templates/:templateId', async (req: Request, res: Response) =
       return res.status(404).json({ error: 'Email template not found' });
     }
     
-    res.json(template);
+    res.json({
+      id: template.id,
+      name: template.name,
+      subject: template.subject,
+      htmlBody: template.htmlBody,
+      description: template.description,
+      envelopeType: template.envelopeType,
+      phase: template.phase,
+      createdAt: template.createdAt,
+      updatedAt: template.updatedAt,
+    });
   } catch (error) {
     appContext.logger.error('Error fetching email template:', error);
     res.status(500).json({ error: 'Failed to fetch email template' });
@@ -307,7 +336,7 @@ router.get('/email-templates/:templateId', async (req: Request, res: Response) =
 router.put('/email-templates/:templateId', async (req: Request, res: Response) => {
   try {
     const { templateId } = req.params;
-    const { name, subject, htmlBody, description } = req.body;
+    const { name, subject, htmlBody, description, envelopeType, phase } = req.body;
 
     // Validate required fields
     if (!name || !subject || !htmlBody) {
@@ -322,6 +351,8 @@ router.put('/email-templates/:templateId', async (req: Request, res: Response) =
       subject,
       htmlBody,
       description: description || '',
+      envelopeType: envelopeType || undefined,
+      phase: phase || undefined,
       updatedAt: new Date().toISOString(),
     };
 
@@ -335,6 +366,11 @@ router.put('/email-templates/:templateId', async (req: Request, res: Response) =
       template: {
         id: template.id,
         name: template.name,
+        subject: template.subject,
+        htmlBody: template.htmlBody,
+        description: template.description,
+        envelopeType: template.envelopeType,
+        phase: template.phase,
         updatedAt: template.updatedAt,
       },
     });

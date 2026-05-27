@@ -123,6 +123,8 @@ envelopes:
         description: "Additional remarks or special requests"
         maxLength: 500
         default: ""
+    emailTemplateEndEnvelope: "SERV-999-request-end"
+    emailTemplateCancelEnvelope: "SERV-999-request-cancelled"
 
   approval:
     approvalRules:
@@ -131,12 +133,15 @@ envelopes:
         - barondimaranan@gmail.com
         - baron@fowlstudios.com
     emailTemplateStartEnvelope: "SERV-999-approval-start"
-    emailTemplateEndEnvelope: "SERV-999-approval-end"
+    emailTemplateEndEnvelope: "SERV-999-approval-complete"
+    emailTemplateCancelEnvelope: "SERV-999-request-cancelled"
+    expiryHours: 48
     required: true
 
   payment:
     required: true
     paymentProvider: maya
+    expiryDays: 7
     charges:
       - item: "Document Processing Fee"
         amount: 500
@@ -147,11 +152,12 @@ envelopes:
         currency: PHP
         quantity: 1
     emailTemplateStartEnvelope: "SERV-999-payment-start"
-    emailTemplateEndEnvelope: "SERV-999-payment-end"
+    emailTemplateEndEnvelope: "SERV-999-payment-complete"
+    emailTemplateCancelEnvelope: "SERV-999-request-cancelled"
 
   processing:
     emailTemplateStartEnvelope: "SERV-999-processing-start"
-    emailTemplateEndEnvelope: "SERV-999-processing-end"
+    emailTemplateEndEnvelope: "SERV-999-processing-complete"
     stopOnFailure: true
     tasks:
       - type: api_call
@@ -216,7 +222,7 @@ envelopes:
 
   delivery:
     emailTemplateStartEnvelope: "SERV-999-delivery-start"
-    emailTemplateEndEnvelope: "SERV-999-delivery-end"
+    emailTemplateEndEnvelope: "SERV-999-delivery-complete"
     deliveryMethods:
       email:
         enabled: true
@@ -245,6 +251,6 @@ envelopes:
     required: true
     expiryDays: 14
     emailTemplateStartEnvelope: "SERV-999-feedback-start"
-    emailTemplateEndEnvelope: "SERV-999-feedback-end"
+    emailTemplateEndEnvelope: "SERV-999-feedback-complete"
     notificationRequired: true
     reminderDaysBefore: 3

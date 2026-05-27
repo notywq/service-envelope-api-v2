@@ -4,7 +4,7 @@
  */
 
 import { Observable, of, from } from 'rxjs';
-import { map, switchMap } from 'rxjs/operators';
+import { map } from 'rxjs/operators';
 import { EnvelopeProcessor } from '../core/envelope-processor.js';
 import { FeedbackEnvelope, ServiceRequest } from '../types/envelope.types.js';
 import { Logger } from 'winston';
@@ -37,12 +37,10 @@ export class FeedbackProcessor extends EnvelopeProcessor<FeedbackEnvelope> {
       return of(envelope);
     }
 
-    // On initial start: send survey invite and transition to pending_external
-    if (envelope.status === 'pending' && !envelope.startEmailSentAt) {
-      return from(this.sendStartEmail(request, envelope)).pipe(
-        switchMap(() => this.generateAndSendFeedbackLink(request, envelope)),
-        map(() => envelope)
-      );
+    // On initial start: generate feedback link and transition to pending_external
+    // NOTE: Orchestrator handles email sending via sendEnvelopeEmailTemplate()
+    if (envelope.status === 'pending') {
+      return this.generateAndSendFeedbackLink(request, envelope);
     }
 
     // If pending_external: keep waiting for feedback submission
@@ -50,11 +48,9 @@ export class FeedbackProcessor extends EnvelopeProcessor<FeedbackEnvelope> {
       return of(envelope);
     }
 
-    // If feedback submitted: send thank you email
-    if (envelope.status === 'completed' && !envelope.endEmailSentAt) {
-      return from(this.sendEndEmail(request, envelope)).pipe(
-        map(() => envelope)
-      );
+    // If feedback submitted: just return (orchestrator handles end email)
+    if (envelope.status === 'completed') {
+      return of(envelope);
     }
 
     return of(envelope);
@@ -65,77 +61,15 @@ export class FeedbackProcessor extends EnvelopeProcessor<FeedbackEnvelope> {
   }
 
   /**
-   * Send feedback survey start email
-   */
-  private async sendStartEmail(request: ServiceRequest, envelope: FeedbackEnvelope): Promise<void> {
-    try {
-      const serviceDefinition = await (this.stateManager as any).getServiceDefinitionByType(request.type);
-      if (!serviceDefinition?.feedback?.emailTemplateStartEnvelope) {
-        this.logger.debug(`[FEEDBACK-EMAIL-TEMPLATE] No start email configured for service ${request.type}`);
-        envelope.startEmailSentAt = new Date().toISOString();
-        return;
-      }
-
-      const template = await this.templateLoader.fetchAndRenderTemplate(
-        serviceDefinition.feedback.emailTemplateStartEnvelope,
-        request,
-        'Feedback'
-      );
-
-      if (template) {
-        await this.emailService?.sendEmail({
-          to: request.envelopes.request.parameters?.initiatorEmail || '',
-          subject: template.subject,
-          html: template.htmlBody,
-        });
-        this.logger.info(`[FEEDBACK-INIT] Request ${request.id} | Survey invitation sent`);
-      }
-
-      envelope.startEmailSentAt = new Date().toISOString();
-    } catch (error) {
-      this.logger.error(`[FEEDBACK-ERROR] Request ${request.id} | Failed to send survey: ${(error as Error).message}`);
-      envelope.startEmailSentAt = new Date().toISOString(); // Mark sent anyway
-    }
-  }
-
-  /**
-   * Send feedback survey end email (thank you message)
-   */
-  private async sendEndEmail(request: ServiceRequest, envelope: FeedbackEnvelope): Promise<void> {
-    try {
-      const serviceDefinition = await (this.stateManager as any).getServiceDefinitionByType(request.type);
-      if (!serviceDefinition?.feedback?.emailTemplateEndEnvelope) {
-        this.logger.debug(`[FEEDBACK-EMAIL-TEMPLATE] No end email configured for service ${request.type}`);
-        envelope.endEmailSentAt = new Date().toISOString();
-        return;
-      }
-
-      const template = await this.templateLoader.fetchAndRenderTemplate(
-        serviceDefinition.feedback.emailTemplateEndEnvelope,
-        request,
-        'Feedback'
-      );
-
-      if (template) {
-        await this.emailService?.sendEmail({
-          to: request.envelopes.request.parameters?.initiatorEmail || '',
-          subject: template.subject,
-          html: template.htmlBody,
-        });
-        this.logger.info(`[FEEDBACK-COMPLETE] Request ${request.id} | Thank you email sent`);
-      }
-
-      envelope.endEmailSentAt = new Date().toISOString();
-    } catch (error) {
-      this.logger.error(`[FEEDBACK-ERROR] Request ${request.id} | Failed to send thank you email: ${(error as Error).message}`, error);
-      envelope.endEmailSentAt = new Date().toISOString(); // Mark sent anyway
-    }
-  }
-
-  /**
    * Generate feedback token and send link
    */
-  private async generateAndSendFeedbackLink(request: ServiceRequest, envelope: FeedbackEnvelope): Promise<void> {
+  private generateAndSendFeedbackLink(request: ServiceRequest, envelope: FeedbackEnvelope): Observable<FeedbackEnvelope> {
+    return from(this.doGenerateFeedbackLink(request, envelope)).pipe(
+      map(() => envelope)
+    );
+  }
+
+  private async doGenerateFeedbackLink(request: ServiceRequest, envelope: FeedbackEnvelope): Promise<void> {
     try {
       const token = uuidv4();
       const expiryDays = envelope.expiryDays || 7;

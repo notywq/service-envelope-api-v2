@@ -4,13 +4,13 @@
  * - Email: Send document via email with attachments
  * - Physical Mail: Ship via courier (LBC, JNT, DHL)
  * - Pickup: Mark ready for pickup at designated location
- * Sends delivery start email when beginning, delivery complete email when done
+ * Email sending is handled by the orchestrator via sendEnvelopeEmailTemplate()
  */
 
 import { Observable, of, from } from 'rxjs';
-import { map, switchMap } from 'rxjs/operators';
+import { map } from 'rxjs/operators';
 import { EnvelopeProcessor } from '../core/envelope-processor.js';
-import { DeliveryEnvelope, ServiceRequest, DeliveryMethod } from '../types/envelope.types.js';
+import { DeliveryEnvelope, ServiceRequest } from '../types/envelope.types.js';
 import { Logger } from 'winston';
 import { StateManager } from '../core/state-manager.js';
 import { EmailService } from '../services/email-service.js';
@@ -40,21 +40,16 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
     }
 
     // Check if this is the initial start (status = pending)
-    if (envelope.status === 'pending' && !envelope.startEmailSentAt) {
-      // Send start email (document ready for delivery)
-      return from(this.sendStartEmail(request, envelope)).pipe(
-        switchMap(() => {
-          // After sending start email, wait for delivery method selection
-          envelope.status = 'pending_external';
-          envelope.timestamp = new Date().toISOString();
+    if (envelope.status === 'pending') {
+      // NOTE: Orchestrator handles email sending via sendEnvelopeEmailTemplate()
+      envelope.status = 'pending_external';
+      envelope.timestamp = new Date().toISOString();
 
-          this.logger.info(
-            `[DELIVERY-WAIT] Request ${request.id} | Awaiting delivery method selection`
-          );
-
-          return of(envelope);
-        })
+      this.logger.info(
+        `[DELIVERY-WAIT] Request ${request.id} | Awaiting delivery method selection`
       );
+
+      return of(envelope);
     }
 
     // If pending_external, still waiting for method selection
@@ -68,13 +63,10 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
       envelope.timestamp = new Date().toISOString();
 
       return from(this.executeDelivery(request, envelope)).pipe(
-        switchMap(() => {
-          // After delivery execution, send end email
+        map(() => {
           envelope.status = 'completed';
           envelope.timestamp = new Date().toISOString();
-          return from(this.sendEndEmail(request, envelope)).pipe(
-            map(() => envelope)
-          );
+          return envelope;
         })
       );
     }
@@ -84,96 +76,6 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
 
   protected getEnvelopeType(): string {
     return 'Delivery';
-  }
-
-  /**
-   * Send delivery start email (document ready to be delivered)
-   */
-  private async sendStartEmail(request: ServiceRequest, envelope: DeliveryEnvelope): Promise<void> {
-    try {
-      const serviceDefinition = await this.stateManager.getServiceDefinition(request.type);
-      if (!serviceDefinition?.delivery?.emailTemplateStartEnvelope) {
-        this.logger.debug(`[DELIVERY-INIT] Request ${request.id} | No start email template configured`);
-        return;
-      }
-
-      const template = await this.templateLoader.fetchAndRenderTemplate(
-        serviceDefinition.delivery.emailTemplateStartEnvelope,
-        request,
-        'delivery-start'
-      );
-
-      if (!template) {
-        this.logger.warn(
-          `[DELIVERY-INIT] Request ${request.id} | Failed to load start email template`
-        );
-        return;
-      }
-
-      const requestorEmail = request.envelopes.request.parameters?.email;
-      if (!requestorEmail) {
-        this.logger.warn(`No email address found for requestor in request ${request.id}`);
-        return;
-      }
-
-      if (this.emailService) {
-        await this.emailService.sendEmail({
-          to: requestorEmail,
-          subject: template.subject,
-          html: template.htmlBody,
-        });
-
-        envelope.startEmailSentAt = new Date().toISOString();
-        this.logger.info(`[DELIVERY-INIT] Request ${request.id} | Start notification sent to ${requestorEmail}`);
-      }
-    } catch (error) {
-      this.logger.error(`[DELIVERY-ERROR] Request ${request.id} | Failed to send start email: ${(error as Error).message}`);
-    }
-  }
-
-  /**
-   * Send delivery completion email
-   */
-  private async sendEndEmail(request: ServiceRequest, envelope: DeliveryEnvelope): Promise<void> {
-    try {
-      const serviceDefinition = await this.stateManager.getServiceDefinition(request.type);
-      if (!serviceDefinition?.delivery?.emailTemplateEndEnvelope) {
-        this.logger.debug(`[DELIVERY-COMPLETE] Request ${request.id} | No end email template configured`);
-        return;
-      }
-
-      const template = await this.templateLoader.fetchAndRenderTemplate(
-        serviceDefinition.delivery.emailTemplateEndEnvelope,
-        request,
-        'delivery-end'
-      );
-
-      if (!template) {
-        this.logger.warn(
-          `[DELIVERY-COMPLETE] Request ${request.id} | Failed to load end email template`
-        );
-        return;
-      }
-
-      const requestorEmail = request.envelopes.request.parameters?.email;
-      if (!requestorEmail) {
-        this.logger.warn(`[DELIVERY-EMAIL] Request ${request.id} | No email found for completion notification`);
-        return;
-      }
-
-      if (this.emailService) {
-        await this.emailService.sendEmail({
-          to: requestorEmail,
-          subject: template.subject,
-          html: template.htmlBody,
-        });
-
-        envelope.endEmailSentAt = new Date().toISOString();
-        this.logger.info(`[DELIVERY-COMPLETE] Request ${request.id} | Completion notification sent to ${requestorEmail}`);
-      }
-    } catch (error) {
-      this.logger.error(`[DELIVERY-ERROR] Request ${request.id} | Failed to send completion email: ${(error as Error).message}`);
-    }
   }
 
   /**

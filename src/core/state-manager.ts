@@ -75,9 +75,58 @@ export class StateManager {
   }
 
   /**
+   * Get service definition by type (implemented in MongoDBStateManager)
+   */
+  async getServiceDefinitionByType(type: string): Promise<any> {
+    throw new Error('Not implemented in base StateManager');
+  }
+
+  /**
    * Get email template (implemented in MongoDBStateManager)
    */
   async getEmailTemplate(templateId: string): Promise<any> {
+    throw new Error('Not implemented in base StateManager');
+  }
+
+  /**
+   * Get email template by name (implemented in MongoDBStateManager)
+   */
+  async getEmailTemplateByName(name: string): Promise<any> {
+    throw new Error('Not implemented in base StateManager');
+  }
+
+  /**
+   * Save approval token (implemented in MongoDBStateManager)
+   */
+  async saveApprovalToken(token: string, requestId: string, approverId: string, expiryHours?: number): Promise<void> {
+    throw new Error('Not implemented in base StateManager');
+  }
+
+  /**
+   * Get approval token (implemented in MongoDBStateManager)
+   */
+  async getApprovalToken(token: string): Promise<any> {
+    throw new Error('Not implemented in base StateManager');
+  }
+
+  /**
+   * Get approval tokens by request (implemented in MongoDBStateManager)
+   */
+  async getApprovalTokensByRequest(requestId: string): Promise<any[]> {
+    throw new Error('Not implemented in base StateManager');
+  }
+
+  /**
+   * Mark approval token as used (implemented in MongoDBStateManager)
+   */
+  async markApprovalTokenAsUsed(token: string): Promise<void> {
+    throw new Error('Not implemented in base StateManager');
+  }
+
+  /**
+   * Count email templates (implemented in MongoDBStateManager)
+   */
+  async countEmailTemplates(): Promise<number> {
     throw new Error('Not implemented in base StateManager');
   }
 }

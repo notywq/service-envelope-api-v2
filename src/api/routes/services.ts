@@ -50,6 +50,16 @@ async function submitServiceRequest(serviceId: string, parameters: Record<string
     const requestId = `req-${Date.now()}-${randomUUID().substring(0, 8)}`;
     const now = new Date().toISOString();
 
+    // Extract approvers from approval rules or approvers array
+    const approvalConfig = serviceEnvelopes?.approval;
+    const requiredApprovers = approvalConfig?.approvalRules?.requiredApprovers || approvalConfig?.approvers || [];
+    const approverList: any[] = requiredApprovers.map((approverEmail: string) => ({
+      id: approverEmail,
+      email: approverEmail,
+      role: 'approver',
+      status: 'pending',
+    }));
+
     const envelopes: EnvelopeCollection = {
       request: {
         status: 'in_progress',
@@ -64,7 +74,7 @@ async function submitServiceRequest(serviceId: string, parameters: Record<string
         status: 'pending',
         timestamp: now,
         required: serviceEnvelopes?.approval?.required || false,
-        approvers: serviceEnvelopes?.approval?.approvers || [],
+        approvers: approverList,
         approvalRules: serviceEnvelopes?.approval?.approvalRules || { type: 'all_must_approve' },
       } as ApprovalEnvelope,
       payment: {

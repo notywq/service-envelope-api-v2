@@ -24,6 +24,8 @@ export class APITaskExecutor {
       task.status = 'in_progress';
       task.startedAt = new Date().toISOString();
 
+      console.log(`\n🌐 [API-TASK] Starting: ${task.name}`);
+      console.log(`   Method: ${task.method} ${task.url}`);
       this.logger.info(
         `[PROCESSING-TASK] Starting: ${task.name} (${task.method} ${task.url})`
       );
@@ -34,6 +36,7 @@ export class APITaskExecutor {
       const payload = this.substituteParametersInObject(task.payload || {}, request);
       const queryParams = this.substituteParametersInObject(task.queryParams || {}, request);
 
+      console.log(`   Substituted URL: ${url}`);
       this.logger.debug(
         `[PROCESSING-TASK] Substituted URL: ${url}`
       );
@@ -53,6 +56,7 @@ export class APITaskExecutor {
       // Retry logic
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
+          console.log(`   Attempt ${attempt}/${maxRetries}...`);
           this.logger.debug(
             `[PROCESSING-TASK] Attempt ${attempt}/${maxRetries} for ${task.name}`
           );
@@ -76,6 +80,7 @@ export class APITaskExecutor {
             task.completedAt = new Date().toISOString();
 
             const duration = Date.now() - startTime;
+            console.log(`✅ SUCCESS: ${task.name} | Status ${response.status} | ${duration}ms`);
             this.logger.info(
               `[PROCESSING-TASK] ✅ Completed: ${task.name} (${response.status} in ${duration}ms)`
             );
@@ -91,6 +96,7 @@ export class APITaskExecutor {
             );
 
             if (attempt < maxRetries) {
+              console.log(`⚠️ Attempt ${attempt} failed with HTTP ${response.status}, retrying...`);
               this.logger.warn(
                 `[PROCESSING-TASK] ⚠️ Attempt ${attempt} failed with HTTP ${response.status}, retrying...`
               );
@@ -102,6 +108,7 @@ export class APITaskExecutor {
           lastError = error as AxiosError;
 
           if (attempt < maxRetries) {
+            console.log(`⚠️ Attempt ${attempt} failed: ${(error as Error).message}, retrying...`);
             this.logger.warn(
               `[PROCESSING-TASK] ⚠️ Attempt ${attempt} failed: ${(error as Error).message}, retrying...`
             );
@@ -120,6 +127,7 @@ export class APITaskExecutor {
       task.completedAt = new Date().toISOString();
 
       const duration = Date.now() - startTime;
+      console.log(`❌ FAILED: ${task.name} | Error: ${task.responseError} | ${duration}ms`);
       this.logger.error(
         `[PROCESSING-TASK] ❌ Failed: ${task.name} - ${task.responseError} (${duration}ms)`
       );
@@ -130,6 +138,7 @@ export class APITaskExecutor {
       task.responseError = (error as Error).message;
       task.completedAt = new Date().toISOString();
 
+      console.log(`❌ EXCEPTION: ${task.name} | ${(error as Error).message}`);
       this.logger.error(
         `[PROCESSING-TASK] ❌ Exception in task ${task.name}: ${(error as Error).message}`
       );

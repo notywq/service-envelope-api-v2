@@ -2,30 +2,25 @@
  * Processor for Processing Envelopes
  * Handles API call task execution with parameter substitution
  * Supports GET, POST, PUT, DELETE, PATCH methods
- * Sends start email when processing begins, end email when all tasks complete
+ * Email sending is handled by the orchestrator via sendEnvelopeEmailTemplate()
  */
 
 import { Observable, of, from } from 'rxjs';
-import { map, concatMap, tap, last, switchMap } from 'rxjs/operators';
+import { concatMap, last, tap, map } from 'rxjs/operators';
 import { EnvelopeProcessor } from '../core/envelope-processor.js';
 import { ProcessingEnvelope, ServiceRequest, ProcessingTask } from '../types/envelope.types.js';
 import { Logger } from 'winston';
 import { StateManager } from '../core/state-manager.js';
-import { EmailService } from '../services/email-service.js';
-import { EmailTemplateLoader } from '../utils/email-template-loader.js';
 import { APITaskExecutor } from '../utils/api-task-executor.js';
 
 export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
-  private templateLoader: EmailTemplateLoader;
   private apiExecutor: APITaskExecutor;
 
   constructor(
     logger: Logger,
-    private stateManager: StateManager,
-    private emailService?: EmailService
+    private stateManager: StateManager
   ) {
     super(logger);
-    this.templateLoader = new EmailTemplateLoader(stateManager, logger);
     this.apiExecutor = new APITaskExecutor(logger);
   }
 
@@ -34,16 +29,18 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
     envelope: ProcessingEnvelope
   ): Observable<ProcessingEnvelope> {
     // Check if this is the initial start (status = pending)
-    if (envelope.status === 'pending' && !envelope.startEmailSentAt) {
-      // Send start email
-      return from(this.sendStartEmail(request, envelope)).pipe(
-        switchMap(() => {
-          // After sending start email, process tasks
-          envelope.status = 'in_progress';
-          envelope.timestamp = new Date().toISOString();
-          return this.processTasks(request, envelope);
-        })
+    if (envelope.status === 'pending') {
+      // NOTE: Orchestrator handles email sending via sendEnvelopeEmailTemplate()
+      envelope.status = 'in_progress';
+      envelope.timestamp = new Date().toISOString();
+      this.logger.info(
+        `[PROCESSING-START] Request ${request.id} | Starting processing envelope | ${envelope.tasks.length} tasks to execute`
       );
+      console.log(`\n🔄 [PROCESSING-START] Starting ${envelope.tasks.length} API tasks for request: ${request.id}`);
+      envelope.tasks.forEach((task, idx) => {
+        console.log(`   Task ${idx + 1}: ${task.name || 'UNNAMED'}`);
+      });
+      return this.processTasks(request, envelope);
     }
 
     // If already in_progress, continue processing tasks
@@ -51,11 +48,9 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
       return this.processTasks(request, envelope);
     }
 
-    // If completed and end email not sent, send it
-    if (envelope.status === 'completed' && !envelope.endEmailSentAt) {
-      return from(this.sendEndEmail(request, envelope)).pipe(
-        map(() => envelope)
-      );
+    // If completed, just return (orchestrator handles email)
+    if (envelope.status === 'completed') {
+      return of(envelope);
     }
 
     return of(envelope);
@@ -95,6 +90,9 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
             }
             envelope.currentTask = updatedTask.name;
 
+            const statusIcon = updatedTask.status === 'completed' ? '✅' : updatedTask.status === 'failed' ? '❌' : '⏳';
+            console.log(`${statusIcon} Task ${index + 1}/${envelope.tasks.length}: ${updatedTask.name} - ${updatedTask.status.toUpperCase()}`);
+            
             this.logger.info(
               `[PROCESSING-EXEC] Request ${request.id} | Task ${index + 1}/${envelope.tasks.length} "${updatedTask.name}" | Status: ${updatedTask.status}`
             );
@@ -104,6 +102,7 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
 
             // If stopOnFailure and task failed, we should stop
             if (envelope.stopOnFailure && updatedTask.status === 'failed') {
+              console.log(`\n⛔ [PROCESSING-ABORT] stopOnFailure enabled - aborting remaining tasks`);
               this.logger.error(
                 `[PROCESSING-ABORT] Request ${request.id} | Task "${updatedTask.name}" failed, stopOnFailure enabled`
               );
@@ -118,13 +117,27 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
       map(() => {
         const allCompleted = envelope.tasks.every(t => t.status === 'completed');
         const anyFailed = envelope.tasks.some(t => t.status === 'failed');
+        const completedCount = envelope.tasks.filter((t: any) => t.status === 'completed').length;
+        const failedCount = envelope.tasks.filter((t: any) => t.status === 'failed').length;
 
         envelope.status = anyFailed ? 'failed' : allCompleted ? 'completed' : 'in_progress';
         envelope.currentTask = undefined;
         envelope.timestamp = new Date().toISOString();
 
+        console.log(`\n✅ [PROCESSING-SUMMARY] Request ${request.id} | All ${envelope.tasks.length} API tasks completed`);
+        console.log(`   Status: ${envelope.status.toUpperCase()}`);
+        console.log(`   ✅ Success: ${completedCount}/${envelope.tasks.length}`);
+        if (failedCount > 0) {
+          console.log(`   ❌ Failed: ${failedCount}/${envelope.tasks.length}`);
+          envelope.tasks.forEach((task, idx) => {
+            if (task.status === 'failed') {
+              console.log(`      • Task ${idx + 1}: ${task.name} - ${task.responseError}`);
+            }
+          });
+        }
+
         this.logger.info(
-          `[PROCESSING-COMPLETE] Request ${request.id} | All tasks completed | Status: ${envelope.status} | ${envelope.tasks.filter((t: any) => t.status === 'completed').length}/${envelope.tasks.length} succeeded`
+          `[PROCESSING-COMPLETE] Request ${request.id} | All tasks completed | Status: ${envelope.status} | ${completedCount}/${envelope.tasks.length} succeeded`
         );
 
         return envelope;
@@ -134,104 +147,6 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
 
   protected getEnvelopeType(): string {
     return 'Processing';
-  }
-
-  /**
-   * Send processing started email
-   */
-  private async sendStartEmail(request: ServiceRequest, envelope: ProcessingEnvelope): Promise<void> {
-    try {
-      // Get service definition to find template ID
-      const serviceDefinition = await this.stateManager.getServiceDefinition(request.type);
-      if (!serviceDefinition?.processing?.emailTemplateStartEnvelope) {
-        this.logger.debug(`[PROCESSING-INIT] Request ${request.id} | No start email template configured`);
-        return;
-      }
-
-      // Fetch and render template
-      const template = await this.templateLoader.fetchAndRenderTemplate(
-        serviceDefinition.processing.emailTemplateStartEnvelope,
-        request,
-        'processing-start'
-      );
-
-      if (!template) {
-        this.logger.warn(
-          `[PROCESSING-INIT] Request ${request.id} | Failed to load start email template`
-        );
-        return;
-      }
-
-      // Get requestor email
-      const requestorEmail = request.envelopes.request.parameters?.email;
-      if (!requestorEmail) {
-        this.logger.warn(`No email address found for requestor in request ${request.id}`);
-        return;
-      }
-
-      // Send email
-      if (this.emailService) {
-        await this.emailService.sendEmail({
-          to: requestorEmail,
-          subject: template.subject,
-          html: template.htmlBody,
-        });
-
-        envelope.startEmailSentAt = new Date().toISOString();
-        this.logger.info(`[PROCESSING-INIT] Request ${request.id} | Start email sent | ${envelope.tasks.length} tasks | stopOnFailure=${envelope.stopOnFailure}`);
-      }
-    } catch (error) {
-      this.logger.error(`[PROCESSING-ERROR] Request ${request.id} | Failed to send start email: ${(error as Error).message}`);
-    }
-  }
-
-  /**
-   * Send processing completed email
-   */
-  private async sendEndEmail(request: ServiceRequest, envelope: ProcessingEnvelope): Promise<void> {
-    try {
-      // Get service definition to find template ID
-      const serviceDefinition = await this.stateManager.getServiceDefinition(request.type);
-      if (!serviceDefinition?.processing?.emailTemplateEndEnvelope) {
-        this.logger.debug(`[PROCESSING-COMPLETE] Request ${request.id} | No end email template configured`);
-        return;
-      }
-
-      // Fetch and render template
-      const template = await this.templateLoader.fetchAndRenderTemplate(
-        serviceDefinition.processing.emailTemplateEndEnvelope,
-        request,
-        'processing-end'
-      );
-
-      if (!template) {
-        this.logger.warn(
-          `[PROCESSING-COMPLETE] Request ${request.id} | Failed to load end email template`
-        );
-        return;
-      }
-
-      // Get requestor email
-      const requestorEmail = request.envelopes.request.parameters?.email;
-      if (!requestorEmail) {
-        this.logger.warn(`No email address found for requestor in request ${request.id}`);
-        return;
-      }
-
-      // Send email
-      if (this.emailService) {
-        await this.emailService.sendEmail({
-          to: requestorEmail,
-          subject: template.subject,
-          html: template.htmlBody,
-        });
-
-        envelope.endEmailSentAt = new Date().toISOString();
-        this.logger.info(`[PROCESSING-COMPLETE] Request ${request.id} | Completion email sent to ${requestorEmail}`);
-      }
-    } catch (error) {
-      this.logger.error(`[PROCESSING-ERROR] Request ${request.id} | Failed to send completion email: ${(error as Error).message}`);
-    }
   }
 
   /**

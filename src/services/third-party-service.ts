@@ -84,25 +84,9 @@ export class ThirdPartyService {
         }
       }
 
-      // Send approval email
-      const emailSent = await this.emailService.sendApprovalEmail({
-        approverEmail: approver.id,
-        requestId: req.id,
-        serviceType: req.type,
-        initiatorName: req.initiator,
-        approvalToken: token,
-        approvalLink,
-        denyLink,
-        expiresAt,
-        htmlTemplate, // Pass template if found
-        // Pass request parameters for detailed display
-        ...req.envelopes.request.parameters,
-      });
-
-      if (!emailSent) {
-        this.logger.error(`❌ Failed to send approval email to ${approver.id}`);
-        throw new Error(`Email sending failed for ${approver.id}`);
-      }
+      // NOTE: Email sending is handled by the orchestrator via sendEnvelopeEmailTemplate()
+      // This method only generates the approval token and prepares the approval link
+      this.logger.info(`🔐 Approval request prepared for ${approver.id} | Token: ${token.substring(0, 8)}... | Link: ${approvalLink}`);
 
       // Set approver status to pending and return pending_external
       approver.status = 'pending';

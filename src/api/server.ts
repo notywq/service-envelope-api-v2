@@ -92,8 +92,9 @@ async function initializeApp(): Promise<Express> {
   await stateManager.connect(mongoUri);
 
   // Email templates are managed via the Phase 2 UI and API endpoints
-  // No seeding - system relies on MongoDB templates only
-  logger.info('📧 Email template system: Fetching templates from MongoDB on-demand');
+  // Count templates in MongoDB
+  const templateCount = await stateManager.countEmailTemplates();
+  logger.info(`📧 Email template system: ${templateCount} templates available in MongoDB`);
 
   // Phase 2: All services are loaded exclusively from MongoDB
   const serviceRegistry = new ServiceRegistry(logger, stateManager);
@@ -122,8 +123,8 @@ async function initializeApp(): Promise<Express> {
   const thirdPartyService = new ThirdPartyService(logger, emailService, stateManager as any);
   const requestProcessor = new RequestProcessor(logger);
   const approvalProcessor = new ApprovalProcessor(logger, thirdPartyService, stateManager as any, emailService, uiBaseUrl, phase2PaymentUrl);
-  const paymentProcessor = new PaymentProcessor(logger, thirdPartyService, stateManager as any, emailService);
-  const processingProcessor = new ProcessingProcessor(logger, stateManager as any, emailService);
+  const paymentProcessor = new PaymentProcessor(logger, thirdPartyService, stateManager as any);
+  const processingProcessor = new ProcessingProcessor(logger, stateManager as any);
   const deliveryProcessor = new DeliveryProcessor(logger, stateManager as any, emailService);
   const feedbackProcessor = new FeedbackProcessor(logger, thirdPartyService, stateManager as any, emailService, uiBaseUrl);
 
@@ -184,6 +185,16 @@ async function initializeApp(): Promise<Express> {
       const requestId = `req-${Date.now()}-${randomUUID().substring(0, 8)}`;
       const now = new Date().toISOString();
 
+      // Extract approvers from approval rules or approvers array
+      const approvalConfig = service.envelopes?.approval;
+      const requiredApprovers = approvalConfig?.approvalRules?.requiredApprovers || approvalConfig?.approvers || [];
+      const approverList: any[] = requiredApprovers.map((approverEmail: string) => ({
+        id: approverEmail,
+        email: approverEmail,
+        role: 'approver',
+        status: 'pending',
+      }));
+
       const envelopes: EnvelopeCollection = {
         request: {
           status: 'in_progress',
@@ -198,7 +209,7 @@ async function initializeApp(): Promise<Express> {
           status: 'pending',
           timestamp: now,
           required: service.envelopes?.approval?.required || false,
-          approvers: service.envelopes?.approval?.approvers || [],
+          approvers: approverList,
           approvalRules: service.envelopes?.approval?.approvalRules || { type: 'all_must_approve' },
         } as ApprovalEnvelope,
         payment: {
