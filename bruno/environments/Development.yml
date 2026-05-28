@@ -1,7 +1,0 @@
-vars:
-  baseUrl: http://localhost:8000
-  requestId: req-1234567890-abcdef12
-  serviceId: SERV-1-04152026
-  token: 550e8400-e29b-41d4-a716-446655440000
-  adminToken: ""
-  approverToken: ""

@@ -152,6 +152,30 @@ const EmailTemplateModel = mongoose.model<EmailTemplateDoc>(
   EmailTemplateSchema
 );
 
+// Define Schema Version Schema (NEW - May 29: Track schema evolution)
+const SchemaVersionSchema = new Schema({
+  version: { type: String, unique: true, required: true, index: true },
+  name: { type: String, required: true },
+  description: String,
+  schema: { type: Schema.Types.Mixed, required: true },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+interface SchemaVersionDoc extends Document {
+  version: string;
+  name: string;
+  description?: string;
+  schema: any;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const SchemaVersionModel = mongoose.model<SchemaVersionDoc>(
+  'SchemaVersion',
+  SchemaVersionSchema
+);
+
 export class MongoDBStateManager {
   constructor(private logger: Logger) {}
 
@@ -510,6 +534,57 @@ export class MongoDBStateManager {
     } catch (error) {
       this.logger.error(`Failed to delete email template ${templateId}:`, error);
       return false;
+    }
+  }
+
+  // Schema Version Methods (NEW - May 29: Support schema versioning and evolution)
+  async saveSchemaVersion(version: string, name: string, schema: any, description?: string): Promise<void> {
+    try {
+      await SchemaVersionModel.findOneAndUpdate(
+        { version },
+        {
+          version,
+          name,
+          description,
+          schema,
+          updatedAt: new Date(),
+        },
+        { upsert: true, new: true }
+      );
+      this.logger.debug(`Saved schema version ${version} to MongoDB`);
+    } catch (error) {
+      this.logger.error(`Failed to save schema version ${version}:`, error);
+      throw error;
+    }
+  }
+
+  async getSchemaVersion(version: string): Promise<any> {
+    try {
+      const doc = await SchemaVersionModel.findOne({ version });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get schema version ${version}:`, error);
+      return null;
+    }
+  }
+
+  async getLatestSchemaVersion(): Promise<any> {
+    try {
+      const doc = await SchemaVersionModel.findOne().sort({ updatedAt: -1 });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error('Failed to get latest schema version:', error);
+      return null;
+    }
+  }
+
+  async getAllSchemaVersions(): Promise<any[]> {
+    try {
+      const docs = await SchemaVersionModel.find({}).sort({ updatedAt: -1 });
+      return docs.map(doc => doc.toObject());
+    } catch (error) {
+      this.logger.error('Failed to get all schema versions:', error);
+      return [];
     }
   }
 }

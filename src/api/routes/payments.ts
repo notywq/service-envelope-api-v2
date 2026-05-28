@@ -130,18 +130,25 @@ router.post('/:requestId/complete', async (req: Request, res: Response) => {
     // Save request
     await appContext.stateManager.saveRequest(request);
 
-    appContext.logger.info(`✅ Payment marked complete for request ${requestId} - resuming pipeline`);
+    appContext.logger.info(`✅ Payment marked complete for request ${requestId}`);
     
     // Send payment confirmation email to requestor
     await sendPaymentConfirmationEmail(request, transactionId, amount, method || 'credit_card');
 
-    // Resume orchestration to process next envelopes
+    // Acquire lock and auto-resume orchestrator
+    const lock = await appContext.requestProcessingLock.acquire(requestId);
+    
     appContext.orchestrator.processRequest(request).subscribe({
       next: (result) => {
-        appContext.logger.info(`📊 Request resumed after payment: ${result.id} -> ${result.overallStatus}`);
+        appContext.logger.info(`📊 Request auto-resumed after payment: ${result.id} -> ${result.overallStatus}`);
       },
       error: (err) => {
-        appContext.logger.error(`❌ Error processing request after payment: ${err.message}`);
+        appContext.logger.error(`❌ Error in auto-resume: ${err.message}`);
+        lock.release();
+      },
+      complete: () => {
+        lock.release();
+        appContext.logger.info(`   ℹ️  Orchestrator completed, lock released`);
       },
     });
 
@@ -295,13 +302,22 @@ router.post('/maya', async (req: Request, res: Response) => {
 
       await appContext.stateManager.saveRequest(request);
 
-      // Resume orchestration
+      appContext.logger.info(`✅ Maya payment verified for request ${requestId}`);
+      
+      // Acquire lock and auto-resume orchestrator
+      const lock = await appContext.requestProcessingLock.acquire(requestId);
+      
       appContext.orchestrator.processRequest(request).subscribe({
         next: (result) => {
-          appContext.logger.info(`📊 Request resumed after Maya payment: ${result.id} -> ${result.overallStatus}`);
+          appContext.logger.info(`📊 Request auto-resumed after Maya payment: ${result.id} -> ${result.overallStatus}`);
         },
         error: (err) => {
-          appContext.logger.error(`❌ Error processing request after Maya payment: ${err.message}`);
+          appContext.logger.error(`❌ Error in auto-resume: ${err.message}`);
+          lock.release();
+        },
+        complete: () => {
+          lock.release();
+          appContext.logger.info(`   ℹ️  Orchestrator completed, lock released`);
         },
       });
 

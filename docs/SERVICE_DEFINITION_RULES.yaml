@@ -1,19 +1,110 @@
+# SERVICE DEFINITION RULES - Complete Technical Blueprint v2.0
+# ALIGNED WITH: Service Definition Schema v1.0.1 (May 29, 2026)
+#
+# PURPOSE: This is the DEFINITIVE REFERENCE for all Service Envelope YAML definitions.
+# Every service created with the Service Envelope system MUST follow these rules and patterns.
+# This document is the BIBLE that shows every possible configuration option and constraint.
+#
+# PHILOSOPHY: 
+#   - Type-safe: Every field has explicit type and validation
+#   - Flexible: Services can be minimal (1 envelope) or complex (all 6)
+#   - Powerful: Parameter substitution, conditional delivery, approval workflows
+#   - Documented: Extensive comments explain the "why" and "how"
+#
+# USE THIS DOCUMENT TO:
+#   - Understand all configuration options available
+#   - Learn patterns for your specific service needs
+#   - Find examples of every parameter type and constraint
+#   - Understand envelope flow and responsibilities
+#   - Reference validation rules before testing
+
 # Service Definition Rules
 # Complete specification for creating Service Envelope YAML definitions
 # All new services MUST follow this structure and validation rules
 
 # ============================================================================
+# QUICK START: ARCHITECTURE PATTERN
+# ============================================================================
+# Service Envelope follows a 6-envelope SEQUENTIAL PIPELINE per request:
+#   1. REQUEST    - Collect user parameters (ALWAYS REQUIRED)
+#   2. APPROVAL   - Get approval(s) before proceeding (optional: required: false)
+#   3. PAYMENT    - Collect payment (optional: required: false)
+#   4. PROCESSING - Execute backend tasks/APIs (optional: required: false)
+#   5. DELIVERY   - Send/deliver documents (optional: required: false) ← NEW: Can be empty
+#   6. FEEDBACK   - Collect user feedback (optional: required: false) ← NEW: Can be empty
+#
+# NEW ARCHITECTURE (May 29, 2026):
+# - Delivery details (method, address) now submitted via separate API: POST /api/delivery/{requestId}/details
+# - Delivery is NOT part of request submission (separation of concerns)
+# - Optional envelopes (required:false) can have empty configuration
+# - Backend validates envelope is empty if required:false
+#
+# Example Minimal Service (Clinic Appointment Check-in):
+#   - REQUEST: Required (patient name, email, appointment ID)
+#   - APPROVAL: Not required (skip)
+#   - PAYMENT: Not required (skip)
+#   - PROCESSING: Required (send appointment confirmation email)
+#   - DELIVERY: NOT REQUIRED (appointment is "delivered" via email in processing)
+#   - FEEDBACK: Not required (skip)
+#   Result: Minimal config with only required envelopes filled
+
+# ============================================================================
 # 1. SERVICE METADATA
 # ============================================================================
-serviceId: "SERVICE-001"  # Unique identifier (required, format: UPPERCASE-###)
-type: "transcript-of-records"  # Lowercase with hyphens (required, used to link requests)
-name: "Transcript of Records"  # Display name (required)
-description: "Official transcript request service"  # Optional but recommended
+serviceId: "SERVICE-999"  # REQUIRED: Unique identifier (format: UPPERCASE-###)
+type: "comprehensive-student-document"  # REQUIRED: Lowercase with hyphens (used to link requests)
+name: "Comprehensive Student Document Service"  # REQUIRED: Display name (for UI and logs)
+description: "Request and process comprehensive student documents including academic records, certifications, and official documents"  # Optional but recommended
+
+# ============================================================================
+# OPTIONAL ENVELOPE RULE (New May 29, 2026)
+# ============================================================================
+# RULE: When an envelope has required: false, it can be EMPTY (no configuration)
+#       Backend will automatically skip the envelope and move to next one
+#       No validation errors for empty optional envelopes
+#
+# EXAMPLES:
+# 
+# Example 1: Service with NO DELIVERY needed (e.g., Clinic Appointment)
+# delivery:  # Optional envelope - use if needed
+#   required: false  # Skip this envelope completely
+#   # No other config needed - can be empty
+#
+# Example 2: Service with MINIMAL FEEDBACK (not required)
+# feedback:
+#   required: false  # Skip this envelope
+#   # Empty config is fine
+#
+# Example 3: Service with NO APPROVAL needed (rare)
+# approval:
+#   required: false  # Skip approval step
+#   # Empty config is fine
+#
+# RULE: If required: false and you want to keep envelope empty:
+#   - Set ONLY: required: false
+#   - Leave all other keys empty or omit them
+#   - Backend treats as "skip this envelope"
+#
+# RULE: If required: false and you want to configure it (unusual):
+#   - Provide full configuration as normal
+#   - If condition met, envelope is processed
+#   - If condition not met (e.g., user doesn't select), skip is graceful
+
+---
 
 # ============================================================================
 # 2. REQUEST ENVELOPE - PARAMETER SCHEMA DEFINITION
 # ============================================================================
 # 
+# REQUEST PURPOSE: Collect user input via form fields
+# REQUEST FLOW:
+#   1. Phase 2 UI retrieves service definition: GET /api/services/{serviceId}
+#   2. UI renders form based on parameter schema
+#   3. UI validates input against constraints before submission
+#   4. User submits form: POST /api/services/{serviceId}/submit
+#   5. Backend validates again (defense in depth)
+#   6. Request stored with status: pending_approval (or next envelope)
+#
 # RULES for Request Parameters:
 # - Parameters are STRONGLY TYPED using the schema system
 # - Phase 2 UI generates form fields based on parameter schema
@@ -22,24 +113,67 @@ description: "Official transcript request service"  # Optional but recommended
 # - Each parameter should have 'description' for UI help text
 #
 # SUPPORTED PARAMETER TYPES:
-#   - String      (text input)
-#   - Number      (numeric input with constraints)
-#   - Boolean     (toggle/checkbox)
-#   - Date        (date picker)
-#   - Dropdown    (select with options)
-#   - Radio       (single choice from options)
-#   - Checkboxes  (multiple choice from options)
+#   - String      (text input, supports minLength, maxLength, pattern)
+#   - Number      (numeric input, supports min, max, step)
+#   - Boolean     (toggle/checkbox, supports default true/false)
+#   - Date        (date picker, supports format, min, max)
+#   - Dropdown    (select with options, supports searchable, clearable)
+#   - Radio       (single choice visible options, supports default)
+#   - Checkboxes  (multiple choice, supports minSelected, maxSelected)
+#
+# IMPORTANT: DELIVERY IS SUBMITTED SEPARATELY (NEW May 29, 2026)
+# - Request envelope collects ONLY user parameters (name, ID, purpose, etc.)
+# - Delivery method and details submitted SEPARATELY via: POST /api/delivery/{requestId}/details
+# - This separation allows delivery to fail independently without affecting request
+# - Benefits: Request can complete even if delivery details missing; on-demand processing
+#
+# DELIVERY SUBMISSION FLOW (NEW May 29):
+# 1. User submits request with parameters: POST /api/services/{serviceId}/submit
+#    Body: { type: "service-type", parameters: { studentId: "...", firstName: "...", ... } }
+#    Returns: { id: "REQ-2025-001", status: "pending_approval" }
+# 2. Later, user submits delivery details: POST /api/delivery/{requestId}/details
+#    Body: { deliveryMethod: "physical_mail", deliveryDetails: { mailingAddress: "..." } }
+# 3. Delivery envelope uses both: method + details stored from separate API
+
+---
+
+# ============================================================================
+# REQUEST ENVELOPE - COMPLETE PARAMETER TYPES AND EXAMPLES
+# ============================================================================
 
 request:
   parameters:
+
     # ========================================================================
-    # STRING TYPE
+    # STRING PARAMETER TYPE - Text Input Field
     # ========================================================================
-    # RULES:
-    #   - minLength: minimum character count
-    #   - maxLength: maximum character count
-    #   - pattern: regex pattern for validation
-    #   - default: default value if not provided
+    # PURPOSE: Collect short text input from user (names, IDs, emails, etc.)
+    # UI RENDERING: Single-line text box, NOT multiline textarea
+    # VALIDATION FIELDS:
+    #   - minLength: minimum characters (optional, type: number)
+    #   - maxLength: maximum characters (optional, type: number)
+    #   - pattern: regex pattern for validation (optional, must be valid JavaScript regex)
+    #   - default: default value if user doesn't provide (optional, must be string)
+    #
+    # REGEX PATTERNS REFERENCE:
+    #   - Email: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$" (simplified RFC 5322)
+    #   - Phone (PH): "^(\\+63|0)\\d{9,10}$"
+    #   - Student ID: "^[0-9]{4}-[0-9]{5}$" (YYYY-NNNNN format)
+    #   - Alphanumeric: "^[a-zA-Z0-9]+$"
+    #   - Uppercase only: "^[A-Z]+$"
+    #   - Numbers only: "^[0-9]+$"
+    #
+    # EXAMPLES:
+
+    studentId:
+      type: String
+      required: true
+      description: "Student ID (e.g., 2020-00123)"
+      minLength: 8
+      maxLength: 15
+      pattern: "^[0-9]{4}-[0-9]{5}$"  # Format: YYYY-NNNNN (year dash 5-digit number)
+      default: ""
+
     firstName:
       type: String
       required: true
@@ -54,105 +188,204 @@ request:
       description: "Student's last name"
       minLength: 2
       maxLength: 50
+      default: ""
 
-    mailingAddress:
+    email:
+      type: String
+      required: true
+      description: "Student email address for notifications and feedback"
+      minLength: 5
+      maxLength: 100
+      pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"  # RFC 5322 simplified
+      default: ""
+
+    remarks:
+      type: String
+      required: false  # Optional parameter - user may skip
+      description: "Additional remarks or special requests (max 500 chars)"
+      maxLength: 500
+      default: ""
+      # Note: No pattern = any characters allowed
+      # Note: No minLength = can be empty string if required: false
+
+    # String field with restricted character set
+    institution:
       type: String
       required: false
-      description: "Mailing address for physical delivery"
-      maxLength: 200
+      description: "Institution or company name"
+      minLength: 1
+      maxLength: 100
+      pattern: "^[a-zA-Z\\s\\-,.&'()]+$"  # Only letters, spaces, hyphens, commas, periods, &, quotes, parens
 
     # ========================================================================
-    # NUMBER TYPE
+    # NUMBER PARAMETER TYPE - Numeric Input
     # ========================================================================
-    # RULES:
-    #   - min: minimum value
-    #   - max: maximum value
-    #   - step: increment step for spinners (default: 1)
-    #   - default: default value if not provided
+    # PURPOSE: Collect integer or decimal numbers
+    # UI RENDERING: Number input field with optional spinner buttons
+    # VALIDATION FIELDS:
+    #   - min: minimum value (inclusive, optional)
+    #   - max: maximum value (inclusive, optional)
+    #   - step: increment step for spinners/arrow keys (optional, default: 1)
+    #   - default: default numeric value (optional)
+    #
+    # IMPORTANT: step controls what values are valid
+    #   - step: 1 = only integers (1, 2, 3, ..., 10)
+    #   - step: 0.1 = one decimal place (0.1, 0.2, ..., 1.0)
+    #   - step: 0.01 = two decimal places (0.01, 0.02, ..., 1.00)
+    #
+    # EXAMPLES:
+
     numberOfCopies:
       type: Number
       required: true
-      description: "Number of document copies needed"
-      min: 1
-      max: 10
-      step: 1
+      description: "Number of physical copies needed"
+      min: 1  # Minimum 1 copy
+      max: 10  # Maximum 10 copies
+      step: 1  # Only whole numbers (not 2.5)
       default: 1
 
     processingDays:
       type: Number
       required: false
-      description: "Desired processing time in days"
+      description: "Desired processing time in days (optional)"
       min: 1
       max: 30
       step: 1
+      default: 5
+
+    amount:
+      type: Number
+      required: false
+      description: "Custom amount (for flexible payment services)"
+      min: 100
+      max: 50000
+      step: 1  # PHP amounts are whole numbers
+      default: 1000
 
     # ========================================================================
-    # BOOLEAN TYPE
+    # BOOLEAN PARAMETER TYPE - Toggle/Checkbox
     # ========================================================================
-    # RULES:
-    #   - default: true or false (default: false)
-    # NO additional validation rules
+    # PURPOSE: Binary yes/no decision (enable/disable features)
+    # UI RENDERING: Toggle switch or checkbox
+    # VALIDATION FIELDS:
+    #   - default: true or false (optional, default: false)
+    #
+    # IMPORTANT: Boolean has NO additional constraints - binary choice only
+    #
+    # EXAMPLES:
+
     isUrgent:
       type: Boolean
       required: false
-      description: "Mark this request as urgent"
+      description: "Rush processing (additional fee applies)"
+      default: false
+
+    emailCopy:
+      type: Boolean
+      required: false
+      description: "Send me a copy of my request confirmation email"
+      default: true
+
+    needsNotarization:
+      type: Boolean
+      required: false
+      description: "Add notarization to documents (+₱500 fee)"
       default: false
 
     # ========================================================================
-    # DATE TYPE
+    # DATE PARAMETER TYPE - Date Picker
     # ========================================================================
-    # RULES:
+    # PURPOSE: Calendar date selection
+    # UI RENDERING: Date picker calendar
+    # VALIDATION FIELDS:
     #   - format: Date format (YYYY-MM-DD, DD-MM-YYYY, MM-DD-YYYY, ISO8601)
-    #   - min: earliest allowed date (optional)
-    #   - max: latest allowed date (optional)
-    #   - default: default date (optional)
+    #   - min: earliest allowed date (optional, ISO format: YYYY-MM-DD)
+    #   - max: latest allowed date (optional, ISO format: YYYY-MM-DD)
+    #   - default: default date (optional, ISO format: YYYY-MM-DD)
+    #
+    # FORMAT OPTIONS:
+    #   - YYYY-MM-DD: International standard (2026-05-29)
+    #   - DD-MM-YYYY: European format (29-05-2026)
+    #   - MM-DD-YYYY: American format (05-29-2026)
+    #   - ISO8601: Full timestamp (2026-05-29T14:30:00Z)
+    #
+    # STORAGE: Always stored as ISO8601 internally regardless of format
+    #
+    # EXAMPLES:
+
     requestDate:
       type: Date
       required: true
       description: "Date of the request"
       format: YYYY-MM-DD
-      min: "2020-01-01"
-      max: "2030-12-31"
+      min: "2020-01-01"  # Cannot request documents from very old dates
+      max: "2030-12-31"  # Future limit
+      default: ""  # Empty - user must select current date or near past
 
     targetDeliveryDate:
       type: Date
       required: false
-      description: "Desired delivery date"
+      description: "Preferred delivery date"
       format: YYYY-MM-DD
-      min: "2026-05-27"
+      min: "2026-05-29"  # Cannot be before today
+      default: ""
 
     # ========================================================================
-    # DROPDOWN TYPE
+    # DROPDOWN PARAMETER TYPE - Select (Single Choice from List)
     # ========================================================================
-    # RULES:
-    #   - options: Array of strings OR objects with label/value pairs
-    #   - searchable: Allow searching in dropdown (default: true)
-    #   - clearable: Allow clearing selection (default: false)
-    #   - default: default selected value (must match an option)
-    # If options are objects:
-    #   - label: Display text
-    #   - value: Actual value to submit
-    #   - disabled: Disable this option (optional)
+    # PURPOSE: Selecting ONE option from a list (searchable select)
+    # UI RENDERING: Dropdown select box with search capability
+    # VALIDATION FIELDS:
+    #   - options: Array of option objects OR array of strings (required)
+    #   - searchable: Allow typing to filter options (optional, default: true)
+    #   - clearable: Allow clearing selection (optional, default: false)
+    #   - default: default selected value (optional, must match option value)
+    #
+    # OPTION OBJECT STRUCTURE:
+    #   - label: Display text shown to user (required)
+    #   - value: Actual value submitted to backend (required, supports {{parameterName}})
+    #   - disabled: Disable this option from selection (optional, default: false)
+    #
+    # USE CASES:
+    #   1. Simple string options - for small lists (dropdown with string values)
+    #   2. Object options with label/value - for complex or large lists (separate display from value)
+    #
+    # DIFFERENCE FROM RADIO:
+    #   - Dropdown: For 6+ options, appears as collapsed list, searchable
+    #   - Radio: For 2-5 options, appears as visible buttons
+    #
+    # EXAMPLES:
+
     purpose:
       type: Dropdown
       required: true
-      description: "Purpose of the request"
-      searchable: true
-      clearable: false
+      description: "Purpose for requesting documents"
+      searchable: true  # Allow user to type "employ" to find "Employment"
+      clearable: false  # Don't allow empty selection after choosing
       options:
-        - Employment
-        - Graduate School
-        - Scholarship
-        - Professional License
-        - Personal Use
-        - Other
-      default: "Employment"
+        - label: "Employment"
+          value: "employment"
+        - label: "Graduate School Admission"
+          value: "graduate_admission"
+        - label: "Scholarship Application"
+          value: "scholarship"
+        - label: "Professional License"
+          value: "professional_license"
+        - label: "Personal Records"
+          value: "personal_records"
+        - label: "Government Application"
+          value: "government_app"
+        - label: "Other"
+          value: "other"
+      default: "employment"  # Pre-select most common option
 
-    # Complex dropdown with label/value pairs
-    program:
+    # Dropdown with disabled options
+    academicProgram:
       type: Dropdown
-      required: true
-      description: "Academic program"
+      required: false
+      description: "Your academic program (optional)"
+      searchable: true  # Search through programs
+      clearable: true  # Allow clearing after selection
       options:
         - label: "Bachelor of Science in Computer Science"
           value: "BSCS"
@@ -160,243 +393,351 @@ request:
           value: "BSIT"
         - label: "Master of Science in Computer Science"
           value: "MSCS"
-        - label: "Doctorate in Computer Science"
+        - label: "Doctor of Philosophy in Computer Science (Archived)"
           value: "PhD-CS"
-          disabled: false
+          disabled: true  # User cannot select this option
+      default: ""  # No default selection
 
     # ========================================================================
-    # RADIO TYPE
+    # RADIO PARAMETER TYPE - Single Choice with Visible Options
     # ========================================================================
-    # RULES:
-    #   - options: Array of strings OR objects with label/value pairs
-    #   - Only ONE selection allowed
-    #   - Must have at least one option
-    #   - default: default selected value
-    deliveryMode:
-      type: Radio
-      required: true
-      description: "How to deliver the document"
-      options:
-        - label: "Email"
-          value: "email"
-        - label: "Physical Mail"
-          value: "mail"
-        - label: "Pick-up in Person"
-          value: "pickup"
-      default: "email"
+    # PURPOSE: Selecting ONE option from a SMALL list (visible radio buttons)
+    # UI RENDERING: Radio buttons (all visible at once)
+    # VALIDATION FIELDS:
+    #   - options: Array of option objects OR array of strings (required)
+    #   - default: default selected value (optional)
+    #
+    # IMPORTANT DIFFERENCES FROM DROPDOWN:
+    #   - Radio displays ALL options visible (no search/dropdown)
+    #   - Better UX for 2-5 options
+    #   - Dropdown better for 6+ options
+    #   - Radio: user sees all choices at once
+    #   - Dropdown: user searches/scrolls to find choice
+    #
+    # USE CASES:
+    #   - Document type (Original, Certified Copy, etc.)
+    #   - Urgency level (Normal, Rush)
+    #   - Any small set of mutually exclusive choices
+    #
+    # EXAMPLES:
 
     documentType:
       type: Radio
       required: true
-      description: "Type of document"
+      description: "Type of document needed"
       options:
-        - Original
-        - Certified Copy
-        - Duplicate Original
+        - label: "Original"
+          value: "original"
+        - label: "Certified Copy"
+          value: "certified_copy"
+        - label: "Duplicate Original"
+          value: "duplicate_original"
+      default: "certified_copy"
 
     # ========================================================================
-    # CHECKBOXES TYPE
+    # CHECKBOXES PARAMETER TYPE - Multiple Choices
     # ========================================================================
-    # RULES:
-    #   - options: Array of strings OR objects with label/value pairs
-    #   - Multiple selections allowed
+    # PURPOSE: Selecting MULTIPLE options from a list
+    # UI RENDERING: Checkboxes (multiple can be checked)
+    # VALIDATION FIELDS:
+    #   - options: Array of option objects OR array of strings (required)
     #   - minSelected: Minimum number of selections required (optional)
     #   - maxSelected: Maximum number of selections allowed (optional)
-    #   - default: Array of default selected values (optional)
-    requiredDocuments:
+    #   - default: Array of default selected values (optional, must match option values)
+    #
+    # IMPORTANT: Returns ARRAY of values, not single value
+    #   - Result: ["academic_record", "official_transcript"]
+    #   - Not: "academic_record" (single string)
+    #
+    # USE CASES:
+    #   - Document types (select multiple)
+    #   - Services (select multiple features)
+    #   - Certifications (select multiple credentials)
+    #
+    # EXAMPLES:
+
+    documentTypes:
       type: Checkboxes
       required: true
-      description: "Select all required documents"
-      minSelected: 1
-      maxSelected: 5
+      description: "Select all required documents (must select 1-5)"
+      minSelected: 1  # User must select at least 1
+      maxSelected: 5  # User cannot select more than 5
       options:
-        - Academic Record
-        - Diploma Copy
-        - Transcript of Records
-        - Certificate of Enrollment
-        - Good Moral Character
+        - label: "Academic Record"
+          value: "academic_record"
+        - label: "Official Transcript"
+          value: "official_transcript"
+        - label: "Enrollment Verification"
+          value: "enrollment_verification"
+        - label: "Certificate of Good Standing"
+          value: "certificate_good_standing"
+        - label: "Diploma Copy"
+          value: "diploma_copy"
       default:
-        - "Transcript of Records"
+        - "academic_record"  # Pre-select these by default
+        - "official_transcript"
 
-    # Complex checkboxes with label/value pairs
-    services:
+    additionalServices:
       type: Checkboxes
-      required: false
-      description: "Additional services"
-      minSelected: 0
-      maxSelected: 3
+      required: false  # Optional - user may select none
+      description: "Add optional services (optional, additional fees apply)"
+      minSelected: 0  # User can select zero options
+      maxSelected: 3  # User can select up to 3 options
       options:
-        - label: "Rush Processing"
+        - label: "Notarization (+₱500)"
+          value: "notarization"
+        - label: "Certified Translation (+₱1500)"
+          value: "translation"
+        - label: "Rush Processing (+₱800)"
           value: "rush"
-        - label: "Notarization"
-          value: "notarize"
-        - label: "Special Packaging"
-          value: "special_package"
-        - label: "Insurance"
-          value: "insurance"
+        - label: "Special Courier (+₱300)"
+          value: "special_courier"
+      default: []  # No default selections (empty array)
+
+# ==================================================================
+# END REQUEST ENVELOPE
+# ==================================================================
 
 # ============================================================================
-# 3. APPROVAL ENVELOPE
+# 3. APPROVAL ENVELOPE - Authorization Workflow
 # ============================================================================
-# RULES:
-#   - approvalRules: REQUIRED - defines who must approve
-#   - emailTemplateStartEnvelope: Template ID for approval request email (SERV-#-approval-start)
-#   - emailTemplateEndEnvelope: Template ID for approval completion email (SERV-#-approval-end)
-#   - Must specify either specific_approver OR all_must_approve OR complex rules
+#
+# APPROVAL PURPOSE: Enforce authorization checks before proceeding
+# APPROVAL FLOW:
+#   1. Request comes in and moves to approval envelope (if required: true)
+#   2. Backend sends emailTemplateStartEnvelope to specified approvers
+#   3. Approvers use Phase 2 UI or email links to approve/deny
+#   4. If approval condition met: send emailTemplateEndEnvelope to requestor, proceed
+#   5. If approval condition NOT met: mark request as denied, stop pipeline
 #
 # APPROVAL RULE TYPES:
-#   1. all_must_approve: Every person in requiredApprovers must approve
-#   2. any_one: First person to approve moves request forward
-#   3. specific_approver: Single designated approver
-#   4. complex: Combines required approvers (all must approve) + atLeastOneOf (one from group)
+#   1. all_must_approve - Every approver in the list must approve (AND logic)
+#   2. any_one - Any single approver can approve (OR logic)
+#   3. specific_approver - Only ONE specific person can approve
+#   4. complex - Multiple conditions with AND/OR combinations
 #
-# EMAIL TIMING:
-#   - emailTemplateStartEnvelope: Sent when approval process starts (to approvers)
-#   - emailTemplateEndEnvelope: Sent after approval completes (to requestor)
+# VALIDATION REQUIREMENTS:
+#   - At least one requiredApprovers email must be provided
+#   - Email addresses must be valid format
+#   - emailTemplateStartEnvelope must exist in MongoDB
+#   - emailTemplateEndEnvelope must exist in MongoDB
+#
+# EXAMPLES:
 
 approval:
-  # Rule Type 1: All must approve
+  required: true
+  
+  # ===== RULE TYPE 1: ALL MUST APPROVE =====
+  # PATTERN: Every person in list must approve (AND logic)
+  # USE CASE: High-security operations, multiple sign-offs required
   approvalRules:
     type: all_must_approve
     requiredApprovers:
-      - registrar
-      - department_head
-
-  # Alternative: Rule Type 2: Any one approval
+      - registrar@mapua.edu.ph      # First approver must approve AND
+      - dean@mapua.edu.ph           # Second approver must approve AND
+      - compliance@mapua.edu.ph     # Third approver must approve
+  
+  # ===== RULE TYPE 2: ANY ONE =====
+  # PATTERN: Any single approver can approve (OR logic)
+  # USE CASE: Multiple people available, any one can sign off
   # approvalRules:
   #   type: any_one
   #   requiredApprovers:
-  #     - registrar
-  #     - assistant_registrar
-
-  # Alternative: Rule Type 3: Specific approver only
+  #     - supervisor1@company.com   # OR
+  #     - supervisor2@company.com   # OR
+  #     - supervisor3@company.com   # Any one can approve
+  
+  # ===== RULE TYPE 3: SPECIFIC APPROVER =====
+  # PATTERN: Only ONE specific person can approve
+  # USE CASE: Only department head can approve
   # approvalRules:
   #   type: specific_approver
-  #   specificApprover: registrar
-
-  # Alternative: Rule Type 4: Complex rules (required + at least one)
+  #   specificApprover: department-head@mapua.edu.ph
+  
+  # ===== RULE TYPE 4: COMPLEX =====
+  # PATTERN: Multiple conditions with AND/OR combinations
+  # USE CASE: Department approval + finance approval required
   # approvalRules:
   #   type: complex
   #   requiredApprovers:
-  #     - registrar  # MUST approve
+  #     - department-head@mapua.edu.ph  # Must approve AND
+  #     - finance-manager@mapua.edu.ph  # Must approve
   #   atLeastOneOf:
-  #     - dean
-  #     - vice_dean
-  #     - academic_director
-  #   # Means: registrar MUST approve AND at least one of (dean, vice_dean, academic_director)
+  #     - director@mapua.edu.ph         # At least one director
+  #     - vice-director@mapua.edu.ph    # approval
+  
+  emailTemplateStartEnvelope: "SERV-999-approval-start"    # Email to approvers: "Please review and approve"
+  emailTemplateEndEnvelope: "SERV-999-approval-end"        # Email to requestor: "Your request approved"
 
-  emailTemplateStartEnvelope: SERV-3-approval-start   # Email sent to approvers when process starts
-  emailTemplateEndEnvelope: SERV-3-approval-end       # Email sent to requestor when approved
-  requiresApproval: true
+# Alternative: Optional approval (skip this envelope)
+# approval:
+#   required: false
 
 # ============================================================================
-# 4. PAYMENT ENVELOPE
+# 4. PAYMENT ENVELOPE - Collect Money Before Proceeding
 # ============================================================================
-# RULES:
-#   - required: true/false - is payment required for this service
-#   - paymentProvider: Payment gateway (maya, stripe, gcash, etc.)
-#   - charges: Array of charge items with amount and currency
-#   - emailTemplateStartEnvelope: Template sent when payment is due (SERV-#-payment-start)
-#   - emailTemplateEndEnvelope: Template sent when payment is received (SERV-#-payment-end)
 #
-# CHARGE RULES:
-#   - item: Description of the charge
-#   - amount: Cost in smallest currency unit (e.g., cents for USD, pesos for PHP)
-#   - currency: ISO 4217 code (PHP, USD, etc.)
-#   - quantity: Number of units (optional, default: 1)
+# PAYMENT PURPOSE: Collect payment before processing request
+# PAYMENT FLOW:
+#   1. If payment.required = true, request enters payment envelope
+#   2. Backend calculates total from charges (amount × quantity)
+#   3. Backend sends emailTemplateStartEnvelope with payment link
+#   4. Requestor completes payment via MAYA (or other provider)
+#   5. Payment provider sends callback webhook to CLI
+#   6. Backend verifies payment received in MongoDB
+#   7. Backend sends emailTemplateEndEnvelope confirming payment
+#   8. Request proceeds to processing envelope
 #
-# EMAIL TIMING:
-#   - emailTemplateStartEnvelope: Sent to requestor when payment is required
-#   - emailTemplateEndEnvelope: Sent to requestor when payment is received
+# CHARGE CALCULATION:
+#   - Each charge: amount × quantity = item total
+#   - Total amount = sum of all item totals
+#   - Amount in smallest currency unit: PHP 500 = ₱5.00, not ₱500.00
+#   - Quantity can be dynamic (set per request if parameter conditional)
+#
+# PAYMENT PROVIDERS:
+#   - maya: MAYA payment gateway (Philippines, most common)
+#   - stripe: Stripe (international, USD/multiple currencies)
+#   - gcash: GCash (Philippines, mobile wallet)
+#
+# VALIDATION REQUIREMENTS:
+#   - If required: true, must have at least one charge
+#   - Each charge must have: item (string), amount (number > 0), currency (string)
+#   - amount must be > 0 if quantity > 0
+#   - paymentProvider must be recognized (maya, stripe, gcash)
+#   - emailTemplateStartEnvelope must exist in MongoDB
+#   - emailTemplateEndEnvelope must exist in MongoDB
+#
+# EXAMPLES:
 
 payment:
   required: true
   paymentProvider: maya
+  
+  # Charges array: list of items with costs
   charges:
+    # Fixed charge: Same cost regardless of quantity
     - item: "Document Processing Fee"
-      amount: 500
+      amount: 500  # PHP 5.00
       currency: PHP
-      quantity: 1
-    - item: "Delivery Charge"
-      amount: 150
+      quantity: 1  # Fixed: always 1
+    
+    # Variable charge: Cost depends on user selection
+    - item: "Number of Copies"
+      amount: 100  # PHP 1.00 per copy
       currency: PHP
-    - item: "Notarization (per page)"
-      amount: 50
+      quantity: 0  # 0 means dynamic (set per request based on {{numberOfCopies}} parameter)
+    
+    # Conditional charge: Only added if user selects it
+    - item: "Notarization"
+      amount: 500  # PHP 5.00
       currency: PHP
-      quantity: 0  # Dynamic, set per request if notarization selected
-  emailTemplateStartEnvelope: SERV-3-payment-start    # Email with payment link sent to requestor
-  emailTemplateEndEnvelope: SERV-3-payment-end        # Confirmation email after payment received
+      quantity: 0  # 0 means conditional (add only if {{needsNotarization}} = true)
+    
+    # Delivery charge: Based on selected delivery method
+    - item: "Physical Delivery"
+      amount: 150  # PHP 1.50 for mail
+      currency: PHP
+      quantity: 0  # 0 means dynamic (add if deliveryMethod = physical_mail)
+  
+  emailTemplateStartEnvelope: SERV-999-payment-start    # Email with payment link: "Please pay ₱X.XX"
+  emailTemplateEndEnvelope: SERV-999-payment-end        # Email confirmation: "Payment received"
 
-# Alternative: No payment required
+# Alternative: No payment required (free service)
 # payment:
 #   required: false
 
 # ============================================================================
-# 5. PROCESSING ENVELOPE
+# 5. PROCESSING ENVELOPE - Execute Backend Tasks
 # ============================================================================
-# RULES:
-#   - tasks: Array of API call tasks to execute sequentially
-#   - stopOnFailure: Stop pipeline if any task fails (default: true)
-#   - emailTemplateStartEnvelope: Template sent when processing starts (SERV-#-processing-start)
-#   - emailTemplateEndEnvelope: Template sent when processing completes (SERV-#-processing-end)
 #
-# API TASK RULES:
-#   - type: MUST be "api_call"
-#   - name: Descriptive name of the task
-#   - method: HTTP method (GET, POST, PUT, DELETE, PATCH)
-#   - url: API endpoint URL (supports {{parameterName}} substitution)
-#   - headers: Key-value pairs for HTTP headers (supports {{parameterName}} substitution)
-#   - payload: Request body (for POST/PUT, supports {{parameterName}} substitution)
-#   - queryParams: Query string parameters (for GET/DELETE, supports {{parameterName}})
-#   - timeout: Timeout in milliseconds (default: 30000)
-#   - retries: Number of retry attempts on failure (default: 3)
-#   - successCodes: Array of HTTP status codes to consider success (default: [200, 201, 204])
+# PROCESSING PURPOSE: Execute automatic backend tasks (API calls, integrations)
+# PROCESSING FLOW:
+#   1. Request enters processing envelope
+#   2. Backend sends emailTemplateStartEnvelope to requestor
+#   3. Backend executes all tasks in SEQUENCE (one after another)
+#   4. Each task makes HTTP call to external API
+#   5. Task success/failure depends on successCodes
+#   6. If stopOnFailure=true AND a task fails: stop pipeline, mark failed
+#   7. If stopOnFailure=false: skip failed task, continue to next
+#   8. After all tasks complete: send emailTemplateEndEnvelope
+#   9. Request proceeds to delivery envelope
 #
-# PARAMETER SUBSTITUTION:
-#   All string values support {{parameterName}} which will be replaced with values from request
-#   Examples: {{studentId}}, {{numberOfCopies}}, {{firstName}}, etc.
+# TASK EXECUTION GUARANTEE:
+#   - Tasks are executed SEQUENTIALLY (one completes before next starts)
+#   - {{parameterName}} substitution happens before each API call
+#   - Retries happen per-task (each task can retry independently)
+#   - Task timeout is per-task (each task has independent timeout)
 #
-# EMAIL TIMING:
-#   - emailTemplateStartEnvelope: Sent to requestor when processing begins
-#   - emailTemplateEndEnvelope: Sent to requestor when all tasks complete
+# HTTP METHOD GUIDE:
+#   - GET: Retrieve data (no body, use queryParams for filters)
+#   - POST: Create data (use payload for body data)
+#   - PUT: Update entire resource (use payload for replacement data)
+#   - PATCH: Partial update (use payload for partial updates)
+#   - DELETE: Remove data (usually no body, use queryParams if needed)
+#
+# VALIDATION REQUIREMENTS:
+#   - All tasks must have type: "api_call"
+#   - Each task must have: name, method, url, timeout, retries
+#   - method must be one of: GET, POST, PUT, DELETE, PATCH
+#   - url must be valid HTTPS endpoint
+#   - timeout >= 10000 (minimum 10 seconds recommended)
+#   - retries >= 0 (0 = no retries, run once)
+#   - successCodes must be array of valid HTTP status codes
+#   - emailTemplateStartEnvelope must exist in MongoDB
+#   - emailTemplateEndEnvelope must exist in MongoDB
+#
+# EXAMPLES:
 
 processing:
-  emailTemplateStartEnvelope: SERV-3-processing-start   # Email sent when processing starts
-  emailTemplateEndEnvelope: SERV-3-processing-end       # Email sent when processing completes
-  stopOnFailure: true  # Stop if any task fails
+  emailTemplateStartEnvelope: "SERV-999-processing-start"   # Email: "Processing started"
+  emailTemplateEndEnvelope: "SERV-999-processing-end"       # Email: "Processing complete"
+  stopOnFailure: true  # Stop pipeline if ANY task fails (set to false to skip failures)
 
   tasks:
-    # Task 1: Verify Student (GET)
+    # Task 1: GET - Verify student exists in external system
     - type: api_call
-      name: "Verify Student Enrollment"
+      name: "Verify Student Enrollment Status"
+      description: "Check if student is currently enrolled"
       method: GET
-      url: "https://student-records.mapua.edu.ph/api/students/{{studentId}}/enrollment"
+      url: "https://student-records.mapua.edu.ph/api/students/{{studentId}}/status"
       headers:
         Authorization: "Bearer {{apiToken}}"
         Accept: "application/json"
-      timeout: 15000
-      retries: 2
-      successCodes: [200, 201]
+      queryParams:
+        # GET parameters go here (appear in URL as ?key=value&key2=value2)
+        detailed: "true"
+        includeArchived: "false"
+      timeout: 15000      # 15 seconds max
+      retries: 2          # Retry up to 2 times if fails
+      successCodes: [200] # Only 200 is success; 404 means student not found
 
-    # Task 2: Pull Student Transcript (POST)
+    # Task 2: POST - Generate transcript document
     - type: api_call
-      name: "Generate Student Transcript"
+      name: "Generate Official Transcript"
+      description: "Create transcript PDF from student records"
       method: POST
-      url: "https://student-records.mapua.edu.ph/api/transcripts"
+      url: "https://student-records.mapua.edu.ph/api/documents/generate-transcript"
       headers:
         Authorization: "Bearer {{apiToken}}"
         Content-Type: "application/json"
+        X-Request-ID: "{{requestId}}"  # Include request ID for tracing
+      # For POST, use payload for request body
       payload:
         studentId: "{{studentId}}"
+        firstName: "{{firstName}}"
+        lastName: "{{lastName}}"
         numberOfCopies: "{{numberOfCopies}}"
+        documentType: "official_transcript"
         format: "PDF"
         purpose: "{{purpose}}"
-      timeout: 30000
+      timeout: 45000  # 45 seconds (document generation may be slow)
       retries: 3
+      successCodes: [200, 201]  # 200=success, 201=created
 
-    # Task 3: Update Request Status (PUT)
+    # Task 3: PUT - Update request status in legacy system
     - type: api_call
-      name: "Update Request Status in Legacy System"
+      name: "Update Legacy System Request Status"
+      description: "Mark request as processed in old database"
       method: PUT
       url: "https://legacy-system.mapua.edu.ph/api/requests/{{requestId}}"
       headers:
@@ -404,390 +745,854 @@ processing:
         Content-Type: "application/json"
       payload:
         status: "processing_complete"
-        completedAt: "{{currentTimestamp}}"
-        notes: "Transcript generated successfully"
-      timeout: 10000
+        processedAt: "{{currentTimestamp}}"
+        processedBy: "service-envelope-system"
+        notes: "Documents generated successfully"
+      timeout: 20000
       retries: 2
+      successCodes: [200]
 
-    # Task 4: Notify External Service (POST with query params)
+    # Task 4: DELETE - Clean up temporary files
     - type: api_call
-      name: "Notify Third-Party Service"
-      method: POST
-      url: "https://external-service.com/api/notifications"
-      queryParams:
-        webhookId: "MAPUA-TOR-001"
-        source: "transcript-service"
+      name: "Cleanup Temporary Processing Files"
+      description: "Remove temporary files after processing"
+      method: DELETE
+      url: "https://document-storage.mapua.edu.ph/api/temp/{{requestId}}"
       headers:
-        X-API-Key: "{{externalServiceKey}}"
+        Authorization: "Bearer {{storageToken}}"
+      timeout: 10000
+      retries: 1
+      successCodes: [200, 204]  # 204=No Content (file already deleted)
+
+    # Task 5: PATCH - Notify analytics system with partial update
+    - type: api_call
+      name: "Record Analytics Event"
+      description: "Send processing completion event to analytics"
+      method: PATCH
+      url: "https://analytics.mapua.edu.ph/api/events/{{requestId}}"
+      headers:
+        Authorization: "Bearer {{analyticsToken}}"
         Content-Type: "application/json"
       payload:
-        eventType: "transcript_processed"
-        requestId: "{{requestId}}"
-        studentId: "{{studentId}}"
-        documentUrl: "https://documents.mapua.edu.ph/{{requestId}}/transcript.pdf"
-      timeout: 20000
-      retries: 3
-      successCodes: [200, 201, 202]
+        eventType: "document_processed"
+        timestamp: "{{currentTimestamp}}"
+        documentCount: "{{numberOfCopies}}"
+        purpose: "{{purpose}}"
+      timeout: 5000  # Short timeout for non-critical analytics
+      retries: 1
+      successCodes: [200, 202]  # 202=Accepted (async processing)
+
+---
 
 # ============================================================================
-# 6. DELIVERY ENVELOPE
+# 6. DELIVERY ENVELOPE - Send/Deliver Documents (OPTIONAL - NEW May 29)
 # ============================================================================
-# RULES:
-#   - deliveryMethods: Array of delivery options (email, physical_mail, pickup)
-#   - emailTemplateStartEnvelope: Template sent when document is ready (SERV-#-delivery-start)
-#   - emailTemplateEndEnvelope: Template sent when delivery confirmed (SERV-#-delivery-end)
 #
-# DELIVERY METHOD RULES:
-#   1. EMAIL:
-#      - subject: Email subject (supports {{parameterName}} substitution)
-#      - recipient: Email address (supports {{parameterName}})
-#      - attachmentUrls: Array of document URLs to attach
-#      - defaultTemplate: Template to use if not customized
+# DELIVERY PURPOSE: Deliver processed documents to requestor via chosen method
+# DELIVERY ARCHITECTURE (NEW - May 29, 2026):
+#   - Delivery method and details submitted SEPARATELY via: POST /api/delivery/{requestId}/details
+#   - NOT part of request submission (separation of concerns)
+#   - Delivery envelope can be COMPLETELY EMPTY if not needed (required: false)
 #
-#   2. PHYSICAL_MAIL:
-#      - address: Mailing address (supports {{parameterName}})
-#      - requiresSignature: true/false - courier needs signature
-#      - trackingEnabled: true/false - provide tracking number
-#      - carrier: Courier name (e.g., "LBC", "JNT", "DHL")
-#      - estimatedDays: Estimated delivery days
-#      - costPercentage: Additional cost % for physical delivery
+# DELIVERY FLOW:
+#   1. Request completes processing, moves to delivery envelope
+#   2. Phase 2 UI calls: POST /api/delivery/{requestId}/details
+#      Body: { deliveryMethod: "physical_mail", deliveryDetails: { mailingAddress: "..." } }
+#   3. Backend stores delivery method and details
+#   4. Backend sends emailTemplateStartEnvelope to requestor
+#   5. Delivery method determines how document is sent:
+#      a) EMAIL: Send via email immediately with attachments
+#      b) PHYSICAL_MAIL: Queue for courier (LBC, JNT, DHL)
+#      c) PICKUP: Flag as ready for in-person pickup
+#   6. Requestor or system updates delivery status (processing → ready → transit → delivered)
+#   7. Backend tracks status via POST /api/delivery-status/{requestId}
+#   8. When delivery confirmed (status code 3): send emailTemplateEndEnvelope
+#   9. Request proceeds to feedback envelope
 #
-#   3. PICKUP:
-#      - location: Physical pickup location/address
-#      - hoursOfOperation: Pickup hours
-#      - requiresIDVerification: true/false
-#      - pickupDeadlineDays: Days until pickup window closes
-#      - notificationRequired: true/false - notify when ready for pickup
+# DELIVERY STATUS CODES:
+#   0 = processing: Preparing document (generating PDFs, compiling files)
+#   1 = ready_to_deliver: Document ready, queued for shipment
+#   2 = out_for_delivery: In transit (for physical/email in progress)
+#   3 = delivered: Recipient received document (triggers completion)
 #
-# EMAIL TIMING:
-#   - emailTemplateStartEnvelope: Sent to requestor when document is ready
-#   - emailTemplateEndEnvelope: Sent when delivery is confirmed/completed
+# DELIVERY METHOD TYPES:
+#   1. EMAIL - Instant delivery via email
+#      - No user input needed
+#      - Document sent immediately to {{email}} parameter
+#      - Attachments included from attachmentUrls
+#
+#   2. PHYSICAL_MAIL - Courier/postal delivery
+#      - Requires user to provide mailing address
+#      - Fields define what data to collect (usually mailingAddress)
+#      - carrier: LBC, JNT, DHL, etc.
+#      - costPercentage: Adds to total payment if selected
+#      - trackingEnabled: Generates tracking number
+#      - requiresSignature: Recipient must sign for delivery
+#
+#   3. PICKUP - In-person pickup at location
+#      - Requestor picks up document at specified location
+#      - Requires ID verification at pickup
+#      - Fields usually empty (no address needed)
+#      - notificationRequired: Email when ready for pickup
+#
+# OPTIONAL DELIVERY (NEW May 29):
+#   - If delivery not needed for your service:
+#     delivery:
+#       required: false
+#   - Useful for: appointments, digital services, info requests
+#   - Pipeline automatically skips delivery envelope
+#   - Request goes directly to feedback (or completes if no feedback)
+#
+# VALIDATION REQUIREMENTS:
+#   - If required: true, must have at least one enabled deliveryMethod
+#   - If required: false, can be completely empty
+#   - Each method: enabled (boolean), and method-specific config
+#   - Email must have: subject, recipient, attachmentUrls
+#   - Physical mail must have: carrier, estimatedDays
+#   - Pickup must have: location, hoursOfOperation
+#   - emailTemplateStartEnvelope must exist in MongoDB
+#   - emailTemplateEndEnvelope must exist in MongoDB
+#
+# EXAMPLES:
 
 delivery:
-  emailTemplateStartEnvelope: SERV-3-delivery-start    # "Document ready for delivery" email
-  emailTemplateEndEnvelope: SERV-3-delivery-end        # "Delivery confirmed" email
+  required: true
+  emailTemplateStartEnvelope: "SERV-999-delivery-start"     # Email: "Document ready to be sent"
+  emailTemplateEndEnvelope: "SERV-999-delivery-end"         # Email: "Delivery completed"
+  
+  # Status Code Reference (sent via POST /api/delivery-status/{requestId})
+  # Use this to track delivery progress:
+  # 0 = processing (generating, compiling documents)
+  # 1 = ready_to_deliver (ready for courier pickup or email send)
+  # 2 = out_for_delivery (in transit to recipient)
+  # 3 = delivered (recipient received it) - TRIGGERS EMAIL END + REQUEST COMPLETION
   
   deliveryMethods:
-    # Method 1: Email Delivery
+    
+    # ===== EMAIL METHOD =====
+    # Instant delivery: Document emailed to requestor
     email:
-      enabled: true
-      subject: "Your {{purpose}} is Ready"
-      recipient: "{{email}}"
+      enabled: true                  # Is this delivery method available?
+      subject: "Your Processed Documents - {{firstName}} {{lastName}}"
+      recipient: "{{email}}"         # Uses email from request parameters
       attachmentUrls:
         - "https://documents.mapua.edu.ph/{{requestId}}/transcript.pdf"
-        - "https://documents.mapua.edu.ph/{{requestId}}/cover_letter.pdf"
-      defaultTemplate: SERV-3-delivery-email
-
-    # Method 2: Physical Mail Delivery
+        - "https://documents.mapua.edu.ph/{{requestId}}/academic_record.pdf"
+      fields: {}                     # No additional user input needed
+    
+    # ===== PHYSICAL MAIL METHOD =====
+    # Courier delivery: Document shipped via courier service
     physical_mail:
       enabled: true
-      address: "{{mailingAddress}}"
-      requiresSignature: false
-      trackingEnabled: true
-      carrier: "LBC"  # Logistics company
-      estimatedDays: 3
-      costPercentage: 20  # 20% additional cost for physical delivery
-      requiresApprovalBeforeShip: true
-
-    # Method 3: Pick-up Delivery
+      carrier: "LBC"                 # Courier name (LBC, JNT, DHL, PHL Post)
+      estimatedDays: 5               # Typical delivery time
+      costPercentage: 15             # Add 15% to total payment if this method chosen
+      requiresApprovalBeforeShip: true   # Admin must approve before courier pickup
+      requiresSignature: false       # Recipient must sign on delivery
+      trackingEnabled: true          # Generate tracking number for customer
+      # Form fields for user input when selecting this method
+      fields:
+        mailingAddress:
+          type: String
+          required: true
+          label: "Mailing Address"
+          description: "Full address where documents will be shipped"
+          maxLength: 300
+          placeholder: "Street, City, Province, Postal Code, Country"
+    
+    # ===== PICKUP METHOD =====
+    # In-person pickup: Requestor picks up at designated location
     pickup:
       enabled: true
       location: "MAPUA Registrar's Office, Room 201, Ground Floor"
       hoursOfOperation: "Monday-Friday, 8:00 AM - 5:00 PM"
-      requiresIDVerification: true
-      pickupDeadlineDays: 30
-      notificationRequired: true
-      notificationTemplate: SERV-3-delivery-pickup-ready
+      requiresIDVerification: true   # Must show ID to pickup
+      pickupDeadlineDays: 30         # Document held for 30 days, then discarded
+      notificationRequired: true     # Email when ready for pickup
+      fields: {}                     # No user input needed
+
+# Alternative: No delivery envelope (for appointments, info-only requests)
+# delivery:
+#   required: false
 
 # ============================================================================
-# 7. FEEDBACK ENVELOPE
+# 7. FEEDBACK ENVELOPE - Collect User Feedback (OPTIONAL - NEW May 29)
 # ============================================================================
-# RULES:
-#   - required: true/false - is feedback required
-#   - expiryDays: Days before feedback link expires (optional, default: 30)
-#   - surveyId: ID of survey tool integration
-#   - emailTemplateStartEnvelope: Template sent to request feedback (SERV-#-feedback-start)
-#   - emailTemplateEndEnvelope: Template sent after feedback received (SERV-#-feedback-end)
-#   - notificationRequired: Send email reminder before expiry (default: false)
-#   - reminderDaysBefore: Days before expiry to send reminder (default: 3)
 #
-# EMAIL TIMING:
-#   - emailTemplateStartEnvelope: Sent to requestor with feedback survey link
-#   - emailTemplateEndEnvelope: Sent to requestor when feedback is received (optional thank you)
+# FEEDBACK PURPOSE: Gather user satisfaction/feedback after delivery
+# FEEDBACK ARCHITECTURE (NEW):
+#   - Feedback envelope can be COMPLETELY EMPTY if not needed (required: false)
+#   - Auto-close: Request auto-closes after N hours even if no feedback submitted
+#   - Expiry: Feedback link becomes inactive after N days
 #
-# API ROUTE (Phase 2 UI):
-#   POST /api/requests/{requestId}/feedback/submit
-#   - Purpose: Finalize feedback and mark feedback envelope as complete
-#   - Body: {
-#       ratings: { question1: 5, question2: 4, ... },
-#       comments: "User feedback text",
-#       submittedAt: "ISO8601 timestamp"
-#     }
-#   - Response: { success: true, message: "Feedback recorded" }
-#   - Updates: request.envelopes.feedback.status = "completed"
-#   - Triggers: Send emailTemplateEndEnvelope (if configured)
+# FEEDBACK FLOW:
+#   1. Request enters feedback envelope (if required: true)
+#   2. Backend sends emailTemplateStartEnvelope with feedback survey link
+#   3. Requestor fills survey via Phase 2 UI (optional: can leave feedback unanswered)
+#   4. If autoCloseAfterHours > 0: Request auto-closes after N hours
+#      - Auto-close sends emailTemplateStartEnvelope with "feedback period ended" message
+#      - Request moves to completed status (can still submit feedback until expiryDays)
+#   5. If user submits feedback before deadline:
+#      - Backend marks envelope as complete
+#      - Sends emailTemplateEndEnvelope to requestor
+#   6. After expiryDays: Feedback link expires, cannot submit anymore
+#   7. Request completes
+#
+# AUTO-CLOSE vs EXPIRY:
+#   - autoCloseAfterHours: Request marked "completed" after N hours
+#     (but can still submit feedback until expiryDays)
+#   - expiryDays: Feedback link dies after N days
+#     (regardless of whether auto-closed or not)
+#   - Example: autoCloseAfterHours: 24, expiryDays: 7
+#     → Request auto-closes at 24h, but feedback link still valid until day 7
+#
+# OPTIONAL FEEDBACK (NEW May 29):
+#   - If feedback not needed for your service:
+#     feedback:
+#       required: false
+#   - Useful for: services with followup calls, internal processes, testing
+#   - Pipeline automatically skips feedback envelope
+#   - Request completes immediately (no waiting for feedback)
+#
+# VALIDATION REQUIREMENTS:
+#   - If required: true, expiryDays must be positive (1-365)
+#   - autoCloseAfterHours: optional (0 or omit means no auto-close)
+#   - notificationRequired: optional (send reminder emails before expiry)
+#   - reminderDaysBefore: only valid if notificationRequired: true
+#   - emailTemplateStartEnvelope must exist in MongoDB
+#   - emailTemplateEndEnvelope must exist in MongoDB
+#
+# EXAMPLES:
 
 feedback:
   required: true
-  expiryDays: 30
-  surveyId: SURVEY-TOR-001
-  emailTemplateStartEnvelope: SERV-3-feedback-start    # Survey invitation email
-  emailTemplateEndEnvelope: SERV-3-feedback-end        # Thank you email after feedback
+  
+  # Auto-close after 24 hours (request marked completed, but feedback still accepted)
+  autoCloseAfterHours: 24
+  
+  # Feedback link expires after 7 days (cannot submit after this date)
+  expiryDays: 7
+  
+  emailTemplateStartEnvelope: "SERV-999-feedback-start"     # Email: "Please take 2-minute survey"
+  emailTemplateEndEnvelope: "SERV-999-feedback-end"         # Email: "Thank you for feedback"
+  
+  # Send reminder email? (optional)
   notificationRequired: true
-  reminderDaysBefore: 3
+  reminderDaysBefore: 3   # Send reminder 3 days before deadline
+
+# Alternative examples:
+
+# Example 1: Feedback required, NO auto-close (waits for feedback)
+# feedback:
+#   required: true
+#   autoCloseAfterHours: 0  # Or omit this field entirely
+#   expiryDays: 30
+#   emailTemplateStartEnvelope: "SERV-999-feedback-start"
+#   emailTemplateEndEnvelope: "SERV-999-feedback-end"
+#   notificationRequired: false
+
+# Example 2: Optional feedback (completely skip if not needed)
+# feedback:
+#   required: false
+
+# Example 3: Quick auto-close (no waiting)
+# feedback:
+#   required: true
+#   autoCloseAfterHours: 1  # Auto-close immediately (1 hour)
+#   expiryDays: 1
+#   emailTemplateStartEnvelope: "SERV-999-feedback-start"
+#   notificationRequired: false
 
 # ============================================================================
-# EMAIL TEMPLATE IDs - NAMING CONVENTION
+# 8. EMAIL TEMPLATE ID NAMING CONVENTION
 # ============================================================================
-# RULE: Email template IDs follow pattern: SERV-{serviceNumber}-{envelopeType}-{phase}
-#       where phase is "start" (envelope begins) or "end" (envelope completes)
-# 
-# Each envelope can send TWO emails:
-#   - emailTemplateStartEnvelope: Sent when envelope process STARTS
-#   - emailTemplateEndEnvelope: Sent when envelope process COMPLETES
+# RULE: Email template IDs follow pattern: SERV-{serviceId}-{envelopeType}-{phase}
 #
-# APPROVAL ENVELOPE:
-#   SERV-3-approval-start      -> Email to approvers: "Approval needed"
-#   SERV-3-approval-end        -> Email to requestor: "Approved, payment required"
+# Pattern: SERV-3-approval-start means:
+#   SERV-      = Service template prefix
+#   3          = Service ID number (from serviceId: SERVICE-3)
+#   approval   = Envelope type (approval, payment, processing, delivery, feedback)
+#   start/end  = Phase (start when envelope begins, end when envelope completes)
 #
-# PAYMENT ENVELOPE:
-#   SERV-3-payment-start       -> Email to requestor: "Payment required with link"
-#   SERV-3-payment-end         -> Email to requestor: "Payment received, processing starts"
+# HOW EMAIL TEMPLATES WORK:
+# - Each envelope can send 2 emails: emailTemplateStartEnvelope and emailTemplateEndEnvelope
+# - Templates are created/managed via Phase 2 UI (not in YAML)
+# - Templates are stored in MongoDB EmailTemplate collection
+# - Backend looks up template by ID and sends to requestor/approvers
 #
-# PROCESSING ENVELOPE:
-#   SERV-3-processing-start    -> Email to requestor: "Processing has begun"
-#   SERV-3-processing-end      -> Email to requestor: "Processing complete, ready for delivery"
+# APPROVAL ENVELOPE EMAILS:
+#   SERV-999-approval-start    → Email to APPROVERS: "Please review and approve request"
+#   SERV-999-approval-end      → Email to REQUESTOR: "Your request has been approved"
 #
-# DELIVERY ENVELOPE:
-#   SERV-3-delivery-start      -> Email to requestor: "Document ready to be delivered"
-#   SERV-3-delivery-end        -> Email to requestor: "Delivery confirmed"
-#   SERV-3-delivery-email      -> Template for email delivery method (if different)
-#   SERV-3-delivery-pickup-ready -> Notification when document ready for pickup
+# PAYMENT ENVELOPE EMAILS:
+#   SERV-999-payment-start     → Email to REQUESTOR: "Payment required - link: [pay now]"
+#   SERV-999-payment-end       → Email to REQUESTOR: "Payment received, processing starts"
 #
-# FEEDBACK ENVELOPE:
-#   SERV-3-feedback-start      -> Email to requestor: "Please take survey"
-#   SERV-3-feedback-end        -> Email to requestor: "Thank you for feedback" (optional)
+# PROCESSING ENVELOPE EMAILS:
+#   SERV-999-processing-start  → Email to REQUESTOR: "We're now processing your request"
+#   SERV-999-processing-end    → Email to REQUESTOR: "Processing complete, ready for delivery"
 #
-# All templates are managed via Phase 2 UI API endpoints
-# No email templates are seeded in the CLI - all come from MongoDB
+# DELIVERY ENVELOPE EMAILS:
+#   SERV-999-delivery-start    → Email to REQUESTOR: "Your document is ready to be sent"
+#   SERV-999-delivery-end      → Email to REQUESTOR: "Your document has been delivered"
+#
+# FEEDBACK ENVELOPE EMAILS:
+#   SERV-999-feedback-start    → Email to REQUESTOR: "Please take 2-minute feedback survey"
+#   SERV-999-feedback-end      → Email to REQUESTOR: "Thank you for your feedback"
+#
+# TEMPLATE VARIABLE SUBSTITUTION IN EMAILS:
+# All email templates support {{parameterName}} substitution:
+#   {{requestId}}      → Unique request ID (REQ-2025-001)
+#   {{firstName}}      → From request parameters
+#   {{lastName}}       → From request parameters
+#   {{email}}          → From request parameters
+#   {{approvalLink}}   → For approval decisions
+#   {{paymentLink}}    → MAYA payment gateway link
+#   {{feedbackLink}}   → Feedback survey link
+#   {{totalAmount}}    → Total payment amount
+#   {{currentTimestamp}} → When email sent
+#   {{anyParam}}       → Any parameter from request
 
 # ============================================================================
-# COMPLETE VALIDATION RULES SUMMARY
+# 9. COMPLETE VALIDATION RULES SUMMARY
 # ============================================================================
-# REQUEST ENVELOPE:
-#   ✓ All parameters must have a 'type' field
-#   ✓ String: Validate minLength, maxLength, pattern regex
-#   ✓ Number: Validate min, max, step
-#   ✓ Date: Validate format and date range (min/max)
-#   ✓ Dropdown/Radio: Value must be in options list
-#   ✓ Checkboxes: Each value in array must be in options list
+#
+# This section documents all validation rules the backend must enforce
+# when receiving and processing service definitions
+#
+# GENERAL SERVICE RULES:
+#   ✓ serviceId must be unique across all services
+#   ✓ serviceId format: UPPERCASE-### (e.g., SERVICE-999)
+#   ✓ type must be lowercase with hyphens (e.g., transcript-of-records)
+#   ✓ name must be non-empty string
+#   ✓ REQUEST envelope is ALWAYS required (cannot have required: false)
+#   ✓ All other envelopes can be optional (required: false)
+#
+# REQUEST ENVELOPE VALIDATION:
+#   ✓ At least one parameter required (service cannot be empty form)
+#   ✓ All parameters must have type field
+#   ✓ All parameters must have description field (for UI labels)
+#   ✓ String type:
+#     - minLength >= 0, maxLength >= minLength
+#     - pattern must be valid JavaScript regex (if provided)
+#     - default must be string type
+#   ✓ Number type:
+#     - min <= max
+#     - step > 0
+#     - default must be number type
+#   ✓ Boolean type:
+#     - default must be true or false
+#   ✓ Date type:
+#     - format must be valid (YYYY-MM-DD, DD-MM-YYYY, MM-DD-YYYY, ISO8601)
+#     - min/max must be ISO format dates (YYYY-MM-DD)
+#   ✓ Dropdown/Radio type:
+#     - At least one option required
+#     - Options can be strings OR objects with label/value
+#     - default must match an option value
+#   ✓ Checkboxes type:
+#     - At least one option required
+#     - minSelected >= 0
+#     - maxSelected >= minSelected
+#     - default must be array of values
 #   ✓ Each parameter with required: true must be provided by user
-#   ✓ Default values must match the parameter type and constraints
+#   ✓ Default values must match constraints (e.g., min/max for numbers)
 #
-# APPROVAL ENVELOPE:
-#   ✓ Must specify one of: all_must_approve, any_one, specific_approver, complex
-#   ✓ complex type REQUIRES requiredApprovers AND atLeastOneOf
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
-#   ✓ emailTemplateEndEnvelope must exist in MongoDB templates
+# APPROVAL ENVELOPE VALIDATION:
+#   ✓ If required: true:
+#     - Must specify approvalRules
+#     - approvalRules.type must be one of: all_must_approve, any_one, specific_approver, complex
+#     - If type: all_must_approve → must have requiredApprovers (non-empty array)
+#     - If type: any_one → must have requiredApprovers (non-empty array)
+#     - If type: specific_approver → must have specificApprover (email string)
+#     - If type: complex → must have requiredApprovers AND atLeastOneOf
+#     - All email addresses must be valid format
+#   ✓ If required: false:
+#     - Can be completely empty (no other fields needed)
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
 #
-# PAYMENT ENVELOPE:
-#   ✓ If required: true, must have at least one charge
-#   ✓ Each charge must have: item, amount, currency
+# PAYMENT ENVELOPE VALIDATION:
+#   ✓ If required: true:
+#     - Must have charges array (non-empty)
+#     - Each charge must have: item (string), amount (number > 0), currency (string)
+#     - paymentProvider must be valid (maya, stripe, gcash, etc.)
+#   ✓ If required: false:
+#     - Can be completely empty (no other fields needed)
 #   ✓ amount must be > 0 (if quantity > 0)
-#   ✓ paymentProvider must be valid (maya, stripe, gcash, etc.)
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
-#   ✓ emailTemplateEndEnvelope must exist in MongoDB templates
+#   ✓ currency must be ISO 4217 code (PHP, USD, EUR, etc.)
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
 #
-# PROCESSING ENVELOPE:
-#   ✓ All tasks must be type: "api_call"
-#   ✓ Each task must have: name, method, url, timeout, retries
-#   ✓ method must be one of: GET, POST, PUT, DELETE, PATCH
-#   ✓ url must be valid HTTPS endpoint (supports {{parameterName}})
-#   ✓ headers are optional but recommended (can include Authorization)
-#   ✓ payload optional for GET/DELETE, required for POST/PUT
-#   ✓ queryParams optional (supports {{parameterName}} substitution)
-#   ✓ timeout must be positive number (milliseconds)
-#   ✓ retries must be 0-10 (number of retry attempts)
-#   ✓ successCodes defaults to [200, 201, 204]
-#   ✓ stopOnFailure: if true, stop on first failure
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
-#   ✓ emailTemplateEndEnvelope must exist in MongoDB templates
+# PROCESSING ENVELOPE VALIDATION:
+#   ✓ If required: true:
+#     - Must have tasks array (non-empty)
+#     - Each task must have: type (must be "api_call"), name, method, url
+#     - method must be one of: GET, POST, PUT, DELETE, PATCH
+#     - url must start with http:// or https://
+#     - timeout must be number >= 10000 (milliseconds)
+#     - retries must be number >= 0
+#     - successCodes must be array of valid HTTP status codes (100-599)
+#   ✓ If required: false:
+#     - Can be completely empty (no other fields needed)
+#   ✓ {{parameterName}} in url/headers/payload must match request parameters
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
 #
-# DELIVERY ENVELOPE:
-#   ✓ At least one delivery method must be enabled (email, physical_mail, or pickup)
-#   ✓ EMAIL method: requires recipient ({{parameterName}} supported)
-#   ✓ PHYSICAL_MAIL: requires address, carrier, estimatedDays
-#   ✓ PHYSICAL_MAIL: requiresSignature and trackingEnabled are optional
-#   ✓ PICKUP: requires location, hoursOfOperation, pickupDeadlineDays
-#   ✓ PICKUP: requiresIDVerification and notificationRequired are optional
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
-#   ✓ emailTemplateEndEnvelope must exist in MongoDB templates
+# DELIVERY ENVELOPE VALIDATION (NEW):
+#   ✓ If required: true:
+#     - Must have deliveryMethods object (non-empty)
+#     - At least one delivery method must be enabled (true)
+#     - Email method: must have subject, recipient, attachmentUrls
+#     - Physical mail: must have carrier, estimatedDays
+#     - Pickup: must have location, hoursOfOperation
+#   ✓ If required: false:
+#     - Can be completely empty (no other fields needed) - NEW May 29
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
 #
-# FEEDBACK ENVELOPE:
-#   ✓ expiryDays must be positive number (1-365)
-#   ✓ surveyId must be valid survey identifier
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB templates
-#   ✓ emailTemplateEndEnvelope optional but recommended
-#   ✓ reminderDaysBefore: 0-30 (days before expiry to remind)
-#   ✓ Phase 2 UI must call: POST /api/requests/{requestId}/feedback/submit
+# FEEDBACK ENVELOPE VALIDATION (NEW):
+#   ✓ If required: true:
+#     - expiryDays must be positive number (1-365)
+#     - autoCloseAfterHours must be >= 0 (or omit field)
+#     - notificationRequired must be boolean (optional)
+#   ✓ If required: false:
+#     - Can be completely empty (no other fields needed) - NEW May 29
+#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
 #
-# ALL ENVELOPES:
-#   ✓ emailTemplateStartEnvelope and emailTemplateEndEnvelope references must exist in MongoDB
-#   ✓ {{parameterName}} in templates/URLs must match request parameters
-#   ✓ All parameter references use double curly braces: {{parameterName}}
+# OPTIONAL ENVELOPE RULE (NEW May 29, 2026):
+#   ✓ Any envelope with required: false can be empty (no other fields)
+#   ✓ Backend must not require any other fields for optional envelopes
+#   ✓ Backend must skip optional envelopes during orchestration
+#   ✓ YAML parser must accept: { required: false } as valid envelope
+#   ✓ No validation errors for missing fields in optional envelopes
 
 # ============================================================================
-# TEMPLATE VARIABLE SUBSTITUTION RULES
+# 10. TEMPLATE VARIABLE SUBSTITUTION - COMPLETE REFERENCE
 # ============================================================================
-# All strings in YAML can include {{parameterName}} substitution:
-#   - Email templates
-#   - API URLs in processing tasks
-#   - API headers in processing tasks
-#   - API payloads in processing tasks
-#   - Query parameters in processing tasks
-#   - Delivery addresses
 #
-# AUTOMATIC REPLACEMENTS (System Variables):
-#   {{requestId}}       -> Unique request identifier (e.g., "REQ-2025-001")
-#   {{totalAmount}}     -> Calculated payment total (payment envelope only)
-#   {{paymentLink}}     -> Link to payment gateway (payment envelope only)
-#   {{feedbackLink}}    -> Link to feedback survey (feedback envelope only)
-#   {{currentTimestamp}} -> Current ISO8601 timestamp
-#   {{approvalToken}}   -> Token for approval action link (approval envelope only)
+# SUBSTITUTION RULES:
+# - Substitution uses {{variableName}} format (double curly braces)
+# - All text strings can include substitution (URLs, emails, headers, etc.)
+# - Substitution happens at runtime BEFORE the value is used
+# - Unknown parameters are replaced with empty string (no error)
+# - Null/undefined parameters are replaced with empty string
 #
-# AUTOMATIC REPLACEMENTS (Request Parameters):
-#   {{firstName}}       -> From request.parameters.firstName
-#   {{lastName}}        -> From request.parameters.lastName
-#   {{email}}           -> From request.parameters.email
-#   {{studentId}}       -> From request.parameters.studentId
-#   {{numberOfCopies}}  -> From request.parameters.numberOfCopies
-#   {{purpose}}         -> From request.parameters.purpose
-#   {{deliveryMode}}    -> From request.parameters.deliveryMode
-#   {{mailingAddress}}  -> From request.parameters.mailingAddress
-#   {{anyCustomParam}}  -> ANY parameter from request.parameters
+# SYSTEM VARIABLES (Available everywhere):
 #
-# PROCESSING TASK SPECIFICS:
-#   - URL substitution happens before API call
-#   - Header values with {{param}} are replaced
-#   - Payload values with {{param}} are replaced
-#   - Query params with {{param}} are replaced
-#   - Example: {{studentId}} in URL becomes "2024-12345" if studentId is "2024-12345"
+#   {{requestId}}
+#     Type: String
+#     Value: Unique request identifier (e.g., "REQ-2025-001")
+#     Available: All envelopes, all stages
+#     Use case: Include in API calls for tracing, emails for reference
 #
-# EMAIL TEMPLATE SPECIFICS:
-#   - {{param}} replaced in email HTML body
-#   - {{param}} replaced in email subject line
-#   - Unknown parameters are replaced with empty string
-#   - Example: {{program}} becomes "BSCS" if program parameter is "BSCS"
+#   {{currentTimestamp}}
+#     Type: ISO8601 string
+#     Value: Current server time (e.g., "2026-05-29T14:30:00Z")
+#     Available: All envelopes
+#     Use case: Track when processing started/completed
+#
+#   {{totalAmount}}
+#     Type: Number (in cents/piso)
+#     Value: Total payment calculated from charges
+#     Available: Payment envelope ONLY
+#     Use case: Email: "Please pay {{totalAmount}} PHP"
+#
+#   {{paymentLink}}
+#     Type: URL string
+#     Value: Link to payment gateway (MAYA checkout)
+#     Available: Payment envelope emailTemplateStartEnvelope ONLY
+#     Use case: Email with clickable payment link
+#
+#   {{feedbackLink}}
+#     Type: URL string
+#     Value: Link to feedback survey form
+#     Available: Feedback envelope emailTemplateStartEnvelope ONLY
+#     Use case: Email with clickable survey link
+#
+#   {{approvalToken}}
+#     Type: Token string
+#     Value: Token for approval decision (approve/deny)
+#     Available: Approval envelope emailTemplateStartEnvelope ONLY
+#     Use case: Links for approvers: [Approve] [Deny]
+#
+# REQUEST PARAMETER VARIABLES (From request.parameters):
+#
+#   {{firstName}} → request.parameters.firstName
+#   {{lastName}} → request.parameters.lastName
+#   {{email}} → request.parameters.email
+#   {{studentId}} → request.parameters.studentId
+#   {{numberOfCopies}} → request.parameters.numberOfCopies
+#   {{purpose}} → request.parameters.purpose
+#   {{isUrgent}} → request.parameters.isUrgent
+#   {{mailingAddress}} → request.parameters.mailingAddress
+#   {{anyCustomParameter}} → request.parameters.anyCustomParameter
+#
+#   ANY parameter defined in request.parameters can be substituted
+#   Example: If you have parameter "institutionName", use {{institutionName}}
+#
+# SUBSTITUTION IN DIFFERENT CONTEXTS:
+#
+#   URLs:
+#     url: "https://api.example.com/students/{{studentId}}/transcript"
+#     Result: "https://api.example.com/students/2024-12345/transcript"
+#
+#   API Headers:
+#     headers:
+#       X-Request-ID: "{{requestId}}"
+#       X-Student-ID: "{{studentId}}"
+#
+#   API Payload:
+#     payload:
+#       studentId: "{{studentId}}"
+#       numberOfCopies: "{{numberOfCopies}}"
+#       requestedBy: "{{firstName}} {{lastName}}"
+#
+#   Email Subject:
+#     subject: "Your {{purpose}} documents are ready - {{firstName}}"
+#
+#   Email Body Template:
+#     <p>Hi {{firstName}},</p>
+#     <p>Your request (ID: {{requestId}}) has been {{status}}.</p>
+#
+#   Delivery Address:
+#     recipient: "{{email}}"
+#     mailingAddress: "{{mailingAddress}}"
 
 # ============================================================================
-# EXAMPLE COMPLETE SERVICE
+# 11. SERVICE ENVELOPE PROCESS FLOW - COMPLETE WALKTHROUGH
 # ============================================================================
-# See PARAMETER_SCHEMA_EXAMPLE.yaml for a complete working example
-# with all parameter types and all envelope configurations.
+#
+# Every service follows this 6-envelope pipeline:
+#
+# STAGE 1: REQUEST ENVELOPE (ALWAYS REQUIRED)
+#   INPUT: User submits form via Phase 2 UI
+#   ACTION: POST /api/services/{serviceId}/submit with parameters
+#   VALIDATION:
+#     - Check parameter types and constraints
+#     - Verify all required parameters provided
+#     - Build request object with status: pending_approval
+#   STORAGE: Save to MongoDB requests collection
+#   OUTPUT: Returns request ID (e.g., REQ-2025-001)
+#   STATUS: Request.status = pending_approval (or pending_payment if no approval)
+#
+# STAGE 2: APPROVAL ENVELOPE (If required: true)
+#   EMAIL SENT: emailTemplateStartEnvelope to approvers
+#   WAIT: Approvers use Phase 2 UI to approve/deny
+#   RULES: Apply approvalRules logic (all_must_approve, any_one, etc.)
+#   SUCCESS:
+#     - All approval conditions met → send emailTemplateEndEnvelope
+#     - Status: pending_payment (or processing if no payment)
+#   FAILURE:
+#     - Approval denied → mark as denied, stop pipeline
+#     - Request.status = denied
+#
+# STAGE 3: PAYMENT ENVELOPE (If required: true)
+#   EMAIL SENT: emailTemplateStartEnvelope with {{paymentLink}} to requestor
+#   WAIT: Requestor completes payment via MAYA gateway
+#   WEBHOOK: Payment provider sends callback with payment confirmation
+#   VERIFICATION: Backend verifies payment in MAYA records
+#   SUCCESS:
+#     - Payment confirmed → send emailTemplateEndEnvelope
+#     - Status: processing
+#   FAILURE:
+#     - Payment failed/cancelled → request stays in pending_payment
+#     - Requestor can retry payment
+#
+# STAGE 4: PROCESSING ENVELOPE (If required: true)
+#   EMAIL SENT: emailTemplateStartEnvelope to requestor
+#   EXECUTION: Run all tasks in sequence (one after another)
+#   SUBSTITUTION: Replace {{param}} in URLs, headers, payloads
+#   EACH TASK:
+#     1. Make HTTP call (GET/POST/PUT/DELETE/PATCH)
+#     2. Check response status code against successCodes
+#     3. If success: continue to next task
+#     4. If fail + stopOnFailure: stop, mark failed
+#     5. If fail + stopOnFailure=false: skip, continue
+#   SUCCESS:
+#     - All tasks completed → send emailTemplateEndEnvelope
+#     - Status: pending_delivery
+#   FAILURE:
+#     - At least one task failed + stopOnFailure=true
+#     - Request.status = failed
+#
+# STAGE 5: DELIVERY ENVELOPE (If required: true)
+#   EMAIL SENT: emailTemplateStartEnvelope to requestor
+#   METHOD: Use delivery method from request parameters
+#   EXECUTION:
+#     a) EMAIL method:
+#        - Send {{email}} with {{attachmentUrls}} attached
+#        - Mark status code 3 (delivered)
+#     b) PHYSICAL_MAIL method:
+#        - Queue for courier pickup
+#        - Request user mailingAddress (from Phase 2 UI form)
+#        - Wait for status updates (0→1→2→3)
+#     c) PICKUP method:
+#        - Notify requestor document ready at {{location}}
+#        - Request ID verification at pickup
+#        - Wait for status update to 3 (collected)
+#   STATUS TRACKING: POST /api/delivery-status/{requestId} updates status
+#   COMPLETION: When status = 3 (delivered):
+#     - Send emailTemplateEndEnvelope
+#     - Status: pending_feedback (or completed if no feedback)
+#
+# STAGE 6: FEEDBACK ENVELOPE (If required: true)
+#   EMAIL SENT: emailTemplateStartEnvelope with {{feedbackLink}} to requestor
+#   WAIT: Requestor submits feedback via Phase 2 UI survey
+#   AUTO-CLOSE: If autoCloseAfterHours > 0:
+#     - After N hours: Mark request as completed (auto-close email sent)
+#     - But user can still submit feedback until {{expiryDays}}
+#   EXPIRY: After {{expiryDays}} days:
+#     - Feedback link expires, cannot submit anymore
+#   SUCCESS:
+#     - If user submits feedback → send emailTemplateEndEnvelope
+#     - Status: completed
+#   AUTO-CLOSED:
+#     - Auto-close timer expired → Status: completed
+#     - Feedback link still valid but request already "done"
+#   FINAL: Request lifecycle complete
+#
+# STATUS TIMELINE EXAMPLE (Full 6-envelope flow):
+#   1. Request submitted          → status: pending_approval
+#   2. Approved                   → status: pending_payment
+#   3. Payment received           → status: processing
+#   4. Tasks complete             → status: pending_delivery
+#   5. Delivery confirmed (code 3) → status: pending_feedback
+#   6. Feedback submitted or auto-close → status: completed
 
 # ============================================================================
-# YAML FORMAT REQUIREMENTS
+# 12. PHASE 2 UI ENDPOINTS - API CONTRACTS FOR FRONTEND
 # ============================================================================
-# - Use 2-space indentation (NOT tabs)
-# - Use lowercase with hyphens for IDs and types (e.g., "transcript-of-records")
-# - Use UPPERCASE for constants (e.g., "PHP", "BSCS")
-# - Use camelCase for nested object keys
-# - Strings with special characters must be quoted
-# - Arrays use dash notation: - item1
-#                             - item2
-# - Objects use key: value pairs
-# - Comments use #
-
-# ============================================================================
-# SERVICE ENVELOPE PROCESS FLOW - STEP BY STEP
-# ============================================================================
-# Every service follows this 6-envelope sequence:
 #
-# 1. REQUEST ENVELOPE
-#    - CLI receives request with parameters matching schema
-#    - Parameters validated against type constraints
-#    - Request stored in MongoDB
-#    - Status: pending_approval
-#
-# 2. APPROVAL ENVELOPE (if approval.requiresApproval = true)
-#    a) CLI sends emailTemplateStartEnvelope to approvers
-#    b) Approvers use Phase 2 UI or email links to approve/deny
-#    c) ApprovalRules determine if all must approve, one, or complex rules
-#    d) Once approved, CLI sends emailTemplateEndEnvelope to requestor
-#    e) Status: pending_payment (or processing if no payment)
-#
-# 3. PAYMENT ENVELOPE (if payment.required = true)
-#    a) CLI sends emailTemplateStartEnvelope with payment link
-#    b) Requestor completes payment via Phase 2 UI (MAYA provider)
-#    c) CLI receives payment callback from payment provider
-#    d) CLI sends emailTemplateEndEnvelope confirming payment received
-#    e) Status: processing
-#
-# 4. PROCESSING ENVELOPE
-#    a) CLI sends emailTemplateStartEnvelope to requestor
-#    b) CLI executes all API call tasks in sequence
-#    c) Each task makes HTTP call (GET/POST/PUT/DELETE) to external API
-#    d) Parameters substituted into URL, headers, payload, query params
-#    e) If stopOnFailure=true, stops on first failure
-#    f) If all tasks succeed, CLI sends emailTemplateEndEnvelope
-#    g) Status: pending_delivery
-#
-# 5. DELIVERY ENVELOPE
-#    a) CLI sends emailTemplateStartEnvelope to requestor
-#    b) Requestor selects delivery method via Phase 2 UI or defaults to config
-#       - EMAIL: Document sent via email with attachments
-#       - PHYSICAL_MAIL: Document queued for shipping (LBC/JNT/DHL)
-#       - PICKUP: Document flagged ready for pickup, sends pickup notification
-#    c) CLI sends emailTemplateEndEnvelope when delivery confirmed
-#    d) Status: pending_feedback
-#
-# 6. FEEDBACK ENVELOPE (if feedback.required = true)
-#    a) CLI sends emailTemplateStartEnvelope with survey link
-#    b) Requestor fills survey via Phase 2 UI feedback form
-#    c) Phase 2 UI calls: POST /api/requests/{requestId}/feedback/submit
-#    d) CLI receives feedback and marks envelope complete
-#    e) CLI sends emailTemplateEndEnvelope (if configured)
-#    f) Status: completed
-#
-# ============================================================================
-# PHASE 2 UI API ENDPOINTS REQUIRED
-# ============================================================================
-# The Phase 2 UI must be able to:
+# Service Envelope CLI provides these endpoints for Phase 2 UI integration:
 #
 # 1. GET /api/services/{serviceId}
-#    - Returns service definition with parameter schema
-#    - UI uses schema to render dynamic form fields
-#    - UI validates input against constraints before submission
+#    PURPOSE: Retrieve service definition to render form
+#    RETURNS: Complete YAML parsed as JSON
+#    INCLUDES: parameters schema, all envelope configurations
+#    USAGE: Phase 2 UI generates form fields dynamically
 #
-# 2. POST /api/requests
-#    - Submit new service request with parameters
-#    - Body: { type: "transcript-of-records", parameters: {...} }
-#    - Returns: { id: "REQ-2025-001", status: "pending_approval" }
+# 2. POST /api/services/{serviceId}/submit (or POST /api/requests)
+#    PURPOSE: Submit new service request
+#    BODY: { type: "service-type", initiator: "user@email.com", parameters: {...} }
+#    RETURNS: { id: "REQ-2025-001", status: "pending_approval", ... }
+#    NOTE: Delivery details submitted SEPARATELY in next API
 #
-# 3. GET /api/requests/{requestId}
-#    - Retrieve request status and envelope details
-#    - Shows which stage in pipeline (approval, payment, processing, etc.)
+# 3. POST /api/delivery/{requestId}/details (NEW - May 29)
+#    PURPOSE: Submit delivery details AFTER request created
+#    BODY: { deliveryMethod: "physical_mail", deliveryDetails: {...} }
+#    USAGE: Phase 2 UI collects address and submits separately
+#    BENEFIT: Failure isolation - delivery can fail without losing request
 #
-# 4. POST /api/requests/{requestId}/payment-complete
-#    - Called after MAYA payment callback received
-#    - Marks payment envelope as completed
-#    - Triggers transition to processing envelope
+# 4. GET /api/requests/{requestId}
+#    PURPOSE: Get request status and all envelope details
+#    RETURNS: Full request object with envelope statuses
+#    USAGE: Phase 2 UI shows progress, what's pending, etc.
 #
-# 5. POST /api/requests/{requestId}/delivery-method
-#    - User selects delivery method (email, physical_mail, pickup)
-#    - Updates delivery envelope with choice
-#    - Triggers delivery process
+# 5. POST /api/approvals/{requestId}
+#    PURPOSE: Approver submits decision (approve/deny)
+#    BODY: { decision: "approve" | "deny", notes: "..." }
 #
-# 6. POST /api/requests/{requestId}/feedback/submit
-#    - User submits feedback survey responses
-#    - Body: { ratings: {...}, comments: "..." }
-#    - Marks feedback envelope as completed
-#    - Completes entire service request pipeline
+# 6. POST /api/payments/{requestId}/complete
+#    PURPOSE: Called after MAYA payment success
+#    BODY: { paymentId: "maya-txn-id", amount: 1500 }
 #
-# 7. GET /api/email-templates
-#    - Phase 2 UI retrieves all templates to customize/create
-#    - Lists SERV-#-envelope-{start|end} template names
+# 7. POST /api/delivery-status/{requestId}
+#    PURPOSE: Update delivery status (progress tracking)
+#    BODY: { statusCode: 0|1|2|3, notes: "..." }
+#    STATUS CODES: 0=processing, 1=ready, 2=in_transit, 3=delivered
 #
-# 8. POST /api/admin/email-templates/{templateId}
-#    - Phase 2 UI creates/updates email templates
-#    - Used to set custom HTML for each envelope phase
+# 8. POST /api/requests/{requestId}/feedback
+#    PURPOSE: Submit feedback survey responses
+#    BODY: { ratings: {...}, comments: "..." }
+#
+# 9. GET /api/email-templates
+#    PURPOSE: List all email templates for customization
+#    RETURNS: Array of template metadata
+#
+# 10. POST /api/admin/email-templates
+#     PURPOSE: Create/update email template
+#     BODY: { templateId: "SERV-999-approval-start", html: "...", subject: "..." }
+
+# ============================================================================
+# 13. BACKEND YAML VALIDATOR REQUIREMENTS
+# ============================================================================
+#
+# Backend must implement validation that enforces these rules:
+#
+# CRITICAL NEW RULE (May 29, 2026): OPTIONAL EMPTY ENVELOPES
+#   When envelope has required: false:
+#     ✓ Backend must ACCEPT completely empty envelope configuration
+#     ✓ Pattern: approval: { required: false } (ONLY this field, nothing else)
+#     ✓ Backend must NOT require other fields
+#     ✓ Orchestrator must SKIP the envelope during processing
+#     ✓ No validation errors for missing fields
+#
+# IMPLEMENTATION PSEUDOCODE:
+#
+#   function validateEnvelope(envelopeType, envelopeConfig) {
+#       if (envelopeConfig.required === false) {
+#           // Envelope is optional and can be empty
+#           // Skip all field validation
+#           return { valid: true, message: "Optional envelope - will be skipped" }
+#       }
+#       // Only validate if required: true
+#       return validateEnvelopeFields(envelopeType, envelopeConfig)
+#   }
+#
+# TESTING CHECKLIST:
+#   ✓ Upload service with delivery: { required: false } (nothing else)
+#   ✓ Create request for that service
+#   ✓ Verify orchestrator skips delivery envelope
+#   ✓ Verify request completes without delivery errors
+#   ✓ Verify logs show [DELIVERY-SKIPPED] or similar tag
+#   ✓ Repeat for feedback, approval, payment, processing envelopes
+#
+# BENEFITS:
+#   ✓ Services can now omit unnecessary envelopes
+#   ✓ Clinic appointments: Skip delivery (handled in processing)
+#   ✓ Digital services: Skip payment (free)
+#   ✓ Internal requests: Skip feedback (already have followup)
+#   ✓ Maximum flexibility with minimal configuration
+
+# ============================================================================
+# 14. YAML FORMATTING REQUIREMENTS - STRICT COMPLIANCE
+# ============================================================================
+#
+# All service definition YAML files MUST follow these formatting rules:
+#
+# INDENTATION:
+#   - Use 2 spaces for each indentation level (NOT tabs)
+#   - Consistent indentation throughout entire file
+#   - Arrays use: - item format (dash + space + item)
+#   - Objects use: key: value format (key + colon + space + value)
+#
+# NAMING CONVENTIONS:
+#   - serviceId: UPPERCASE-### (e.g., SERVICE-999, SERVICE-1)
+#   - type: lowercase-with-hyphens (e.g., transcript-of-records, student-document)
+#   - name: Capitalized Title Case (e.g., "Student Document Request Service")
+#   - Envelope names: lowercase (approval, payment, processing, delivery, feedback)
+#   - Parameter names: camelCase (firstName, lastName, studentId, numberOfCopies)
+#   - Task names: Title Case (e.g., "Verify Student Enrollment", "Generate Transcript")
+#   - HTTP method names: UPPERCASE (GET, POST, PUT, DELETE, PATCH)
+#   - Constants: UPPERCASE (PHP, USD, BSCS, LBC, MAYA)
+#
+# STRINGS:
+#   - Short strings: no quotes needed (value: 123, enabled: true)
+#   - Strings with special characters: quoted (value: "John's Document")
+#   - URLs: always quoted (url: "https://example.com")
+#   - Email regex patterns: always quoted
+#   - Multiline strings: use | for literal (preserves newlines)
+#
+# COMMENTS:
+#   - Use # for comments
+#   - Comments can follow values on same line (value: 123  # This is a comment)
+#   - Use multiple # comment lines for paragraph comments
+#   - Comment before each section explaining purpose
+#
+# ARRAYS:
+#   Inline short arrays:
+#     successCodes: [200, 201, 202]
+#   
+#   Multiline arrays:
+#     options:
+#       - label: "Option 1"
+#         value: "opt1"
+#       - label: "Option 2"
+#         value: "opt2"
+#
+# OBJECTS:
+#   Inline short objects:
+#     fields: {}  # Empty object
+#   
+#   Multiline objects:
+#     someKey:
+#       nestedKey1: value1
+#       nestedKey2: value2
+#
+# SPECIAL CHARACTERS:
+#   - Ampersand: "A & B" (quoted)
+#   - Curly braces: "{{parameterName}}" (quoted)
+#   - Backslash in regex: "^[a-z\\d]+$" (escaped)
+#   - Colon in string: "John: Student" (quoted)
+#
+# FILE STRUCTURE:
+#   1. Metadata (serviceId, type, name, description)
+#   2. REQUEST envelope (parameters)
+#   3. APPROVAL envelope (if needed)
+#   4. PAYMENT envelope (if needed)
+#   5. PROCESSING envelope (if needed)
+#   6. DELIVERY envelope (if needed)
+#   7. FEEDBACK envelope (if needed)
+#
+# VALIDATION:
+#   - Entire file must be valid YAML (use YAML linter)
+#   - No trailing spaces at end of lines
+#   - No mixing tabs and spaces
+#   - Proper quote matching (all quotes closed)
+#   - Valid regex patterns (test before committing)
+#
+# EXAMPLE MINIMAL VALID FILE:
+#   serviceId: "SERVICE-1"
+#   type: "minimal-service"
+#   name: "Minimal Service"
+#   request:
+#     parameters:
+#       name:
+#         type: String
+#         required: true
+#         description: "Your name"
+#   approval:
+#     required: false
+#   payment:
+#     required: false
+#   processing:
+#     required: false
+#   delivery:
+#     required: false
+#   feedback:
+#     required: false
+
+# ============================================================================
+# 15. PUTTING IT ALL TOGETHER - COMPLETE WORKING EXAMPLE
+# ============================================================================
+#
+# See comprehensive-student-document-v2.yaml for a complete, working example
+# that demonstrates:
+#   - All 7 parameter types with real constraints
+#   - All 6 envelope types with complete configuration
+#   - Parameter substitution in processing and delivery
+#   - Multiple approval/payment/processing/delivery configurations
+#   - Email template references
+#   - Complete parameter validation rules
+#
+# Reference that file alongside this one as you build new services.
+# This document is the TECHNICAL SPECIFICATION (the rules).
+# The v2.yaml file is the PRACTICAL IMPLEMENTATION (how it works in practice).
+#
+# ============================================================================
+# END OF SERVICE DEFINITION RULES - COMPLETE TECHNICAL BIBLE
+# ============================================================================
+#
+# Updated: May 29, 2026
+# Version: 2.0
+# Status: Production-ready
+#
+# This document serves as the authoritative reference for all service
+# configurations in the Service Envelope system. When creating new services,
+# refer to this document for patterns, constraints, and best practices.
+#
+# Key Features:
+#   ✓ 7 parameter types with complete examples
+#   ✓ 6 envelope types with flow documentation
+#   ✓ 4 approval rule types
+#   ✓ Complete parameter substitution reference
+#   ✓ Validation rules for every configuration option
+#   ✓ Email template naming conventions
+#   ✓ Process flow with status timeline
+#   ✓ Optional envelope support (required: false)
+#   ✓ YAML formatting requirements
+#   ✓ Phase 2 UI API contracts
+#   ✓ Backend validator requirements
+#
+# ============================================================================

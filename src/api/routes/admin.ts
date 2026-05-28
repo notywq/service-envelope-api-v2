@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { appContext } from '../server.js';
 import YAML from 'yaml';
+import { validateServiceDefinition, getServiceSchema, initializeValidator } from '../../utils/schema-validator.js';
 
 const router = Router();
 
@@ -34,13 +35,23 @@ router.post('/services', async (req: Request, res: Response) => {
       });
     }
 
-    // Validate required envelope structure
-    const requiredEnvelopes = ['request', 'approval', 'payment', 'processing', 'delivery', 'feedback'];
-    const missingEnvelopes = requiredEnvelopes.filter(env => !(env in parsedYaml.envelopes || {}));
-
-    if (missingEnvelopes.length > 0) {
+    // Validate entire service definition against canonical JSON Schema (NEW May 29: Full YAML schema validation)
+    appContext.logger.info(`[SCHEMA-VALIDATOR] Validating service definition against canonical schema...`);
+    const schemaValidation = validateServiceDefinition(parsedYaml);
+    if (!schemaValidation.valid) {
+      const errorDetails = schemaValidation.errors?.map(e => `${e.path}: ${e.message}`).join('; ') || 'Unknown error';
+      appContext.logger.warn(`[SCHEMA-VALIDATOR] ❌ Schema validation failed: ${errorDetails}`);
       return res.status(400).json({
-        error: `Missing required envelopes: ${missingEnvelopes.join(', ')}`,
+        error: 'Service definition does not match schema',
+        details: schemaValidation.errors,
+      });
+    }
+    appContext.logger.info(`[SCHEMA-VALIDATOR] ✅ Schema validation passed`);
+
+    // Additional envelope structure validation (redundant but kept for backward compatibility)
+    if (!parsedYaml.envelopes || !parsedYaml.envelopes.request) {
+      return res.status(400).json({
+        error: 'Missing required envelope: request (REQUEST envelope is always required)',
       });
     }
 
@@ -56,6 +67,10 @@ router.post('/services', async (req: Request, res: Response) => {
       description: parsedYaml.description || name,
       yaml: yamlContent,
       definition: parsedYaml, // Keep original for reference
+      // NEW: Schema validation metadata
+      schemaVersion: '1.0.0',
+      schemaName: 'Service Definition Schema - May 29, 2026',
+      validatedAt: new Date().toISOString(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
@@ -83,6 +98,8 @@ router.post('/services', async (req: Request, res: Response) => {
         id: serviceDefinition.id,
         name: serviceDefinition.name,
         type: serviceDefinition.type,
+        schemaVersion: serviceDefinition.schemaVersion,
+        validatedAt: serviceDefinition.validatedAt,
         createdAt: serviceDefinition.createdAt,
       },
     });
@@ -120,19 +137,29 @@ router.put('/services/:serviceId', async (req: Request, res: Response) => {
       });
     }
 
-    // Validate required envelope structure
-    const requiredEnvelopes = ['request', 'approval', 'payment', 'processing', 'delivery', 'feedback'];
-    const missingEnvelopes = requiredEnvelopes.filter(env => !(env in parsedYaml.envelopes || {}));
-
-    if (missingEnvelopes.length > 0) {
+    // Validate entire service definition against canonical JSON Schema
+    appContext.logger.info(`[SCHEMA-VALIDATOR] Validating service definition update against canonical schema...`);
+    const schemaValidation = validateServiceDefinition(parsedYaml);
+    if (!schemaValidation.valid) {
+      const errorDetails = schemaValidation.errors?.map(e => `${e.path}: ${e.message}`).join('; ') || 'Unknown error';
+      appContext.logger.warn(`[SCHEMA-VALIDATOR] ❌ Schema validation failed: ${errorDetails}`);
       return res.status(400).json({
-        error: `Missing required envelopes: ${missingEnvelopes.join(', ')}`,
+        error: 'Service definition does not match schema',
+        details: schemaValidation.errors,
+      });
+    }
+    appContext.logger.info(`[SCHEMA-VALIDATOR] ✅ Schema validation passed`);
+
+    // Additional envelope structure validation
+    if (!parsedYaml.envelopes || !parsedYaml.envelopes.request) {
+      return res.status(400).json({
+        error: 'Missing required envelope: request (REQUEST envelope is always required)',
       });
     }
 
-    // Create updated service definition - merge parsed YAML properties into root level
-    // Extract serviceId from YAML and store as top-level field
-    const serviceDefinition = {
+    // Create updated service definition
+    // NEW: Add schema validation metadata
+    const updatedServiceDefinition = {
       ...parsedYaml, // Spread YAML properties (id, name, envelopes, etc.)
       id: parsedYaml.id || parsedYaml.serviceId, // Use id if present, otherwise map serviceId to id
       serviceId: parsedYaml.serviceId, // Extract and store serviceId as top-level field from YAML
@@ -142,6 +169,10 @@ router.put('/services/:serviceId', async (req: Request, res: Response) => {
       description: parsedYaml.description || name,
       yaml: yamlContent,
       definition: parsedYaml, // Keep original for reference
+      // Schema validation metadata
+      schemaVersion: '1.0.0',
+      schemaName: 'Service Definition Schema - May 29, 2026',
+      validatedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
@@ -149,7 +180,7 @@ router.put('/services/:serviceId', async (req: Request, res: Response) => {
 
     // Save to MongoDB
     try {
-      await appContext.stateManager.saveServiceDefinition(serviceDefinition);
+      await appContext.stateManager.saveServiceDefinition(updatedServiceDefinition);
       appContext.logger.info(`✅ Service "${name}" updated in MongoDB`);
     } catch (err) {
       appContext.logger.error(`❌ Failed to update service in MongoDB:`, err);
@@ -158,16 +189,19 @@ router.put('/services/:serviceId', async (req: Request, res: Response) => {
       });
     }
 
-    // Also update in ServiceRegistry for immediate use
-    appContext.serviceRegistry.registerService(serviceDefinition);
+    // Also register in ServiceRegistry for immediate use
+    appContext.serviceRegistry.registerService(updatedServiceDefinition);
     
     res.status(200).json({
       success: true,
       message: `Service "${name}" updated successfully`,
       service: {
-        id: serviceDefinition.id,
-        name: serviceDefinition.name,
-        type: serviceDefinition.type,
+        id: updatedServiceDefinition.id,
+        name: updatedServiceDefinition.name,
+        type: updatedServiceDefinition.type,
+        schemaVersion: updatedServiceDefinition.schemaVersion,
+        validatedAt: updatedServiceDefinition.validatedAt,
+        updatedAt: updatedServiceDefinition.updatedAt,
       },
     });
   } catch (error: any) {
@@ -447,6 +481,224 @@ router.get('/approval-tokens/:requestId', async (req: Request, res: Response) =>
     appContext.logger.error('Error retrieving approval tokens:', error);
     res.status(500).json({
       error: 'Failed to retrieve approval tokens: ' + (error.message || 'Unknown error'),
+    });
+  }
+});
+
+/**
+ * Validate optional envelope structure (NEW May 29, 2026)
+ * Helper function to validate optional envelopes that can be empty if required:false
+ * 
+ * RULES:
+ *   - Optional envelopes can be: omitted, empty {}, or { required: false }
+ *   - If envelope is present but required: true, validate all required fields
+ *   - If envelope has required: false, no validation needed (will be skipped)
+ */
+function validateOptionalEnvelopes(envelopes: any, logger: any): { valid: boolean; error?: string } {
+  const optionalEnvelopeNames = ['approval', 'payment', 'processing', 'delivery', 'feedback'];
+  
+  for (const envName of optionalEnvelopeNames) {
+    const envelope = envelopes[envName];
+    
+    // If envelope not present, it's ok (will be skipped)
+    if (!envelope) {
+      logger.debug(`[ENVELOPE-VALIDATION] ${envName} not present (optional, will be skipped)`);
+      continue;
+    }
+    
+    // If envelope has required: false, it's ok (will be skipped)
+    if (envelope.required === false) {
+      logger.info(`[ENVELOPE-VALIDATION] ${envName} marked as optional (required: false, will be skipped)`);
+      continue;
+    }
+    
+    // If envelope has required: true or no required field, validate content based on type
+    logger.info(`[ENVELOPE-VALIDATION] ${envName} marked as required, validating configuration...`);
+    
+    switch (envName) {
+      case 'approval':
+        if (!envelope.approvalRules) {
+          return { valid: false, error: 'approval envelope: missing approvalRules' };
+        }
+        break;
+        
+      case 'payment':
+        if (!envelope.charges || envelope.charges.length === 0) {
+          return { valid: false, error: 'payment envelope: missing or empty charges array' };
+        }
+        break;
+        
+      case 'processing':
+        if (!envelope.tasks || envelope.tasks.length === 0) {
+          return { valid: false, error: 'processing envelope: missing or empty tasks array' };
+        }
+        break;
+        
+      case 'delivery':
+        if (!envelope.deliveryMethods) {
+          return { valid: false, error: 'delivery envelope: missing deliveryMethods' };
+        }
+        break;
+        
+      case 'feedback':
+        if (!envelope.expiryDays) {
+          return { valid: false, error: 'feedback envelope: missing expiryDays' };
+        }
+        break;
+    }
+  }
+  
+  logger.info('[ENVELOPE-VALIDATION] All envelopes validated successfully');
+  return { valid: true };
+}
+
+// Attach validator to router for access in route handlers
+(router as any).validateOptionalEnvelopes = validateOptionalEnvelopes;
+
+/**
+ * GET /api/admin/schema
+ * Serve the LATEST canonical service definition schema to Phase 2 UI
+ * The UI builder uses this to validate service definitions and generate forms
+ * Always fetches latest from MongoDB to ensure schema is always current
+ */
+router.get('/schema', async (req: Request, res: Response) => {
+  try {
+    const schemaDoc = await appContext.stateManager.getLatestSchemaVersion();
+    
+    if (!schemaDoc || !schemaDoc.schema) {
+      return res.status(500).json({
+        error: 'No schema version found in MongoDB. Server may not be fully initialized.',
+      });
+    }
+    
+    res.json({
+      schema: schemaDoc.schema,
+      description: schemaDoc.description || 'Canonical Service Definition Schema',
+      version: schemaDoc.version,
+      name: schemaDoc.name,
+      lastUpdated: schemaDoc.updatedAt,
+    });
+  } catch (error: any) {
+    appContext.logger.error('Error retrieving schema:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve schema: ' + (error.message || 'Unknown error'),
+    });
+  }
+});
+
+/**
+ * GET /api/admin/schema/versions
+ * List all schema versions stored in MongoDB (NEW May 29: Schema evolution tracking)
+ * Returns list of all schema versions that have been validated
+ */
+router.get('/schema/versions', async (req: Request, res: Response) => {
+  try {
+    const versions = await appContext.stateManager.getAllSchemaVersions();
+    res.json({
+      success: true,
+      count: versions.length,
+      versions: versions.map(v => ({
+        version: v.version,
+        name: v.name,
+        description: v.description,
+        createdAt: v.createdAt,
+        updatedAt: v.updatedAt,
+      })),
+    });
+  } catch (error: any) {
+    appContext.logger.error('Error retrieving schema versions:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve schema versions: ' + (error.message || 'Unknown error'),
+    });
+  }
+});
+
+/**
+ * GET /api/admin/schema/versions/latest
+ * Get the latest schema version (NEW May 29: Schema evolution tracking)
+ */
+router.get('/schema/versions/latest', async (req: Request, res: Response) => {
+  try {
+    const schemaDoc = await appContext.stateManager.getLatestSchemaVersion();
+    if (!schemaDoc || !schemaDoc.schema) {
+      return res.status(404).json({
+        error: 'No schema versions found',
+      });
+    }
+    res.json({
+      schema: schemaDoc.schema,
+      version: schemaDoc.version,
+      name: schemaDoc.name,
+      description: schemaDoc.description || 'Canonical Service Definition Schema',
+      lastUpdated: schemaDoc.updatedAt,
+    });
+  } catch (error: any) {
+    appContext.logger.error('Error retrieving latest schema version:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve latest schema version: ' + (error.message || 'Unknown error'),
+    });
+  }
+});
+
+/**
+ * GET /api/admin/schema/versions/:version
+ * Get a specific schema version (NEW May 29: Schema evolution tracking)
+ */
+router.get('/schema/versions/:version', async (req: Request, res: Response) => {
+  try {
+    const { version } = req.params;
+    const schema = await appContext.stateManager.getSchemaVersion(version);
+    if (!schema) {
+      return res.status(404).json({
+        error: `Schema version ${version} not found`,
+      });
+    }
+    res.json({
+      success: true,
+      schema,
+    });
+  } catch (error: any) {
+    appContext.logger.error('Error retrieving schema version:', error);
+    res.status(500).json({
+      error: 'Failed to retrieve schema version: ' + (error.message || 'Unknown error'),
+    });
+  }
+});
+
+/**
+ * POST /api/admin/schema/reload
+ * Reload the schema validator with the latest version from MongoDB
+ * Useful when schema is updated and you want validator to use new version without restarting server
+ * ADMIN ONLY - Should be restricted in production
+ */
+router.post('/schema/reload', async (req: Request, res: Response) => {
+  try {
+    appContext.logger.info('🔄 Reloading schema from MongoDB...');
+    
+    const schemaDoc = await appContext.stateManager.getLatestSchemaVersion();
+    
+    if (!schemaDoc || !schemaDoc.schema) {
+      return res.status(500).json({
+        error: 'No schema version found in MongoDB',
+      });
+    }
+    
+    // Reinitialize validator with latest schema
+    initializeValidator(schemaDoc.schema);
+    
+    appContext.logger.info(`✅ Schema validator reloaded with v${schemaDoc.version}`);
+    
+    res.json({
+      success: true,
+      message: `Schema validator reloaded with v${schemaDoc.version}`,
+      version: schemaDoc.version,
+      name: schemaDoc.name,
+      lastUpdated: schemaDoc.updatedAt,
+    });
+  } catch (error: any) {
+    appContext.logger.error('Error reloading schema:', error);
+    res.status(500).json({
+      error: 'Failed to reload schema: ' + (error.message || 'Unknown error'),
     });
   }
 });

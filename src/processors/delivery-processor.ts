@@ -39,14 +39,41 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
       return of(envelope);
     }
 
+    // Check if delivery was marked complete externally via API (e.g., status code 3 = delivered)
+    if (envelope.currentStatusCode === 3 || (envelope.currentStatus === 'delivered' && envelope.status === 'in_progress')) {
+      envelope.status = 'completed';
+      envelope.deliveredAt = envelope.deliveredAt || new Date().toISOString();
+      this.logger.info(`[DELIVERY-COMPLETED] Request ${request.id} | Document delivery completed`);
+      return of(envelope);
+    }
+
     // Check if this is the initial start (status = pending)
     if (envelope.status === 'pending') {
+      // Check if delivery details were pre-submitted via POST /api/delivery/{requestId}/details
+      if (envelope.method) {
+        // Details already provided, proceed to in_progress
+        this.logger.info(
+          `[DELIVERY-DETAILS-FOUND] Request ${request.id} | Using pre-submitted delivery method: ${envelope.method}`
+        );
+        envelope.status = 'in_progress';
+        envelope.timestamp = new Date().toISOString();
+
+        return from(this.executeDelivery(request, envelope)).pipe(
+          map(() => {
+            envelope.status = 'completed';
+            envelope.timestamp = new Date().toISOString();
+            return envelope;
+          })
+        );
+      }
+
+      // No details yet, wait for UI to submit them or user to select method
       // NOTE: Orchestrator handles email sending via sendEnvelopeEmailTemplate()
       envelope.status = 'pending_external';
       envelope.timestamp = new Date().toISOString();
 
       this.logger.info(
-        `[DELIVERY-WAIT] Request ${request.id} | Awaiting delivery method selection`
+        `[DELIVERY-WAIT] Request ${request.id} | Awaiting delivery method selection (submit via POST /api/delivery/{requestId}/details or /method)`
       );
 
       return of(envelope);

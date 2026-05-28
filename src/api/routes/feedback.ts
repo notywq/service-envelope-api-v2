@@ -65,21 +65,30 @@ router.post('/:requestId/submit', async (req: Request, res: Response) => {
     // Save updated request
     await appContext.stateManager.saveRequest(request);
 
-    // Trigger orchestrator to send end email and mark complete
+    appContext.logger.info(
+      `✅ Feedback submitted for request ${requestId}.`
+    );
+
+    // Acquire lock and auto-resume orchestrator
+    const lock = await appContext.requestProcessingLock.acquire(requestId);
+    
     appContext.orchestrator.processRequest(request).subscribe({
-      next: (processedRequest: any) => {
-        appContext.logger.info(
-          `✅ Feedback submitted and processed for request ${requestId}`
-        );
+      next: (result) => {
+        appContext.logger.info(`📊 Request auto-resumed after feedback: ${result.id} -> ${result.overallStatus}`);
       },
-      error: (error: any) => {
-        appContext.logger.error(`Error processing feedback: ${error}`);
+      error: (err) => {
+        appContext.logger.error(`❌ Error in auto-resume: ${err.message}`);
+        lock.release();
+      },
+      complete: () => {
+        lock.release();
+        appContext.logger.info(`   ℹ️  Orchestrator completed, lock released`);
       },
     });
 
     res.json({
       status: 'success',
-      message: 'Feedback submitted successfully',
+      message: 'Feedback submitted successfully and processing resumed.',
       requestId,
       feedbackReceivedAt: new Date().toISOString(),
     });

@@ -104,13 +104,6 @@ envelopes:
             value: "pickup"
         default: "email"
 
-      mailingAddress:
-        type: String
-        required: false
-        description: "Mailing address (required if Physical Mail selected)"
-        maxLength: 300
-        default: ""
-
       isUrgent:
         type: Boolean
         required: false
@@ -123,8 +116,6 @@ envelopes:
         description: "Additional remarks or special requests"
         maxLength: 500
         default: ""
-    emailTemplateEndEnvelope: "SERV-999-request-end"
-    emailTemplateCancelEnvelope: "SERV-999-request-cancelled"
 
   approval:
     approvalRules:
@@ -133,15 +124,12 @@ envelopes:
         - barondimaranan@gmail.com
         - baron@fowlstudios.com
     emailTemplateStartEnvelope: "SERV-999-approval-start"
-    emailTemplateEndEnvelope: "SERV-999-approval-complete"
-    emailTemplateCancelEnvelope: "SERV-999-request-cancelled"
-    expiryHours: 48
+    emailTemplateEndEnvelope: "SERV-999-approval-end"
     required: true
 
   payment:
     required: true
     paymentProvider: maya
-    expiryDays: 7
     charges:
       - item: "Document Processing Fee"
         amount: 500
@@ -152,12 +140,11 @@ envelopes:
         currency: PHP
         quantity: 1
     emailTemplateStartEnvelope: "SERV-999-payment-start"
-    emailTemplateEndEnvelope: "SERV-999-payment-complete"
-    emailTemplateCancelEnvelope: "SERV-999-request-cancelled"
+    emailTemplateEndEnvelope: "SERV-999-payment-end"
 
   processing:
     emailTemplateStartEnvelope: "SERV-999-processing-start"
-    emailTemplateEndEnvelope: "SERV-999-processing-complete"
+    emailTemplateEndEnvelope: "SERV-999-processing-end"
     stopOnFailure: true
     tasks:
       - type: api_call
@@ -214,7 +201,6 @@ envelopes:
         payload:
           studentId: "{{studentId}}"
           documentTypes: "{{documentTypes}}"
-          deliveryMethod: "{{deliveryMethod}}"
           numberOfCopies: "{{numberOfCopies}}"
         timeout: 60000
         retries: 2
@@ -222,7 +208,15 @@ envelopes:
 
   delivery:
     emailTemplateStartEnvelope: "SERV-999-delivery-start"
-    emailTemplateEndEnvelope: "SERV-999-delivery-complete"
+    emailTemplateEndEnvelope: "SERV-999-delivery-end"
+    
+    # Delivery Status Codes for tracking delivery progress
+    # Use these codes to update delivery status via POST /api/delivery-status/:requestId
+    # 0 = Processing: Preparing document for delivery
+    # 1 = Ready to Deliver: Document ready, awaiting shipment
+    # 2 = Out for Delivery: In transit to recipient
+    # 3 = Delivered: Document delivered successfully
+    
     deliveryMethods:
       email:
         enabled: true
@@ -230,15 +224,23 @@ envelopes:
         recipient: "{{email}}"
         attachmentUrls:
           - "https://documents.mapua.edu.ph/{{requestId}}/documents.pdf"
+        fields: {}
       physical_mail:
         enabled: true
-        address: "{{mailingAddress}}"
-        requiresSignature: false
-        trackingEnabled: true
         carrier: "LBC"
         estimatedDays: 5
         costPercentage: 15
         requiresApprovalBeforeShip: true
+        requiresSignature: false
+        trackingEnabled: true
+        fields:
+          mailingAddress:
+            type: String
+            required: true
+            label: "Mailing Address"
+            description: "Full mailing address for delivery"
+            maxLength: 300
+            placeholder: "Street Address, City, Province, Postal Code"
       pickup:
         enabled: true
         location: "MAPUA Registrar's Office, Room 201, Ground Floor, MAPUA Campus"
@@ -246,11 +248,13 @@ envelopes:
         requiresIDVerification: true
         pickupDeadlineDays: 30
         notificationRequired: true
+        fields: {}
 
   feedback:
     required: true
-    expiryDays: 14
+    autoCloseAfterHours: 24  # Auto-close request after 24 hours even if no feedback submitted
+    expiryDays: 7  # Feedback link remains valid for 7 days (user can still submit even after request is closed)
     emailTemplateStartEnvelope: "SERV-999-feedback-start"
-    emailTemplateEndEnvelope: "SERV-999-feedback-complete"
+    emailTemplateEndEnvelope: "SERV-999-feedback-end"
     notificationRequired: true
     reminderDaysBefore: 3

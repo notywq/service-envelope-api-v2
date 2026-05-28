@@ -1,0 +1,486 @@
+{
+  "testSuite": "Cancellations and Delivery Method Endpoints",
+  "baseUrl": "http://localhost:8000/api",
+  "frontendUrl": "http://localhost:5173",
+  "description": "Test approval denial, payment expiry, and delivery method selection flows",
+  
+  "tests": [
+    {
+      "id": "test-1-create-request",
+      "name": "Create Request for Comprehensive Student Document",
+      "method": "POST",
+      "endpoint": "/requests",
+      "description": "Submit a new request with all required parameters from YAML",
+      "requestBody": {
+        "type": "comprehensive-student-document",
+        "initiator": "system",
+        "parameters": {
+          "studentId": "2024-00501",
+          "firstName": "Juan",
+          "lastName": "Dela Cruz",
+          "email": "juan.delacruz@mapua.edu.ph",
+          "documentTypes": ["academic_record", "official_transcript"],
+          "purpose": "employment",
+          "numberOfCopies": 1,
+          "deliveryMethod": "email",
+          "isUrgent": false,
+          "remarks": "Needed for job application"
+        }
+      },
+      "expectedStatus": 201,
+      "expectedResponse": {
+        "requestId": "req-*",
+        "serviceType": "comprehensive-student-document",
+        "overallStatus": "pending_approval",
+        "envelopes": {
+          "request": {
+            "status": "completed"
+          },
+          "approval": {
+            "status": "pending"
+          },
+          "payment": {
+            "status": "pending"
+          },
+          "processing": {
+            "status": "pending"
+          },
+          "delivery": {
+            "status": "pending"
+          },
+          "feedback": {
+            "status": "pending"
+          }
+        }
+      }
+    },
+    {
+      "id": "test-2-approval-denial",
+      "name": "Approval Denial → Request Cancellation",
+      "description": "Test that when an approver denies, request becomes CANCELLED and cancellation email is sent",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Create request",
+          "method": "POST",
+          "endpoint": "/requests",
+          "requestBody": {
+            "type": "comprehensive-student-document",
+            "initiator": "system",
+            "parameters": {
+              "studentId": "2024-00502",
+              "firstName": "Maria",
+              "lastName": "Santos",
+              "email": "maria.santos@mapua.edu.ph",
+              "documentTypes": ["certificate_good_standing"],
+              "purpose": "scholarship",
+              "numberOfCopies": 2,
+              "deliveryMethod": "email",
+              "isUrgent": false,
+              "remarks": "For scholarship application"
+            }
+          },
+          "expectedStatus": 201
+        },
+        {
+          "step": 2,
+          "action": "Wait for approval envelope to reach approvers",
+          "waitSeconds": 3,
+          "expectedEvent": "Approval email sent to barondimaranan@gmail.com and baron@fowlstudios.com with approval token"
+        },
+        {
+          "step": 3,
+          "action": "Deny the approval request",
+          "method": "POST",
+          "endpoint": "/approvals/{token}/deny",
+          "description": "Use token from approval email to deny the request",
+          "requestBody": {
+            "reason": "Student does not meet current scholarship requirements"
+          },
+          "expectedStatus": 200
+        },
+        {
+          "step": 4,
+          "action": "Verify request status is CANCELLED",
+          "method": "GET",
+          "endpoint": "/requests/{requestId}",
+          "expectedStatus": 200,
+          "expectedResponse": {
+            "overallStatus": "cancelled",
+            "envelopes": {
+              "approval": {
+                "status": "failed"
+              }
+            }
+          }
+        },
+        {
+          "step": 5,
+          "action": "Cancellation email verification",
+          "expectedEmail": {
+            "to": "maria.santos@mapua.edu.ph",
+            "subject": "Your Document Request Has Been Cancelled",
+            "bodyContains": [
+              "Request Cancelled",
+              "Student does not meet current scholarship requirements",
+              "refund"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "test-3-payment-expiry",
+      "name": "Payment Expiry → Request Cancellation",
+      "description": "Test that payment window expiry (7 days) triggers cancellation and email",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Create request",
+          "method": "POST",
+          "endpoint": "/requests",
+          "requestBody": {
+            "type": "comprehensive-student-document",
+            "initiator": "system",
+            "parameters": {
+              "studentId": "2024-00503",
+              "firstName": "Pedro",
+              "lastName": "Morales",
+              "email": "pedro.morales@mapua.edu.ph",
+              "documentTypes": ["academic_record", "official_transcript"],
+              "purpose": "graduate_admission",
+              "numberOfCopies": 1,
+              "deliveryMethod": "physical_mail",
+              "isUrgent": true,
+              "remarks": "Urgent: Graduate school deadline"
+            }
+          },
+          "expectedStatus": 201
+        },
+        {
+          "step": 2,
+          "action": "Wait for approval completion",
+          "waitSeconds": 3,
+          "expectedEvent": "Request moves to payment envelope"
+        },
+        {
+          "step": 3,
+          "action": "Payment initialized with 7-day expiry",
+          "expectedState": {
+            "envelope": "payment",
+            "status": "pending_external",
+            "charges": [
+              {"item": "Document Processing Fee", "amount": 500, "currency": "PHP"},
+              {"item": "Certification Fee", "amount": 300, "currency": "PHP"}
+            ],
+            "expiryDays": 7
+          }
+        },
+        {
+          "step": 4,
+          "action": "Simulate 7+ days passing (manual: modify payment.timestamp in DB)",
+          "dbUpdate": {
+            "collection": "requests",
+            "query": {"_id": "{requestId}"},
+            "update": {
+              "envelopes.payment.timestamp": "2026-05-20T00:00:00Z"
+            }
+          }
+        },
+        {
+          "step": 5,
+          "action": "Trigger request re-processing to check payment expiry",
+          "method": "POST",
+          "endpoint": "/requests/{requestId}/resume",
+          "expectedStatus": 200
+        },
+        {
+          "step": 6,
+          "action": "Verify request status is CANCELLED",
+          "method": "GET",
+          "endpoint": "/requests/{requestId}",
+          "expectedStatus": 200,
+          "expectedResponse": {
+            "overallStatus": "cancelled",
+            "envelopes": {
+              "payment": {
+                "status": "failed"
+              }
+            }
+          }
+        },
+        {
+          "step": 7,
+          "action": "Cancellation email sent for payment expiry",
+          "expectedEmail": {
+            "to": "pedro.morales@mapua.edu.ph",
+            "subject": "Your Document Request Has Been Cancelled",
+            "bodyContains": [
+              "Payment window expired",
+              "7 days",
+              "Please submit a new request if needed"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "test-4-delivery-method-post",
+      "name": "POST /api/delivery/:requestId/method - Select Delivery",
+      "description": "Test selecting delivery method after processing completes",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Get request that reached delivery envelope",
+          "method": "GET",
+          "endpoint": "/requests/{requestId}",
+          "expectedResponse": {
+            "overallStatus": "pending_delivery",
+            "envelopes": {
+              "delivery": {
+                "status": "pending_external"
+              }
+            }
+          }
+        },
+        {
+          "step": 2,
+          "action": "SELECT PHYSICAL_MAIL DELIVERY",
+          "method": "POST",
+          "endpoint": "/delivery/{requestId}/method",
+          "requestBody": {
+            "method": "physical_mail",
+            "details": {
+              "physical_mail": {
+                "mailingAddress": "123 Oak Avenue, Quezon City, Metro Manila 1101"
+              }
+            }
+          },
+          "expectedStatus": 200,
+          "expectedResponse": {
+            "status": "success",
+            "message": "Delivery method [physical_mail] selected and processing started",
+            "requestId": "{requestId}",
+            "method": "physical_mail",
+            "deliveryDetails": {
+              "physical_mail": {
+                "mailingAddress": "123 Oak Avenue, Quezon City, Metro Manila 1101"
+              }
+            }
+          }
+        },
+        {
+          "step": 3,
+          "action": "Verify delivery envelope status changed to in_progress",
+          "method": "GET",
+          "endpoint": "/requests/{requestId}",
+          "expectedResponse": {
+            "overallStatus": "pending_delivery",
+            "envelopes": {
+              "delivery": {
+                "status": "in_progress",
+                "method": "physical_mail"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "test-5-delivery-method-get",
+      "name": "GET /api/delivery/:requestId/method - Retrieve Delivery Info",
+      "description": "Test retrieving delivery method for frontend UI routing",
+      "method": "GET",
+      "endpoint": "/delivery/{requestId}/method",
+      "expectedStatus": 200,
+      "expectedResponse": {
+        "requestId": "{requestId}",
+        "deliveryMethod": "PHYSICAL_MAIL",
+        "status": "in_progress",
+        "details": {
+          "physical_mail": {
+            "mailingAddress": "123 Oak Avenue, Quezon City, Metro Manila 1101"
+          }
+        },
+        "availableMethods": {
+          "email": {},
+          "physical_mail": {},
+          "pickup": {}
+        },
+        "timestamp": "2026-05-27T*",
+        "lastAttemptAt": null
+      },
+      "frontendUsage": {
+        "url": "http://localhost:5173/delivery/{requestId}/tracking",
+        "callThis": "GET /api/delivery/{requestId}/method",
+        "useResponseTo": "Determine which UI to show: EMAIL | PHYSICAL_MAIL | PICKUP"
+      }
+    },
+    {
+      "id": "test-6-delivery-method-email",
+      "name": "Delivery Method - EMAIL",
+      "description": "Select EMAIL as delivery method",
+      "method": "POST",
+      "endpoint": "/delivery/{requestId}/method",
+      "requestBody": {
+        "method": "email",
+        "details": {
+          "email": {}
+        }
+      },
+      "expectedStatus": 200,
+      "expectedResponse": {
+        "status": "success",
+        "method": "email",
+        "deliveryDetails": {
+          "email": {}
+        }
+      }
+    },
+    {
+      "id": "test-7-delivery-method-pickup",
+      "name": "Delivery Method - PICKUP",
+      "description": "Select PICKUP as delivery method",
+      "method": "POST",
+      "endpoint": "/delivery/{requestId}/method",
+      "requestBody": {
+        "method": "pickup",
+        "details": {
+          "pickup": {}
+        }
+      },
+      "expectedStatus": 200,
+      "expectedResponse": {
+        "status": "success",
+        "method": "pickup",
+        "deliveryDetails": {
+          "pickup": {}
+        }
+      }
+    }
+  ],
+
+  "testData": {
+    "requests": [
+      {
+        "id": "req-full-flow",
+        "type": "comprehensive-student-document",
+        "initiator": "system",
+        "parameters": {
+          "studentId": "2024-00500",
+          "firstName": "Test",
+          "lastName": "User",
+          "email": "test@mapua.edu.ph",
+          "documentTypes": ["academic_record", "official_transcript", "enrollment_verification"],
+          "purpose": "employment",
+          "numberOfCopies": 1,
+          "deliveryMethod": "email",
+          "isUrgent": false,
+          "remarks": "Full end-to-end test"
+        }
+      }
+    ],
+    "deliveryMethods": [
+      {
+        "method": "email",
+        "description": "Email delivery",
+        "details": {}
+      },
+      {
+        "method": "physical_mail",
+        "description": "Physical mail delivery",
+        "details": {
+          "mailingAddress": "Street, City, Province, Postal Code"
+        }
+      },
+      {
+        "method": "pickup",
+        "description": "Pickup in person at registrar",
+        "details": {}
+      }
+    ]
+  },
+
+  "expectedEmails": [
+    {
+      "id": "email-approval-start",
+      "phase": "approval-start",
+      "subject": "Action Required: Approve Document Request",
+      "recipients": ["barondimaranan@gmail.com", "baron@fowlstudios.com"],
+      "includes": ["approval token", "approval link", "request details"]
+    },
+    {
+      "id": "email-cancellation-approval",
+      "phase": "cancellation",
+      "reason": "approval denial",
+      "subject": "Your Document Request Has Been Cancelled",
+      "recipient": "{requester.email}",
+      "includes": ["cancellation reason", "approver info", "refund details"]
+    },
+    {
+      "id": "email-cancellation-payment",
+      "phase": "cancellation",
+      "reason": "payment expiry",
+      "subject": "Your Document Request Has Been Cancelled",
+      "recipient": "{requester.email}",
+      "includes": ["payment expired", "7 days", "resubmit option"]
+    }
+  ],
+
+  "apiEndpointsSummary": {
+    "createRequest": {
+      "method": "POST",
+      "endpoint": "/requests",
+      "description": "Create new service request"
+    },
+    "getRequest": {
+      "method": "GET",
+      "endpoint": "/requests/{requestId}",
+      "description": "Get request details and envelope status"
+    },
+    "selectDeliveryMethod": {
+      "method": "POST",
+      "endpoint": "/delivery/{requestId}/method",
+      "description": "Select delivery method (email, physical_mail, pickup)",
+      "bodyFormat": {
+        "method": "email|physical_mail|pickup",
+        "details": {
+          "[method]": {}
+        }
+      }
+    },
+    "getDeliveryMethod": {
+      "method": "GET",
+      "endpoint": "/delivery/{requestId}/method",
+      "description": "Get delivery method for frontend UI routing",
+      "responseIncludes": [
+        "deliveryMethod: PHYSICAL_MAIL|EMAIL|PICKUP",
+        "details: {...}",
+        "status: pending_external|in_progress|completed|failed"
+      ]
+    },
+    "denyApproval": {
+      "method": "POST",
+      "endpoint": "/approvals/{token}/deny",
+      "description": "Deny approval request"
+    }
+  },
+
+  "notes": {
+    "cancellationFlows": [
+      "Approval Denial: Orchestrator detects approval.status='failed' → sets request.overallStatus='cancelled' → sendCancellationEmail()",
+      "Payment Expiry: checkPaymentExpiry() detects 7+ days → sets request.overallStatus='cancelled' → sendCancellationEmail()",
+      "Processing Failure: Orchestrator detects processing error → sets request.overallStatus='cancelled' → sendCancellationEmail()"
+    ],
+    "deliveryMethodFlow": [
+      "1. Request completes approval, payment, processing",
+      "2. Reaches delivery envelope in pending_external status",
+      "3. Frontend calls GET /api/delivery/:requestId/method",
+      "4. Gets deliveryMethod (null if not yet selected)",
+      "5. Shows appropriate UI form based on method",
+      "6. User selects method and fills details",
+      "7. Frontend POST /api/delivery/:requestId/method with { method, details }",
+      "8. Backend saves and triggers orchestrator processing"
+    ]
+  }
+}

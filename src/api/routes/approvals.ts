@@ -266,18 +266,25 @@ router.post('/:token/approve', async (req: Request, res: Response) => {
 
     // Resume if approval is complete
     if (approvalComplete) {
-      appContext.logger.info(`✅ Approval complete for request ${tokenData.requestId} (${ruleType}) - resuming pipeline`);
+      appContext.logger.info(`✅ Approval complete for request ${tokenData.requestId} (${ruleType})`);
       
-      // Send payment notification email to requestor before resuming
+      // Send payment notification email to requestor
       await sendPaymentNotificationEmail(request);
       
-      // Resume processing
+      // Acquire lock and auto-resume orchestrator
+      const lock = await appContext.requestProcessingLock.acquire(tokenData.requestId);
+      
       appContext.orchestrator.processRequest(request).subscribe({
         next: (result) => {
-          appContext.logger.info(`📊 Request resumed after approval: ${result.id} -> ${result.overallStatus}`);
+          appContext.logger.info(`📊 Request auto-resumed after approval: ${result.id} -> ${result.overallStatus}`);
         },
         error: (err) => {
-          appContext.logger.error(`❌ Error processing approved request: ${err.message}`);
+          appContext.logger.error(`❌ Error in auto-resume: ${err.message}`);
+          lock.release();
+        },
+        complete: () => {
+          lock.release();
+          appContext.logger.info(`   ℹ️  Orchestrator completed, lock released`);
         },
       });
     } else {

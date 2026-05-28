@@ -145,18 +145,21 @@ export interface DeliveryEnvelope extends BaseEnvelope {
   availableMethods?: Record<string, any>;  // Store all available delivery methods from service definition
   deliveryAttempts: number;
   lastAttemptAt?: string;
+  deliveredAt?: string;  // Timestamp when delivery was completed (status code 3)
   emailTemplateStartEnvelope?: string;   // Email template sent when delivery starts (document ready)
   emailTemplateEndEnvelope?: string;     // Email template sent when delivery completes
   startEmailSentAt?: string;
   endEmailSentAt?: string;
   // Delivery tracking - history of all status updates
-  currentStatus?: string;  // Latest status: in_transit, out_for_delivery, received, failed, returned
+  currentStatus?: string;  // Latest status: processing, ready_to_deliver, out_for_delivery, delivered
+  currentStatusCode?: number;  // Latest status code: 0, 1, 2, or 3
   lastStatusUpdate?: string;  // ISO timestamp of last update
   deliveryHistory?: DeliveryStatusUpdate[];  // Array of all status updates
 }
 
 export interface DeliveryStatusUpdate {
-  status: string;  // in_transit, out_for_delivery, received, failed, returned, etc.
+  statusCode?: number;  // Status code: 0=processing, 1=ready_to_deliver, 2=out_for_delivery, 3=delivered
+  status: string;  // Status name: processing, ready_to_deliver, out_for_delivery, delivered
   timestamp: string;  // ISO timestamp
   location?: string;  // Current location
   notes?: string;  // Additional notes
@@ -193,7 +196,10 @@ export interface FeedbackEnvelope extends BaseEnvelope {
   submissionDate?: string;
   autoCloseOnExpiry?: string;
   expiresAt?: string;
-  expiryDays?: number;
+  expiryDays?: number;  // How long feedback link remains valid (default 7 days)
+  autoCloseAfterHours?: number;  // Auto-close request after this many hours (default 24) even if no feedback
+  autoClosedAt?: string;  // Timestamp when auto-close was triggered (no feedback submitted)
+  autoClosedReason?: string;  // Reason for auto-close (e.g., "Feedback window expired after 24 hours with no submission")
   emailTemplateStartEnvelope?: string;   // Email template sent with survey invite
   emailTemplateEndEnvelope?: string;     // Email template sent after feedback submitted
   startEmailSentAt?: string;

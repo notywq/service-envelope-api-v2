@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
-  title: Service Envelope API
-  version: 1.0.0
-  description: Complete API for the Service Envelope System - manages service requests, approvals, and processing workflows
+  title: Service Envelope API v2.0
+  version: 2.0.0
+  description: Complete REST API for Service Envelope System - manages multi-envelope request workflows, approvals, payments, and delivery
   contact:
     name: Service Envelope Team
   license:
@@ -10,17 +10,15 @@ info:
 
 servers:
   - url: http://localhost:8000
-    description: Development server
+    description: Development
   - url: https://api.mapua.edu.ph
-    description: Production server
+    description: Production
 
 paths:
   /health:
     get:
-      tags:
-        - Admin
+      tags: [System]
       summary: Health Check
-      description: Verify API server is running and healthy
       operationId: healthCheck
       responses:
         '200':
@@ -37,59 +35,70 @@ paths:
                     type: string
                     format: date-time
 
-  /api/info:
-    get:
-      tags:
-        - Admin
-      summary: Get API Info
-      description: Get API version and information
-      operationId: getApiInfo
-      responses:
-        '200':
-          description: API information
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  version:
-                    type: string
-                    example: "1.0.0"
-                  name:
-                    type: string
-                    example: Service Envelope API
-                  endpoints:
-                    type: integer
-
   /api/services:
     get:
-      tags:
-        - Services
+      tags: [Services]
       summary: List All Services
-      description: Get all available services from MongoDB
       operationId: listAllServices
       responses:
         '200':
-          description: List of services
+          description: All available services
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/ServiceDefinition'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags: [Services]
+      summary: Submit Service Request (unified)
+      operationId: submitServiceRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceSubmitPayload'
+      responses:
+        '201':
+          description: Request created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/submit:
+    post:
+      tags: [Services]
+      summary: Submit Service Request (alternative)
+      operationId: submitServiceRequestAlt
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceSubmitPayload'
+      responses:
+        '201':
+          description: Request created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   /api/services/ids:
     get:
-      tags:
-        - Services
-      summary: Get Service IDs
-      description: Get quick reference of all service IDs and names
+      tags: [Services]
+      summary: Get Service IDs Quick Reference
       operationId: getServiceIds
       responses:
         '200':
-          description: List of service IDs
+          description: List of service IDs and names
           content:
             application/json:
               schema:
@@ -104,10 +113,8 @@ paths:
 
   /api/services/{serviceId}:
     get:
-      tags:
-        - Services
+      tags: [Services]
       summary: Get Service Details
-      description: Get detailed information about a specific service
       operationId: getServiceDetails
       parameters:
         - name: serviceId
@@ -117,87 +124,45 @@ paths:
             type: string
       responses:
         '200':
-          description: Service details
+          description: Service configuration
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServiceDefinition'
         '404':
-          $ref: '#/components/responses/NotFoundError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+          $ref: '#/components/responses/NotFound'
 
-  /api/services/{serviceId}/submit:
-    post:
-      tags:
-        - Services
-      summary: Submit Service Request (By ID)
-      description: Submit a new service request using the service ID in the path
-      operationId: submitServiceRequestById
+    delete:
+      tags: [Services]
+      summary: Delete Service
+      operationId: deleteService
       parameters:
         - name: serviceId
           in: path
           required: true
           schema:
             type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ServiceRequestPayload'
       responses:
-        '201':
-          description: Service request created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceRequest'
-        '400':
-          $ref: '#/components/responses/BadRequestError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-
-  /api/services/submit:
-    post:
-      tags:
-        - Services
-      summary: Submit Service Request (Unified)
-      description: Submit service request with service ID in body
-      operationId: submitServiceRequestUnified
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              allOf:
-                - $ref: '#/components/schemas/ServiceRequestPayload'
-                - type: object
-                  required:
-                    - serviceId
-                  properties:
-                    serviceId:
-                      type: string
-      responses:
-        '201':
-          description: Service request created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceRequest'
-        '400':
-          $ref: '#/components/responses/BadRequestError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+        '200':
+          description: Service deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/requests:
     get:
-      tags:
-        - Requests
+      tags: [Requests]
       summary: List All Requests
-      description: List all service requests with pagination
       operationId: listAllRequests
       parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, in_progress, completed, rejected, paused]
+        - name: type
+          in: query
+          schema:
+            type: string
         - name: limit
           in: query
           schema:
@@ -217,86 +182,31 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/ServiceRequest'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
 
-  /api/requests?status={status}:
-    get:
-      tags:
-        - Requests
-      summary: List Requests by Status
-      description: Filter requests by status (completed, pending, etc.)
-      operationId: listRequestsByStatus
-      parameters:
-        - name: status
-          in: query
-          required: true
-          schema:
-            type: string
-            enum: [pending, in_progress, completed, rejected, paused]
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+    post:
+      tags: [Requests]
+      summary: Create Request
+      operationId: createRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServiceSubmitPayload'
       responses:
-        '200':
-          description: List of requests filtered by status
+        '201':
+          description: Request created
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ServiceRequest'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-
-  /api/requests?type={type}:
-    get:
-      tags:
-        - Requests
-      summary: List Requests by Type
-      description: Filter requests by service type (courseEnrollment, roomRental, etc.)
-      operationId: listRequestsByType
-      parameters:
-        - name: type
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
-      responses:
-        '200':
-          description: List of requests filtered by type
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ServiceRequest'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+                $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
 
   /api/requests/{requestId}:
     get:
-      tags:
-        - Requests
+      tags: [Requests]
       summary: Get Request Details
-      description: Get detailed information about a specific request
       operationId: getRequestDetails
       parameters:
         - name: requestId
@@ -312,14 +222,11 @@ paths:
               schema:
                 $ref: '#/components/schemas/ServiceRequest'
         '404':
-          $ref: '#/components/responses/NotFoundError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+          $ref: '#/components/responses/NotFound'
+
     delete:
-      tags:
-        - Requests
+      tags: [Requests]
       summary: Cancel Request
-      description: Cancel a service request
       operationId: cancelRequest
       parameters:
         - name: requestId
@@ -331,53 +238,12 @@ paths:
         '200':
           description: Request cancelled
         '404':
-          $ref: '#/components/responses/NotFoundError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-
-  /api/requests/{requestId}/history:
-    get:
-      tags:
-        - Requests
-      summary: Get Request History
-      description: Get complete history of a request
-      operationId: getRequestHistory
-      parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Request history
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    timestamp:
-                      type: string
-                      format: date-time
-                    status:
-                      type: string
-                    action:
-                      type: string
-                    actor:
-                      type: string
-        '404':
-          $ref: '#/components/responses/NotFoundError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+          $ref: '#/components/responses/NotFound'
 
   /api/requests/{requestId}/resume:
     post:
-      tags:
-        - Requests
-      summary: Resume Request
-      description: Resume processing of a paused request
+      tags: [Requests]
+      summary: Resume Paused Request
       operationId: resumeRequest
       parameters:
         - name: requestId
@@ -399,115 +265,45 @@ paths:
               schema:
                 $ref: '#/components/schemas/ServiceRequest'
         '404':
-          $ref: '#/components/responses/NotFoundError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+          $ref: '#/components/responses/NotFound'
 
-  /api/approvals/{token}:
+  /api/requests/{requestId}/history:
     get:
-      tags:
-        - Approvals
-      summary: Check Token Status
-      description: Check the status of an approval token
-      operationId: checkTokenStatus
+      tags: [Requests]
+      summary: Get Request Audit History
+      operationId: getRequestHistory
       parameters:
-        - name: token
+        - name: requestId
           in: path
           required: true
           schema:
             type: string
       responses:
         '200':
-          description: Token status
+          description: Request history timeline
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApprovalToken'
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    status:
+                      type: string
+                    action:
+                      type: string
+                    actor:
+                      type: string
         '404':
-          $ref: '#/components/responses/NotFoundError'
-
-  /api/approvals/{token}/approve:
-    post:
-      tags:
-        - Approvals
-      summary: Approve Request
-      description: Approve a request using an approval token
-      operationId: approveRequest
-      parameters:
-        - name: token
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                comment:
-                  type: string
-      responses:
-        '200':
-          description: Request approved
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: approved
-                  message:
-                    type: string
-        '404':
-          $ref: '#/components/responses/NotFoundError'
-
-  /api/approvals/{token}/deny:
-    post:
-      tags:
-        - Approvals
-      summary: Deny Request
-      description: Deny a request using an approval token
-      operationId: denyRequest
-      parameters:
-        - name: token
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                comment:
-                  type: string
-      responses:
-        '200':
-          description: Request denied
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: denied
-                  message:
-                    type: string
-        '404':
-          $ref: '#/components/responses/NotFoundError'
+          $ref: '#/components/responses/NotFound'
 
   /api/auth/login:
     post:
-      tags:
-        - Auth
+      tags: [Auth]
       summary: Login
-      description: Login with email and password to get JWT token
       operationId: login
       requestBody:
         required: true
@@ -534,7 +330,6 @@ paths:
                 properties:
                   token:
                     type: string
-                    description: JWT token
                   user:
                     type: object
                     properties:
@@ -546,15 +341,22 @@ paths:
                         type: string
                         enum: [admin, approver, requester]
         '401':
-          $ref: '#/components/responses/UnauthorizedError'
+          $ref: '#/components/responses/Unauthorized'
 
   /api/auth/verify:
-    get:
-      tags:
-        - Auth
-      summary: Verify Token
-      description: Verify if JWT token is valid
+    post:
+      tags: [Auth]
+      summary: Verify JWT Token
       operationId: verifyToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
       responses:
         '200':
           description: Token is valid
@@ -567,42 +369,575 @@ paths:
                     type: boolean
                   user:
                     type: object
-                    properties:
-                      id:
-                        type: string
-                      email:
-                        type: string
-                      role:
-                        type: string
         '401':
-          $ref: '#/components/responses/UnauthorizedError'
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/approvals/{token}:
+    get:
+      tags: [Approvals]
+      summary: Check Approval Token Status
+      operationId: checkApprovalTokenStatus
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Token information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApprovalToken'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/approvals/{token}/approve:
+    post:
+      tags: [Approvals]
+      summary: Approve Request
+      operationId: approveRequest
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Request approved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/approvals/{token}/deny:
+    post:
+      tags: [Approvals]
+      summary: Deny Request
+      operationId: denyRequest
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                comment:
+                  type: string
+      responses:
+        '200':
+          description: Request denied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  message:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/approvals/{token}/request:
+    get:
+      tags: [Approvals]
+      summary: Get Request Associated with Approval Token
+      operationId: getApprovalTokenRequest
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Associated request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/payments/{requestId}/complete:
+    post:
+      tags: [Payments]
+      summary: Mark Payment Complete
+      operationId: completePayment
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                transactionId:
+                  type: string
+                amount:
+                  type: number
+      responses:
+        '200':
+          description: Payment marked complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/payments/{requestId}/failed:
+    post:
+      tags: [Payments]
+      summary: Mark Payment Failed
+      operationId: failPayment
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+      responses:
+        '200':
+          description: Payment marked failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/payments/maya:
+    post:
+      tags: [Payments]
+      summary: Maya Payment Webhook
+      operationId: mayaPaymentWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requestId:
+                  type: string
+                status:
+                  type: string
+                transactionId:
+                  type: string
+      responses:
+        '200':
+          description: Webhook processed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/feedback/{requestId}/submit:
+    post:
+      tags: [Feedback]
+      summary: Submit Feedback
+      operationId: submitFeedback
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rating:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                comment:
+                  type: string
+                parameters:
+                  type: object
+      responses:
+        '200':
+          description: Feedback submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/feedback/{requestId}:
+    get:
+      tags: [Feedback]
+      summary: Get Feedback
+      operationId: getFeedback
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Feedback data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                  rating:
+                    type: integer
+                  comment:
+                    type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/delivery/{requestId}/details:
+    post:
+      tags: [Delivery]
+      summary: Submit Delivery Details
+      operationId: submitDeliveryDetails
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deliveryMethod:
+                  type: string
+                  enum: [email, physical_mail, pickup]
+                deliveryDetails:
+                  type: object
+      responses:
+        '200':
+          description: Delivery details saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/delivery/{requestId}/method:
+    get:
+      tags: [Delivery]
+      summary: Get Delivery Method
+      operationId: getDeliveryMethod
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current delivery method
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  method:
+                    type: string
+                  details:
+                    type: object
+
+    post:
+      tags: [Delivery]
+      summary: Update Delivery Method
+      operationId: updateDeliveryMethod
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                method:
+                  type: string
+                  enum: [email, physical_mail, pickup]
+                details:
+                  type: object
+      responses:
+        '200':
+          description: Delivery method updated
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/delivery/{requestId}:
+    get:
+      tags: [Delivery]
+      summary: Get Delivery Status
+      operationId: getDeliveryStatus
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                  method:
+                    type: string
+                  status:
+                    type: string
+                  details:
+                    type: object
+
+  /api/delivery-status/{requestId}:
+    get:
+      tags: [Delivery]
+      summary: Get Current Delivery Status
+      operationId: getCurrentDeliveryStatus
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current delivery status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  lastUpdated:
+                    type: string
+                    format: date-time
+
+    post:
+      tags: [Delivery]
+      summary: Update Delivery Status
+      operationId: updateDeliveryStatus
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                details:
+                  type: object
+      responses:
+        '200':
+          description: Status updated
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/delivery-status/{requestId}/history:
+    get:
+      tags: [Delivery]
+      summary: Get Delivery Status History
+      operationId: getDeliveryStatusHistory
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Delivery status timeline
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    status:
+                      type: string
+                    timestamp:
+                      type: string
+                      format: date-time
+                    details:
+                      type: object
+
+  /api/processing/{requestId}:
+    get:
+      tags: [Processing]
+      summary: Get Processing Status
+      operationId: getProcessingStatus
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Processing envelope status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                  status:
+                    type: string
+                  tasks:
+                    type: array
+                    items:
+                      type: object
+
+  /api/processing/{requestId}/tasks/{taskName}:
+    get:
+      tags: [Processing]
+      summary: Get Specific Task Status
+      operationId: getTaskStatus
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: taskName
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Task details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  status:
+                    type: string
+                  result:
+                    type: object
+
+  /api/processing/{requestId}/summary:
+    get:
+      tags: [Processing]
+      summary: Get Processing Summary
+      operationId: getProcessingSummary
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Processing summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalTasks:
+                    type: integer
+                  completedTasks:
+                    type: integer
+                  failedTasks:
+                    type: integer
+                  status:
+                    type: string
 
   /api/admin/services:
     get:
-      tags:
-        - Admin
-      summary: Get All Services
-      description: Get all service definitions (admin view)
+      tags: [Admin]
+      summary: Get All Services (Admin)
       operationId: getAllServicesAdmin
       responses:
         '200':
-          description: List of all services
+          description: All service definitions
           content:
             application/json:
               schema:
                 type: array
                 items:
                   $ref: '#/components/schemas/ServiceDefinition'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
         '403':
-          $ref: '#/components/responses/ForbiddenError'
+          $ref: '#/components/responses/Forbidden'
+
     post:
-      tags:
-        - Admin
-      summary: Create Service
-      description: Create a new service definition in MongoDB
-      operationId: createService
+      tags: [Admin]
+      summary: Create Service (Admin)
+      operationId: createServiceAdmin
       requestBody:
         required: true
         content:
@@ -617,19 +952,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/ServiceDefinition'
         '400':
-          $ref: '#/components/responses/BadRequestError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+          $ref: '#/components/responses/BadRequest'
         '403':
-          $ref: '#/components/responses/ForbiddenError'
+          $ref: '#/components/responses/Forbidden'
 
   /api/admin/services/{serviceId}:
     put:
-      tags:
-        - Admin
-      summary: Update Service
-      description: Update an existing service definition
-      operationId: updateService
+      tags: [Admin]
+      summary: Update Service (Admin)
+      operationId: updateServiceAdmin
       parameters:
         - name: serviceId
           in: path
@@ -641,7 +972,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateServicePayload'
+              $ref: '#/components/schemas/CreateServicePayload'
       responses:
         '200':
           description: Service updated
@@ -650,18 +981,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/ServiceDefinition'
         '404':
-          $ref: '#/components/responses/NotFoundError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+          $ref: '#/components/responses/NotFound'
         '403':
-          $ref: '#/components/responses/ForbiddenError'
+          $ref: '#/components/responses/Forbidden'
 
   /api/admin/audit-logs:
     get:
-      tags:
-        - Admin
+      tags: [Admin]
       summary: Get Audit Logs
-      description: Get audit logs for admin activities
       operationId: getAuditLogs
       parameters:
         - name: limit
@@ -676,7 +1003,7 @@ paths:
             default: 0
       responses:
         '200':
-          description: Audit logs
+          description: Audit log entries
           content:
             application/json:
               schema:
@@ -693,34 +1020,287 @@ paths:
                       type: string
                     details:
                       type: object
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
         '403':
-          $ref: '#/components/responses/ForbiddenError'
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/email-templates:
+    get:
+      tags: [Admin]
+      summary: List Email Templates
+      operationId: listEmailTemplates
+      responses:
+        '200':
+          description: All email templates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EmailTemplate'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Admin]
+      summary: Create Email Template
+      operationId: createEmailTemplate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailTemplate'
+      responses:
+        '201':
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailTemplate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/email-templates/{templateId}:
+    get:
+      tags: [Admin]
+      summary: Get Email Template
+      operationId: getEmailTemplate
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Template details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailTemplate'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    put:
+      tags: [Admin]
+      summary: Update Email Template
+      operationId: updateEmailTemplate
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailTemplate'
+      responses:
+        '200':
+          description: Template updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailTemplate'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    delete:
+      tags: [Admin]
+      summary: Delete Email Template
+      operationId: deleteEmailTemplate
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Template deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/schema:
+    get:
+      tags: [Admin]
+      summary: Get Latest Service Definition Schema
+      operationId: getLatestSchema
+      description: Returns the current schema version used for service validation (for Phase 2 UI)
+      responses:
+        '200':
+          description: Latest schema from MongoDB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaResponse'
+
+  /api/admin/schema/versions:
+    get:
+      tags: [Admin]
+      summary: List All Schema Versions
+      operationId: listSchemaVersions
+      responses:
+        '200':
+          description: All schema versions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    version:
+                      type: string
+                    name:
+                      type: string
+                    description:
+                      type: string
+                    updatedAt:
+                      type: string
+                      format: date-time
+
+  /api/admin/schema/versions/latest:
+    get:
+      tags: [Admin]
+      summary: Get Latest Schema Version
+      operationId: getLatestSchemaVersion
+      responses:
+        '200':
+          description: Latest schema version document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/admin/schema/versions/{version}:
+    get:
+      tags: [Admin]
+      summary: Get Specific Schema Version
+      operationId: getSchemaVersion
+      parameters:
+        - name: version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Requested schema version
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/admin/schema/reload:
+    post:
+      tags: [Admin]
+      summary: Reload Schema Validator
+      operationId: reloadSchema
+      description: Reinitialize the schema validator with latest from MongoDB (no server restart needed)
+      responses:
+        '200':
+          description: Schema reloaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  version:
+                    type: string
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/admin/approval-tokens/{requestId}:
+    get:
+      tags: [Admin]
+      summary: Get Approval Tokens for Request
+      operationId: getApprovalTokensForRequest
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of approval tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ApprovalToken'
+        '403':
+          $ref: '#/components/responses/Forbidden'
 
 components:
   schemas:
     ServiceDefinition:
       type: object
       required:
-        - id
         - name
         - type
+        - description
       properties:
         id:
           type: string
-          example: SERV-1-04152026
+          pattern: '^SERV-[0-9]+-[0-9]{8}$'
+          description: Auto-generated service ID
         name:
           type: string
-          example: Course Enrollment Service
+          description: Service display name
         type:
           type: string
-          example: courseEnrollment
+          description: Service type identifier (lowercase with hyphens)
         description:
           type: string
-        yaml:
+          description: Service description
+        initiator:
           type: string
-          description: YAML configuration
+          description: Role that can initiate service (admin metadata)
+        serviceCode:
+          type: string
+          description: Internal service code
+        envelopes:
+          type: object
+          properties:
+            request:
+              type: object
+              description: REQUEST envelope (always required)
+            approval:
+              type: object
+              description: APPROVAL envelope (optional)
+            payment:
+              type: object
+              description: PAYMENT envelope (optional)
+            processing:
+              type: object
+              description: PROCESSING envelope (optional)
+            delivery:
+              type: object
+              description: DELIVERY envelope (optional)
+            feedback:
+              type: object
+              description: FEEDBACK envelope (optional)
         createdAt:
           type: string
           format: date-time
@@ -740,33 +1320,17 @@ components:
           example: REQ-2025-001
         serviceId:
           type: string
-          example: SERV-1-04152026
-        studentId:
-          type: number
-        courseCode:
-          type: string
-        semester:
-          type: string
         status:
           type: string
           enum: [pending, in_progress, completed, rejected, paused]
-        initiator:
-          type: string
+        parameters:
+          type: object
+          description: User-submitted parameters
         envelopes:
           type: object
-          properties:
-            request:
-              type: object
-            approval:
-              type: object
-            payment:
-              type: object
-            processing:
-              type: object
-            delivery:
-              type: object
-            feedback:
-              type: object
+          description: Status of each envelope in the pipeline
+        initiator:
+          type: string
         createdAt:
           type: string
           format: date-time
@@ -774,60 +1338,39 @@ components:
           type: string
           format: date-time
 
-    ServiceRequestPayload:
+    ServiceSubmitPayload:
       type: object
       required:
-        - studentId
-        - initiator
+        - serviceId
+        - parameters
       properties:
-        studentId:
-          type: number
-          example: 123456
-        courseCode:
+        serviceId:
           type: string
-          example: IT101
-        semester:
-          type: string
-          example: "2025-1"
+          description: Service to submit request for
+        parameters:
+          type: object
+          description: Service-specific parameters
         initiator:
           type: string
-          example: student_portal
+          description: Who is submitting the request
 
     CreateServicePayload:
       type: object
       required:
         - name
         - type
-        - initiator
+        - description
       properties:
         name:
           type: string
-          example: Course Enrollment Service
         type:
           type: string
-          example: courseEnrollment
         description:
           type: string
         initiator:
           type: string
-          example: admin
-        yaml:
-          type: string
-          description: YAML configuration for service envelopes
-
-    UpdateServicePayload:
-      type: object
-      properties:
-        name:
-          type: string
-        description:
-          type: string
-        type:
-          type: string
-        yaml:
-          type: string
-        initiator:
-          type: string
+        envelopes:
+          type: object
 
     ApprovalToken:
       type: object
@@ -846,6 +1389,40 @@ components:
           type: string
           format: date-time
 
+    EmailTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+        variables:
+          type: array
+          items:
+            type: string
+
+    SchemaResponse:
+      type: object
+      properties:
+        schema:
+          type: object
+          description: JSON Schema object for service definitions
+        version:
+          type: string
+          description: Schema version (e.g., 1.0.1)
+        name:
+          type: string
+          description: Schema name
+        description:
+          type: string
+        lastUpdated:
+          type: string
+          format: date-time
+
     Error:
       type: object
       required:
@@ -860,29 +1437,36 @@ components:
           type: object
 
   responses:
-    BadRequestError:
-      description: Bad Request
+    BadRequest:
+      description: Bad Request - Invalid parameters
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
 
-    UnauthorizedError:
-      description: Unauthorized - Missing or invalid authentication token
+    Unauthorized:
+      description: Unauthorized - Missing or invalid authentication
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
 
-    ForbiddenError:
-      description: Forbidden - User does not have permission
+    Forbidden:
+      description: Forbidden - Insufficient permissions
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
 
-    NotFoundError:
-      description: Not Found
+    NotFound:
+      description: Not Found - Resource does not exist
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ServerError:
+      description: Internal Server Error
       content:
         application/json:
           schema:
@@ -893,19 +1477,28 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT token obtained from /api/auth/login
 
 security:
   - bearerAuth: []
 
 tags:
+  - name: System
+    description: System health and info
   - name: Services
-    description: Service-related operations
+    description: Service management and submission
   - name: Requests
-    description: Service request operations
-  - name: Approvals
-    description: Request approval operations
+    description: Service request management
   - name: Auth
-    description: Authentication operations
+    description: Authentication and authorization
+  - name: Approvals
+    description: Multi-level approval workflows
+  - name: Payments
+    description: Payment processing
+  - name: Feedback
+    description: User feedback collection
+  - name: Delivery
+    description: Document delivery management
+  - name: Processing
+    description: Background processing tasks
   - name: Admin
     description: Administrative operations

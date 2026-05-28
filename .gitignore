@@ -5,42 +5,68 @@ yarn-debug.log*
 yarn-error.log*
 
 # Logs
-logs
+logs/
 *.log
+*.log.gz
 
 # OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
 # Environment
 .env
 .env.*
+!.env.example
 
-# Build
+# Build & Dist
 /dist
 /build
+*.tsbuildinfo
 
-#CLI TESTS
-/data
-
-# IDEs
+# IDE/Editor
 .vscode/
 .idea/
 *.sublime-workspace
 *.sublime-project
+.history/
+*.swp
+*.swo
+*~
+
+# Testing
+/test-output
+coverage/
+.nyc_output/
+
+# Data & Backups
+/data/**/*.json
+!/data/.gitkeep
+*.backup
+*.bak
+*.tmp
 
 # Misc
 *.tgz
 *.zip
 *.tar
+*.tar.gz
 
-# Coverage
-coverage/
+# Generated Files
+/reports/*.md
+/reports/*.json
+!reports/.gitkeep
 
-# Others
-*.swp
-*.bak
-*.tmp
+# MongoDB
+*.mongodb
+*.mongodump
+dump/
 
-# Ignore test output
-/test-output
+# Editor locks
+.eslintcache
+.prettierignore.bak
+

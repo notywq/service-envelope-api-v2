@@ -111,12 +111,16 @@ router.post('/', async (req: Request, res: Response) => {
           required: serviceDefinition.definition?.envelopes?.processing?.required !== false,
         },
         delivery: {
-          status: 'queued',
+          status: 'pending',  // Delivery details submitted separately
           // Store all available delivery methods from service definition
           availableMethods: serviceDefinition.definition?.envelopes?.delivery?.deliveryMethods || {},
-          method: undefined, // User selects method later
+          method: undefined,  // User provides via POST /api/delivery/{requestId}/details
           details: undefined,
           deliveryAttempts: 0,
+          deliveryHistory: [],  // Initialize empty history array for tracking status updates
+          currentStatus: undefined,
+          currentStatusCode: undefined,
+          lastStatusUpdate: undefined,
           timestamp: now.toISOString(),
           required: serviceDefinition.definition?.envelopes?.delivery?.required !== false,
         },
@@ -134,13 +138,20 @@ router.post('/', async (req: Request, res: Response) => {
     await appContext.stateManager.saveRequest(newRequest as any);
     appContext.logger.info(`📝 New request created: ${requestId} | Type: ${type}`);
 
-    // Start orchestration pipeline
+    // Acquire lock and start orchestration pipeline
+    const lock = await appContext.requestProcessingLock.acquire(requestId);
+    
     appContext.orchestrator.processRequest(newRequest as any).subscribe({
       next: (result) => {
         appContext.logger.info(`📊 Request processing: ${result.id} -> ${result.overallStatus}`);
       },
       error: (err) => {
         appContext.logger.error(`❌ Error processing request: ${err.message}`);
+        lock.release();
+      },
+      complete: () => {
+        lock.release();
+        appContext.logger.info(`   ℹ️  Orchestrator completed, lock released`);
       },
     });
 

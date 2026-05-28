@@ -37,6 +37,24 @@ export class FeedbackProcessor extends EnvelopeProcessor<FeedbackEnvelope> {
       return of(envelope);
     }
 
+    // Check if auto-close timeout has been reached (24 hours since envelope was created)
+    // Even if feedback hasn't been submitted, auto-close the request after 24 hours
+    if (envelope.status === 'pending_external' && envelope.timestamp) {
+      const createdAt = new Date(envelope.timestamp);
+      const hoursSinceCreation = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
+      
+      // Auto-close after 24 hours if feedback wasn't submitted
+      if (hoursSinceCreation >= 24) {
+        this.logger.info(
+          `[FEEDBACK-AUTO-CLOSE] Request ${request.id} | 24-hour auto-close timeout reached | No feedback submitted`
+        );
+        envelope.status = 'completed';
+        envelope.autoClosedAt = new Date().toISOString();
+        envelope.autoClosedReason = 'Feedback window expired after 24 hours with no submission';
+        return of(envelope);
+      }
+    }
+
     // On initial start: generate feedback link and transition to pending_external
     // NOTE: Orchestrator handles email sending via sendEnvelopeEmailTemplate()
     if (envelope.status === 'pending') {
@@ -44,7 +62,16 @@ export class FeedbackProcessor extends EnvelopeProcessor<FeedbackEnvelope> {
     }
 
     // If pending_external: keep waiting for feedback submission
-    if (envelope.status === 'pending_external') {
+    if (envelope.status === 'pending_external' && !envelope.feedback) {
+      return of(envelope);
+    }
+
+    // If feedback submitted: mark as completed (feedback window stays open for 7 days)
+    if (envelope.feedback && envelope.status !== 'completed') {
+      envelope.status = 'completed';
+      this.logger.info(
+        `[FEEDBACK-COMPLETED] Request ${request.id} | Feedback submitted | Feedback link remains valid for ${envelope.expiryDays || 7} days`
+      );
       return of(envelope);
     }
 

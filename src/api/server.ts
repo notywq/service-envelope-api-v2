@@ -18,6 +18,7 @@ import { ProcessingProcessor } from '../processors/processing-processor.js';
 import { DeliveryProcessor } from '../processors/delivery-processor.js';
 import { FeedbackProcessor } from '../processors/feedback-processor.js';
 import { ThirdPartyService } from '../services/third-party-service.js';
+import { RequestProcessingLock } from '../utils/request-processing-lock.js';
 import { ServiceRequest, EnvelopeCollection, RequestEnvelope, ApprovalEnvelope, PaymentEnvelope, ProcessingEnvelope, DeliveryEnvelope, FeedbackEnvelope } from '../types/envelope.types.js';
 import servicesRouter from './routes/services.js';
 import requestsRouter from './routes/requests.js';
@@ -30,6 +31,10 @@ import deliveryStatusRouter from './routes/delivery-status.js';
 import processingRouter from './routes/processing.js';
 import adminRouter from './routes/admin.js';
 import mockServiceApisRouter from './routes/mock-service-apis.js';
+import { initializeValidator } from '../utils/schema-validator.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 // Initialize logger
 const logger = winston.createLogger({
@@ -56,6 +61,7 @@ export interface AppContext {
   serviceRegistry: ServiceRegistry;
   emailService: EmailService;
   orchestrator: ServiceOrchestrator;
+  requestProcessingLock: RequestProcessingLock;
   logger: winston.Logger;
 }
 
@@ -95,6 +101,43 @@ async function initializeApp(): Promise<Express> {
   // Count templates in MongoDB
   const templateCount = await stateManager.countEmailTemplates();
   logger.info(`📧 Email template system: ${templateCount} templates available in MongoDB`);
+
+  // Load schema from MongoDB and initialize validator
+  try {
+    // Try to load latest schema from MongoDB
+    let schemaDoc = await stateManager.getLatestSchemaVersion();
+    let schemaObject = null;
+    let loadSource = '';
+    
+    // If schema exists in MongoDB, extract the schema property from the document
+    if (schemaDoc && schemaDoc.schema) {
+      schemaObject = schemaDoc.schema;
+      loadSource = 'MongoDB';
+    } else {
+      // First-time setup: load from file and save to MongoDB
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = path.dirname(__filename);
+      const schemaPath = path.join(__dirname, '../schemas/service-definition.schema.json');
+      const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
+      schemaObject = JSON.parse(schemaContent);
+      
+      await stateManager.saveSchemaVersion(
+        '1.0.0',
+        'Service Definition Schema - May 29, 2026',
+        schemaObject,
+        'Canonical service definition schema with REQUEST (required), optional APPROVAL/PAYMENT/PROCESSING/DELIVERY/FEEDBACK, full validation support'
+      );
+      loadSource = 'File (saved to MongoDB)';
+    }
+    
+    // Initialize validator with schema from MongoDB (extract .schema property)
+    initializeValidator(schemaObject);
+    const versionLabel = schemaDoc?.version || '1.0.0';
+    logger.info(`📋 [SCHEMA-VALIDATOR] Schema v${versionLabel} - Loaded from ${loadSource}`);
+  } catch (err) {
+    logger.error(`📋 [SCHEMA-VALIDATOR] Failed to initialize validator:`, err);
+    throw err; // Critical - cannot proceed without schema
+  }
 
   // Phase 2: All services are loaded exclusively from MongoDB
   const serviceRegistry = new ServiceRegistry(logger, stateManager);
@@ -139,12 +182,16 @@ async function initializeApp(): Promise<Express> {
     logger
   );
 
+  // Initialize request processing lock
+  const requestProcessingLock = new RequestProcessingLock(logger);
+
   // Store context globally for routes
   appContext = {
     stateManager,
     serviceRegistry,
     emailService,
     orchestrator,
+    requestProcessingLock,
     logger,
   };
 
