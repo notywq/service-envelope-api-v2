@@ -232,10 +232,25 @@ async function initializeApp(): Promise<Express> {
       const requestId = `req-${Date.now()}-${randomUUID().substring(0, 8)}`;
       const now = new Date().toISOString();
 
-      // Extract approvers from approval rules or approvers array
+      // Build approvers from all supported rule fields so every intended approver receives a token.
       const approvalConfig = service.envelopes?.approval;
-      const requiredApprovers = approvalConfig?.approvalRules?.requiredApprovers || approvalConfig?.approvers || [];
-      const approverList: any[] = requiredApprovers.map((approverEmail: string) => ({
+      const approvalRules = approvalConfig?.approvalRules || {};
+      const approverSet = new Set<string>();
+
+      if (Array.isArray(approvalRules.requiredApprovers)) {
+        approvalRules.requiredApprovers.forEach((email: string) => approverSet.add(email));
+      }
+      if (Array.isArray(approvalRules.atLeastOneOf)) {
+        approvalRules.atLeastOneOf.forEach((email: string) => approverSet.add(email));
+      }
+      if (typeof approvalRules.specificApprover === 'string' && approvalRules.specificApprover.trim()) {
+        approverSet.add(approvalRules.specificApprover);
+      }
+      if (Array.isArray(approvalConfig?.approvers)) {
+        approvalConfig.approvers.forEach((email: string) => approverSet.add(email));
+      }
+
+      const approverList: any[] = Array.from(approverSet).map((approverEmail: string) => ({
         id: approverEmail,
         email: approverEmail,
         role: 'approver',
@@ -258,6 +273,7 @@ async function initializeApp(): Promise<Express> {
           required: service.envelopes?.approval?.required || false,
           approvers: approverList,
           approvalRules: service.envelopes?.approval?.approvalRules || { type: 'all_must_approve' },
+          expiryHours: service.envelopes?.approval?.expiryHours,
         } as ApprovalEnvelope,
         payment: {
           status: 'pending',

@@ -8,17 +8,28 @@ import { appContext } from '../server.js';
 import { ParameterValidator } from '../../utils/parameter-validator.js';
 
 /**
- * Helper function to transform approval rules into Approver objects
- * Converts approvalRules.requiredApprovers (string array) into Approver objects
+ * Build approver list from approval rules.
+ * Ensures all relevant approvers receive tokens across all rule types.
  */
 function transformApprovalRulesToApprovers(approvalRules: any): any[] {
-  if (!approvalRules?.requiredApprovers || !Array.isArray(approvalRules.requiredApprovers)) {
-    return [];
+  const approverSet = new Set<string>();
+
+  if (Array.isArray(approvalRules?.requiredApprovers)) {
+    approvalRules.requiredApprovers.forEach((email: string) => approverSet.add(email));
   }
 
-  return approvalRules.requiredApprovers.map((role: string) => ({
-    id: role,
-    role: role,
+  if (Array.isArray(approvalRules?.atLeastOneOf)) {
+    approvalRules.atLeastOneOf.forEach((email: string) => approverSet.add(email));
+  }
+
+  if (typeof approvalRules?.specificApprover === 'string' && approvalRules.specificApprover.trim()) {
+    approverSet.add(approvalRules.specificApprover);
+  }
+
+  return Array.from(approverSet).map((email: string) => ({
+    id: email,
+    email,
+    role: 'approver',
     status: 'pending',
   }));
 }
@@ -94,6 +105,7 @@ router.post('/', async (req: Request, res: Response) => {
             serviceDefinition.definition?.envelopes?.approval?.approvalRules || {}
           ),
           approvalRules: serviceDefinition.definition?.envelopes?.approval?.approvalRules || {},
+          expiryHours: serviceDefinition.definition?.envelopes?.approval?.expiryHours,
           timestamp: now.toISOString(),
           required: (serviceDefinition.definition?.envelopes?.approval?.required !== false) || (serviceDefinition.definition?.envelopes?.approval?.requiresApproval === true),
         },

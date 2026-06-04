@@ -47,7 +47,7 @@ const ApprovalTokenSchema = new Schema({
   token: { type: String, unique: true, required: true, index: true },
   requestId: { type: String, required: true, index: true },
   approverId: { type: String, required: true },
-  expiresAt: { type: Date, required: true },
+  expiresAt: { type: Date, required: false, default: null },
   createdAt: { type: Date, default: Date.now },
   used: { type: Boolean, default: false },
 });
@@ -56,7 +56,7 @@ interface ApprovalTokenDoc extends Document {
   token: string;
   requestId: string;
   approverId: string;
-  expiresAt: Date;
+  expiresAt?: Date | null;
   createdAt: Date;
   used: boolean;
 }
@@ -286,7 +286,7 @@ export class MongoDBStateManager {
   // Approval Token Methods
   async saveApprovalToken(token: string, requestId: string, approverId: string, expiryHours: number = 24): Promise<void> {
     try {
-      const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
+      const expiresAt = expiryHours === 0 ? null : new Date(Date.now() + expiryHours * 60 * 60 * 1000);
       await ApprovalTokenModel.create({
         token,
         requestId,
@@ -332,7 +332,9 @@ export class MongoDBStateManager {
 
   async deleteExpiredTokens(): Promise<number> {
     try {
-      const result = await ApprovalTokenModel.deleteMany({ expiresAt: { $lt: new Date() } });
+      const result = await ApprovalTokenModel.deleteMany({
+        expiresAt: { $exists: true, $ne: null, $lt: new Date() },
+      });
       this.logger.debug(`Deleted ${result.deletedCount} expired approval tokens`);
       return result.deletedCount || 0;
     } catch (error) {

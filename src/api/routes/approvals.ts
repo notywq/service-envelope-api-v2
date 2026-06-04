@@ -11,6 +11,13 @@ import { ServiceRequest } from '../../types/envelope.types.js';
 
 const router = Router();
 
+function isApprovalTokenExpired(expiresAt: any): boolean {
+  if (!expiresAt) {
+    return false; // expiryHours: 0 => non-expiring token
+  }
+  return new Date() > new Date(expiresAt);
+}
+
 /**
  * Helper function to send payment notification email when approvals complete
  */
@@ -170,7 +177,7 @@ router.post('/:token/approve', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Approval token already used' });
     }
 
-    if (new Date() > new Date(tokenData.expiresAt)) {
+    if (isApprovalTokenExpired(tokenData.expiresAt)) {
       return res.status(400).json({ error: 'Approval token expired' });
     }
 
@@ -178,6 +185,10 @@ router.post('/:token/approve', async (req: Request, res: Response) => {
 
     if (!request) {
       return res.status(404).json({ error: 'Request not found' });
+    }
+
+    if (request.envelopes.approval.status === 'completed' || request.envelopes.approval.status === 'cancelled') {
+      return res.status(409).json({ error: 'Approval stage is already finalized for this request' });
     }
 
     // Update approval status
@@ -328,7 +339,7 @@ router.post('/:token/deny', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Approval token already used' });
     }
 
-    if (new Date() > new Date(tokenData.expiresAt)) {
+    if (isApprovalTokenExpired(tokenData.expiresAt)) {
       return res.status(400).json({ error: 'Approval token expired' });
     }
 
@@ -336,6 +347,10 @@ router.post('/:token/deny', async (req: Request, res: Response) => {
 
     if (!request) {
       return res.status(404).json({ error: 'Request not found' });
+    }
+
+    if (request.envelopes.approval.status === 'completed' || request.envelopes.approval.status === 'cancelled') {
+      return res.status(409).json({ error: 'Approval stage is already finalized for this request' });
     }
 
     // Update approval status
@@ -409,7 +424,7 @@ router.get('/:token/request', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Approval token not found' });
     }
 
-    if (new Date() > new Date(tokenData.expiresAt)) {
+    if (isApprovalTokenExpired(tokenData.expiresAt)) {
       return res.status(400).json({ error: 'Approval token expired' });
     }
 
@@ -453,7 +468,7 @@ router.get('/:token', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Token not found' });
     }
 
-    const isExpired = new Date() > new Date(tokenData.expiresAt);
+    const isExpired = isApprovalTokenExpired(tokenData.expiresAt);
 
     res.json({
       token,

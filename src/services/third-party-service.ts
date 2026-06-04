@@ -37,14 +37,17 @@ export class ThirdPartyService {
       }
 
       // Generate approval token and save to DB
+      const configuredExpiryHours = (req.envelopes.approval as any)?.expiryHours;
       const { generateApprovalToken } = await import('../api/routes/approvals.js');
-      const token = await generateApprovalToken(req.id, approver.id);
+      const token = await generateApprovalToken(req.id, approver.id, configuredExpiryHours);
       this.logger.debug(`🔐 Generated approval token for request ${req.id}`);
 
       // Build approval and deny links - point to Phase 2 UI
       const approvalLink = `${uiBaseUrl}/approvals/${token}`;
       const denyLink = `${uiBaseUrl}/approvals/${token}`;
-      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const expiresAt = configuredExpiryHours === 0
+        ? 'Never'
+        : new Date(Date.now() + ((configuredExpiryHours ?? 24) * 60 * 60 * 1000)).toISOString();
 
       // Try to fetch service-specific email template
       let htmlTemplate: string | undefined;

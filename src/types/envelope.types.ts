@@ -59,6 +59,7 @@ export interface RequestEnvelope extends BaseEnvelope {
 export interface ApprovalEnvelope extends BaseEnvelope {
   approvers: Approver[];
   approvalRules: ApprovalRules;
+  expiryHours?: number;
   emailTemplateStartEnvelope?: string;    // Email template sent when approval starts
   emailTemplateEndEnvelope?: string;      // Email template sent when approval completes
   startEmailSentAt?: string;
