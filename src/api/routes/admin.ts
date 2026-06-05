@@ -10,6 +10,48 @@ import { validateServiceDefinition, getServiceSchema, initializeValidator } from
 
 const router = Router();
 
+function normalizeServiceDefinitionShape(
+  parsedYaml: any,
+  opts: {
+    yamlContent: string;
+    name?: string;
+    type?: string;
+    initiator?: string;
+    isCreate: boolean;
+    schemaVersion?: string;
+    schemaName?: string;
+  }
+): any {
+  const resolvedId = parsedYaml.id || parsedYaml.serviceId;
+  const resolvedType = opts.type || parsedYaml.type;
+  const resolvedName = opts.name || parsedYaml.name;
+  const resolvedInitiator = opts.initiator || parsedYaml.initiator;
+  const resolvedDescription = parsedYaml.description || resolvedName;
+
+  // Canonical definition object follows service-definition.schema.json.
+  const canonicalDefinition = {
+    ...parsedYaml,
+    id: resolvedId,
+    type: resolvedType,
+    name: resolvedName,
+    description: resolvedDescription,
+    initiator: resolvedInitiator,
+    envelopes: parsedYaml.envelopes || {},
+  };
+
+  return {
+    ...canonicalDefinition,
+    serviceId: parsedYaml.serviceId || resolvedId, // Backward-compatible alias
+    yaml: opts.yamlContent,
+    definition: canonicalDefinition, // Keep nested mirror for legacy readers
+    schemaVersion: opts.schemaVersion || 'unversioned',
+    schemaName: opts.schemaName || 'Service Definition Schema (dynamic)',
+    validatedAt: new Date().toISOString(),
+    ...(opts.isCreate ? { createdAt: new Date().toISOString() } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 /**
  * POST /api/admin/services
  * Create a new service definition
@@ -35,9 +77,23 @@ router.post('/services', async (req: Request, res: Response) => {
       });
     }
 
+    // Use latest schema metadata from MongoDB (dynamic, no hardcoded version labels).
+    const latestSchema = await appContext.stateManager.getLatestSchemaVersion();
+
+    // Normalize first so schema validation runs against the canonical persisted shape.
+    const serviceDefinition = normalizeServiceDefinitionShape(parsedYaml, {
+      yamlContent,
+      name,
+      type,
+      initiator,
+      isCreate: true,
+      schemaVersion: latestSchema?.version,
+      schemaName: latestSchema?.name,
+    });
+
     // Validate entire service definition against canonical JSON Schema (NEW May 29: Full YAML schema validation)
     appContext.logger.info(`[SCHEMA-VALIDATOR] Validating service definition against canonical schema...`);
-    const schemaValidation = validateServiceDefinition(parsedYaml);
+    const schemaValidation = validateServiceDefinition(serviceDefinition.definition);
     if (!schemaValidation.valid) {
       const errorDetails = schemaValidation.errors?.map(e => `${e.path}: ${e.message}`).join('; ') || 'Unknown error';
       appContext.logger.warn(`[SCHEMA-VALIDATOR] ❌ Schema validation failed: ${errorDetails}`);
@@ -49,31 +105,11 @@ router.post('/services', async (req: Request, res: Response) => {
     appContext.logger.info(`[SCHEMA-VALIDATOR] ✅ Schema validation passed`);
 
     // Additional envelope structure validation (redundant but kept for backward compatibility)
-    if (!parsedYaml.envelopes || !parsedYaml.envelopes.request) {
+    if (!serviceDefinition.definition.envelopes || !serviceDefinition.definition.envelopes.request) {
       return res.status(400).json({
         error: 'Missing required envelope: request (REQUEST envelope is always required)',
       });
     }
-
-    // Create service definition - merge parsed YAML properties into root level
-    // Extract serviceId from YAML and store as top-level field
-    const serviceDefinition = {
-      ...parsedYaml, // Spread YAML properties (id, name, envelopes, etc.)
-      id: parsedYaml.id || parsedYaml.serviceId, // Use id if present, otherwise map serviceId to id
-      serviceId: parsedYaml.serviceId, // Extract and store serviceId as top-level field from YAML
-      name: name, // Override name from form
-      type,
-      initiator,
-      description: parsedYaml.description || name,
-      yaml: yamlContent,
-      definition: parsedYaml, // Keep original for reference
-      // NEW: Schema validation metadata
-      schemaVersion: '1.0.0',
-      schemaName: 'Service Definition Schema - May 29, 2026',
-      validatedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
 
     appContext.logger.info(`📝 Creating new service: ${type} (${name})`);;
 
@@ -137,9 +173,23 @@ router.put('/services/:serviceId', async (req: Request, res: Response) => {
       });
     }
 
+    // Use latest schema metadata from MongoDB (dynamic, no hardcoded version labels).
+    const latestSchema = await appContext.stateManager.getLatestSchemaVersion();
+
+    // Normalize first so schema validation runs against the canonical persisted shape.
+    const updatedServiceDefinition = normalizeServiceDefinitionShape(parsedYaml, {
+      yamlContent,
+      name,
+      type,
+      initiator,
+      isCreate: false,
+      schemaVersion: latestSchema?.version,
+      schemaName: latestSchema?.name,
+    });
+
     // Validate entire service definition against canonical JSON Schema
     appContext.logger.info(`[SCHEMA-VALIDATOR] Validating service definition update against canonical schema...`);
-    const schemaValidation = validateServiceDefinition(parsedYaml);
+    const schemaValidation = validateServiceDefinition(updatedServiceDefinition.definition);
     if (!schemaValidation.valid) {
       const errorDetails = schemaValidation.errors?.map(e => `${e.path}: ${e.message}`).join('; ') || 'Unknown error';
       appContext.logger.warn(`[SCHEMA-VALIDATOR] ❌ Schema validation failed: ${errorDetails}`);
@@ -151,30 +201,11 @@ router.put('/services/:serviceId', async (req: Request, res: Response) => {
     appContext.logger.info(`[SCHEMA-VALIDATOR] ✅ Schema validation passed`);
 
     // Additional envelope structure validation
-    if (!parsedYaml.envelopes || !parsedYaml.envelopes.request) {
+    if (!updatedServiceDefinition.definition.envelopes || !updatedServiceDefinition.definition.envelopes.request) {
       return res.status(400).json({
         error: 'Missing required envelope: request (REQUEST envelope is always required)',
       });
     }
-
-    // Create updated service definition
-    // NEW: Add schema validation metadata
-    const updatedServiceDefinition = {
-      ...parsedYaml, // Spread YAML properties (id, name, envelopes, etc.)
-      id: parsedYaml.id || parsedYaml.serviceId, // Use id if present, otherwise map serviceId to id
-      serviceId: parsedYaml.serviceId, // Extract and store serviceId as top-level field from YAML
-      name: name, // Override name from form
-      type,
-      initiator,
-      description: parsedYaml.description || name,
-      yaml: yamlContent,
-      definition: parsedYaml, // Keep original for reference
-      // Schema validation metadata
-      schemaVersion: '1.0.0',
-      schemaName: 'Service Definition Schema - May 29, 2026',
-      validatedAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
 
     appContext.logger.info(`📝 Updating service: ${serviceId}`);
 
@@ -257,7 +288,7 @@ router.get('/audit-logs', async (req: Request, res: Response) => {
  */
 router.post('/email-templates', async (req: Request, res: Response) => {
   try {
-    const { id, name, subject, htmlBody, description, envelopeType, phase } = req.body;
+    const { id, name, subject, htmlBody, description, envelopeType, phase, templateScope, eventKey, serviceType, isActive } = req.body;
 
     // Validate required fields
     if (!id || !name || !subject || !htmlBody) {
@@ -272,6 +303,10 @@ router.post('/email-templates', async (req: Request, res: Response) => {
       subject,
       htmlBody,
       description: description || '',
+      templateScope: templateScope || undefined,
+      eventKey: eventKey || undefined,
+      serviceType: serviceType || undefined,
+      isActive: typeof isActive === 'boolean' ? isActive : true,
       envelopeType: envelopeType || undefined,
       phase: phase || undefined,
       createdAt: new Date().toISOString(),
@@ -291,6 +326,10 @@ router.post('/email-templates', async (req: Request, res: Response) => {
         subject: template.subject,
         htmlBody: template.htmlBody,
         description: template.description,
+        templateScope: template.templateScope,
+        eventKey: template.eventKey,
+        serviceType: template.serviceType,
+        isActive: template.isActive,
         envelopeType: template.envelopeType,
         phase: template.phase,
         createdAt: template.createdAt,
@@ -312,12 +351,34 @@ router.post('/email-templates', async (req: Request, res: Response) => {
 router.get('/email-templates', async (req: Request, res: Response) => {
   try {
     const templates = await appContext.stateManager.getAllEmailTemplates();
-    const formattedTemplates = templates.map(t => ({
+    const filteredTemplates = templates.filter(t => {
+      const templateScope = req.query.templateScope as string | undefined;
+      const eventKey = req.query.eventKey as string | undefined;
+      const envelopeType = req.query.envelopeType as string | undefined;
+      const phase = req.query.phase as string | undefined;
+      const serviceType = req.query.serviceType as string | undefined;
+      const isActive = req.query.isActive as string | undefined;
+
+      if (templateScope && t.templateScope !== templateScope) return false;
+      if (eventKey && t.eventKey !== eventKey) return false;
+      if (envelopeType && t.envelopeType !== envelopeType) return false;
+      if (phase && t.phase !== phase) return false;
+      if (serviceType && t.serviceType !== serviceType) return false;
+      if (isActive !== undefined && String(Boolean(t.isActive)) !== isActive) return false;
+
+      return true;
+    });
+
+    const formattedTemplates = filteredTemplates.map(t => ({
       id: t.id,
       name: t.name,
       subject: t.subject,
       htmlBody: t.htmlBody,
       description: t.description,
+      templateScope: t.templateScope,
+      eventKey: t.eventKey,
+      serviceType: t.serviceType,
+      isActive: t.isActive,
       envelopeType: t.envelopeType,
       phase: t.phase,
       createdAt: t.createdAt,
@@ -352,6 +413,10 @@ router.get('/email-templates/:templateId', async (req: Request, res: Response) =
       subject: template.subject,
       htmlBody: template.htmlBody,
       description: template.description,
+      templateScope: template.templateScope,
+      eventKey: template.eventKey,
+      serviceType: template.serviceType,
+      isActive: template.isActive,
       envelopeType: template.envelopeType,
       phase: template.phase,
       createdAt: template.createdAt,
@@ -370,7 +435,7 @@ router.get('/email-templates/:templateId', async (req: Request, res: Response) =
 router.put('/email-templates/:templateId', async (req: Request, res: Response) => {
   try {
     const { templateId } = req.params;
-    const { name, subject, htmlBody, description, envelopeType, phase } = req.body;
+    const { name, subject, htmlBody, description, envelopeType, phase, templateScope, eventKey, serviceType, isActive } = req.body;
 
     // Validate required fields
     if (!name || !subject || !htmlBody) {
@@ -385,6 +450,10 @@ router.put('/email-templates/:templateId', async (req: Request, res: Response) =
       subject,
       htmlBody,
       description: description || '',
+      templateScope: templateScope || undefined,
+      eventKey: eventKey || undefined,
+      serviceType: serviceType || undefined,
+      isActive: typeof isActive === 'boolean' ? isActive : true,
       envelopeType: envelopeType || undefined,
       phase: phase || undefined,
       updatedAt: new Date().toISOString(),
@@ -403,6 +472,10 @@ router.put('/email-templates/:templateId', async (req: Request, res: Response) =
         subject: template.subject,
         htmlBody: template.htmlBody,
         description: template.description,
+        templateScope: template.templateScope,
+        eventKey: template.eventKey,
+        serviceType: template.serviceType,
+        isActive: template.isActive,
         envelopeType: template.envelopeType,
         phase: template.phase,
         updatedAt: template.updatedAt,

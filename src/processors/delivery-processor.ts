@@ -39,11 +39,22 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
       return of(envelope);
     }
 
-    // Check if delivery was marked complete externally via API (e.g., status code 3 = delivered)
-    if (envelope.currentStatusCode === 3 || (envelope.currentStatus === 'delivered' && envelope.status === 'in_progress')) {
+    // Check if delivery was marked complete externally via API.
+    // Code 3 = delivered (email / physical_mail).
+    // Code 4 = pickup_complete (pickup only).
+    // Envelope may be in_progress or pending_external when the external trigger arrives.
+    const isDelivered =
+      envelope.currentStatusCode === 3 ||
+      envelope.currentStatusCode === 4 ||
+      envelope.currentStatus === 'delivered' ||
+      envelope.currentStatus === 'pickup_complete';
+
+    if (isDelivered) {
       envelope.status = 'completed';
       envelope.deliveredAt = envelope.deliveredAt || new Date().toISOString();
-      this.logger.info(`[DELIVERY-COMPLETED] Request ${request.id} | Document delivery completed`);
+      this.logger.info(
+        `[DELIVERY-COMPLETED] Request ${request.id} | Delivery completed via status: ${envelope.currentStatus || envelope.currentStatusCode}`
+      );
       return of(envelope);
     }
 
@@ -60,7 +71,17 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
 
         return from(this.executeDelivery(request, envelope)).pipe(
           map(() => {
-            envelope.status = 'completed';
+            // Email is done once sent — auto-complete.
+            // physical_mail and pickup must be manually confirmed via /api/delivery-status/:requestId.
+            if (envelope.method === 'email') {
+              envelope.status = 'completed';
+              this.logger.info(`[DELIVERY-AUTO-COMPLETE] Request ${request.id} | Email delivery auto-completed`);
+            } else {
+              envelope.status = 'pending_external';
+              this.logger.info(
+                `[DELIVERY-AWAIT-CONFIRM] Request ${request.id} | ${envelope.method} delivery awaiting manual confirmation via POST /api/delivery-status/${request.id}`
+              );
+            }
             envelope.timestamp = new Date().toISOString();
             return envelope;
           })
@@ -85,13 +106,21 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
     }
 
     // If method selected but not yet in_progress, start delivery
-    if (envelope.method && envelope.status !== 'in_progress' && envelope.status !== 'completed') {
+    if (envelope.method && envelope.status !== 'in_progress' && envelope.status !== 'pending_external' && envelope.status !== 'completed') {
       envelope.status = 'in_progress';
       envelope.timestamp = new Date().toISOString();
 
       return from(this.executeDelivery(request, envelope)).pipe(
         map(() => {
-          envelope.status = 'completed';
+          if (envelope.method === 'email') {
+            envelope.status = 'completed';
+            this.logger.info(`[DELIVERY-AUTO-COMPLETE] Request ${request.id} | Email delivery auto-completed`);
+          } else {
+            envelope.status = 'pending_external';
+            this.logger.info(
+              `[DELIVERY-AWAIT-CONFIRM] Request ${request.id} | ${envelope.method} delivery awaiting manual confirmation via POST /api/delivery-status/${request.id}`
+            );
+          }
           envelope.timestamp = new Date().toISOString();
           return envelope;
         })

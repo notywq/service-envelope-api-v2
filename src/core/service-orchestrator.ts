@@ -161,7 +161,7 @@ export class ServiceOrchestrator {
 
           // Send cancellation email for payment expiry
           console.log(`📧 Sending cancellation email for payment expiry...`);
-          this.sendCancellationEmail(request, 'Payment Processing', `Payment window expired (${expiryDays} days)`).catch(err => {
+            this.sendCancellationEmail(request, 'Payment Processing', `Payment window expired (${expiryDays} days)`, 'payment').catch(err => {
             this.logger.warn(`Failed to send cancellation email:`, err);
           });
 
@@ -211,17 +211,21 @@ export class ServiceOrchestrator {
 
         console.log(`\n📧 [ENVELOPE-PROCESSING] ${envelopeType.toUpperCase()}: Processing complete with status: ${updatedEnvelope.status}`);
 
-        // Send start email when envelope begins processing (for all envelopes)
-        // Fire-and-forget - don't block Observable chain
-        console.log(`📧 [${envelopeType.toUpperCase()}] Attempting to send START phase email`);
-        this.sendEnvelopeEmailTemplate(request, envelopeType, 'start').catch(err => {
-          console.log(`⚠️  [${envelopeType.toUpperCase()}-START-EMAIL] Failed:`, err.message);
-          this.logger.warn(`Failed to process start email for ${envelopeType}:`, err);
-        });
+        // Send start email exactly once per envelope — guard prevents double-fire on resume.
+        const envelopeForEmailCheck = request.envelopes[envelopeType] as any;
+        if (!envelopeForEmailCheck?.startEmailSentAt) {
+          console.log(`📧 [${envelopeType.toUpperCase()}] Sending START email (first time)`);
+          this.sendEnvelopeEmailTemplate(request, envelopeType, 'start').catch(err => {
+            console.log(`⚠️  [${envelopeType.toUpperCase()}-START-EMAIL] Failed:`, err.message);
+            this.logger.warn(`Failed to process start email for ${envelopeType}:`, err);
+          });
+        } else {
+          console.log(`⏭️  [${envelopeType.toUpperCase()}] START email already sent, skipping`);
+        }
 
-        // Send end email template if envelope completed successfully
-        if (updatedEnvelope.status === 'completed') {
-          console.log(`📧 [${envelopeType.toUpperCase()}] Attempting to send END phase email`);
+        // Send end email exactly once on completion — guard prevents double-fire on resume.
+        if (updatedEnvelope.status === 'completed' && !envelopeForEmailCheck?.endEmailSentAt) {
+          console.log(`📧 [${envelopeType.toUpperCase()}] Sending END email (completion)`);
           this.sendEnvelopeEmailTemplate(request, envelopeType, 'end').catch(err => {
             console.log(`⚠️  [${envelopeType.toUpperCase()}-END-EMAIL] Failed:`, err.message);
             this.logger.warn(`Failed to process completion email for ${envelopeType}:`, err);
@@ -262,7 +266,7 @@ export class ServiceOrchestrator {
 
             // Send cancellation email with denial details
             console.log(`📧 Sending cancellation email for approval denial...`);
-            this.sendCancellationEmail(request, 'Approval Process', reason).catch(err => {
+              this.sendCancellationEmail(request, 'Approval Process', reason, 'approval').catch(err => {
               this.logger.warn(`Failed to send cancellation email:`, err);
             });
 
@@ -286,7 +290,7 @@ export class ServiceOrchestrator {
 
             // Send cancellation email with failure details
             console.log(`📧 Sending cancellation email with failure details...`);
-            this.sendCancellationEmail(request, failedTask?.name || 'Unknown', failureDetails).catch(err => {
+            this.sendCancellationEmail(request, failedTask?.name || 'Unknown', failureDetails, 'processing').catch(err => {
               this.logger.warn(`Failed to send cancellation email:`, err);
             });
 
@@ -371,28 +375,24 @@ export class ServiceOrchestrator {
       const envelopeConfig = envelopes[envelopeType];
       console.log(`📋 ${marker} Envelope config keys:`, Object.keys(envelopeConfig));
 
-      // Get template ID based on phase
-      const templateId = phase === 'start' 
+      // Get template name based on phase and then apply fallback candidates.
+      const configuredTemplateName = phase === 'start'
         ? envelopeConfig.emailTemplateStartEnvelope 
         : envelopeConfig.emailTemplateEndEnvelope;
 
-      console.log(`🔍 ${marker} Looking for template (phase=${phase}): ${templateId}`);
+      const genericEventKey = `${String(envelopeType)}-${phase}`;
+      const templateCandidates = [
+        configuredTemplateName,
+        `${request.type}-${genericEventKey}`,
+        genericEventKey,
+      ];
 
-      if (!templateId) {
-        console.log(`⚠️  ${marker} No template configured for phase: ${phase}`);
-        this.logger.debug(`📧 No email template configured for phase: ${phase}`);
-        return; // No template configured for this phase
-      }
-
-      console.log(`✅ ${marker} Template name found: ${templateId}`);
-
-      // Load template from MongoDB by name
-      console.log(`🗄️  ${marker} Fetching template from MongoDB by name: ${templateId}`);
-      const template = await this.stateManager.getEmailTemplateByName(templateId);
+      console.log(`🔍 ${marker} Resolving template candidates: ${templateCandidates.filter(Boolean).join(', ')}`);
+      const template = await this.resolveEmailTemplateByCandidates(templateCandidates);
 
       if (!template) {
-        console.log(`❌ ${marker} Template NOT found by name: ${templateId}`);
-        this.logger.warn(`📧 Email template not found: ${templateId}`);
+        console.log(`❌ ${marker} Template NOT found for any candidate`);
+        this.logger.warn(`📧 Email template not found for candidates: ${templateCandidates.filter(Boolean).join(', ')}`);
         return;
       }
       console.log(`✅ ${marker} Template loaded: ${template.name}`);
@@ -410,21 +410,28 @@ export class ServiceOrchestrator {
 
       console.log(`✅ ${marker} ${recipients.length} recipient(s) ready`);
 
-      // For approval envelope at start phase, generate tokens for each approver
+      // Canonical token generation path (single source of truth — ThirdPartyService no longer does this).
+      // Uses configured expiryHours from the approval envelope. Skips approvers that already have a token
+      // so resume calls do not re-generate or duplicate tokens.
       if (envelopeType === 'approval' && phase === 'start') {
-        console.log(`🔐 ${marker} Generating approval tokens for ${recipients.length} approver(s)`);
+        console.log(`🔐 ${marker} Generating approval tokens for approvers`);
         const approvalEnvelope = request.envelopes.approval as any;
-        
+        const configuredExpiryHours = approvalEnvelope?.expiryHours;
+
         if (approvalEnvelope?.approvers) {
           for (const approver of approvalEnvelope.approvers) {
+            if (approver.approvalToken) {
+              console.log(`⏭️  ${marker} Token already exists for ${approver.email}, skipping`);
+              continue;
+            }
             const { randomUUID } = await import('crypto');
             const token = randomUUID();
             approver.approvalToken = token;
-            
-            // Save token to database
-            await this.stateManager.saveApprovalToken(token, request.id, approver.id, 24);
-            console.log(`✅ ${marker} Token generated for ${approver.email}`);
+            await this.stateManager.saveApprovalToken(token, request.id, approver.id, configuredExpiryHours);
+            console.log(`✅ ${marker} Token generated for ${approver.email} (expiryHours: ${configuredExpiryHours ?? 'default'})`);
           }
+          // Persist updated approver tokens immediately so subsequent reads see them
+          await this.stateManager.saveRequest(request);
         }
       }
 
@@ -475,6 +482,15 @@ export class ServiceOrchestrator {
           console.log(`✅ ${marker} Sent to ${recipient}`);
         }
       }
+      // Persist the sent-at timestamp on the envelope so the guard works on resume
+      const envelopeToMark = request.envelopes[envelopeType] as any;
+      if (phase === 'start') {
+        envelopeToMark.startEmailSentAt = new Date().toISOString();
+      } else {
+        envelopeToMark.endEmailSentAt = new Date().toISOString();
+      }
+      await this.stateManager.saveRequest(request);
+
       console.log(`\n✅ ${marker} Email process completed`);
     } catch (error) {
       console.log(`❌ ${marker} Error:`, error instanceof Error ? error.message : String(error));
@@ -580,7 +596,7 @@ export class ServiceOrchestrator {
     const requestParams = requestEnvelope?.parameters || {};
 
     return {
-      // Request data - from parameters
+      // Request data
       requestId: request.id,
       serviceType: request.type,
       studentId: requestParams?.studentId || '',
@@ -588,20 +604,27 @@ export class ServiceOrchestrator {
       lastName: requestParams?.lastName || '',
       email: requestParams?.email || '',
       currentTimestamp: new Date().toISOString(),
-      
-      // Approval data
+
+      // Approval — defaults to first approver; per-approver send loop overrides these
       approverName: approvalEnvelope?.approvers?.[0]?.role || 'Approver',
       approverEmail: approvalEnvelope?.approvers?.[0]?.email || '',
       approvalToken: approvalEnvelope?.approvers?.[0]?.approvalToken || '',
-      approvalLink: approvalEnvelope?.approvers?.[0]?.approvalToken 
+      approvalLink: approvalEnvelope?.approvers?.[0]?.approvalToken
         ? `${process.env.FRONTEND_BASE_URL || 'http://localhost:5173'}/approvals/${approvalEnvelope.approvers[0].approvalToken}`
         : '',
-      
-      // Generic fields for flexibility
+
+      // Payment — direct link to Phase 2 payment page
+      paymentLink: `${process.env.FRONTEND_BASE_URL || 'http://localhost:5173'}/payment?requestId=${request.id}`,
+
+      // Feedback — link generated by FeedbackProcessor and stored on the envelope
+      feedbackLink: (request.envelopes.feedback as any)?.feedbackLink || '',
+      feedbackToken: (request.envelopes.feedback as any)?.feedbackToken || '',
+
+      // Generic fields
       documentTypes: requestParams?.documentTypes?.join(', ') || '',
       purpose: requestParams?.purpose || '',
       numberOfCopies: requestParams?.numberOfCopies || '',
-      deliveryMethod: requestParams?.deliveryMethod || '',
+      deliveryMethod: (request.envelopes.delivery as any)?.method || requestParams?.deliveryMethod || '',
       isUrgent: requestParams?.isUrgent || 'No',
       remarks: requestParams?.remarks || '',
     };
@@ -614,6 +637,19 @@ export class ServiceOrchestrator {
     return text.replace(/\{\{(\w+)\}\}/g, (match, key) => {
       return context[key] !== undefined ? String(context[key]) : match;
     });
+  }
+
+  /**
+   * Resolve a template by trying a prioritized candidate list.
+   */
+  private async resolveEmailTemplateByCandidates(candidates: Array<string | undefined | null>): Promise<any | null> {
+    for (const name of [...new Set(candidates.filter((candidate): candidate is string => !!candidate))]) {
+      const template = await this.stateManager.getEmailTemplateByName(name);
+      if (template) {
+        return template;
+      }
+    }
+    return null;
   }
 
   /**
@@ -674,13 +710,15 @@ export class ServiceOrchestrator {
   }
 
   /**
-   * Send cancellation email when processing fails
-   * Includes details about what failed and why
+   * Send cancellation email.
+   * Template name is resolved from the triggering envelope's emailTemplateCancelEnvelope
+   * field in the service definition. Falls back to 'request-cancelled' if not configured.
    */
   private async sendCancellationEmail(
     request: ServiceRequest,
     failedTask: string,
-    failureDetails: string
+    failureDetails: string,
+    triggerEnvelopeType?: 'approval' | 'payment' | 'processing'
   ): Promise<void> {
     try {
       if (!appContext?.emailService) {
@@ -688,10 +726,32 @@ export class ServiceOrchestrator {
         return;
       }
 
-      // Load cancellation template
-      const template = await this.stateManager.getEmailTemplateByName('csd-request-cancelled');
+      // Resolve cancel/denial template from service definition (per envelope), then service/global generic candidates.
+      let configuredCancelTemplateName: string | undefined;
+      try {
+        const serviceDefinition = await this.stateManager.getServiceDefinitionByType(request.type);
+        const envs = serviceDefinition?.envelopes || serviceDefinition?.definition?.envelopes || {};
+        const envConfig = triggerEnvelopeType ? envs[triggerEnvelopeType] : null;
+        configuredCancelTemplateName =
+          envConfig?.emailTemplateCancelEnvelope ||
+          envs?.approval?.emailTemplateCancelEnvelope ||
+          envs?.payment?.emailTemplateCancelEnvelope ||
+          envs?.processing?.emailTemplateCancelEnvelope;
+      } catch {
+        // Keep fallback
+      }
+
+      const primaryGenericKey = triggerEnvelopeType === 'approval' ? 'request-denied' : 'request-cancelled';
+      const template = await this.resolveEmailTemplateByCandidates([
+        configuredCancelTemplateName,
+        `${request.type}-${primaryGenericKey}`,
+        primaryGenericKey,
+        `${request.type}-request-cancelled`,
+        'request-cancelled',
+      ]);
+
       if (!template) {
-        this.logger.warn(`[CANCELLATION-EMAIL] Cancellation template not found`);
+        this.logger.warn(`[CANCELLATION-EMAIL] No cancellation template found for request ${request.id}`);
         return;
       }
 

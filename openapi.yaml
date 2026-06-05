@@ -70,27 +70,6 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/submit:
-    post:
-      tags: [Services]
-      summary: Submit Service Request (alternative)
-      operationId: submitServiceRequestAlt
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ServiceSubmitPayload'
-      responses:
-        '201':
-          description: Request created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceRequest'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
   /api/services/ids:
     get:
       tags: [Services]
@@ -192,7 +171,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ServiceSubmitPayload'
+              $ref: '#/components/schemas/RequestCreatePayload'
       responses:
         '201':
           description: Request created
@@ -1028,15 +1007,46 @@ paths:
       tags: [Admin]
       summary: List Email Templates
       operationId: listEmailTemplates
+      parameters:
+        - name: templateScope
+          in: query
+          schema:
+            type: string
+            enum: [generic, envelope, service]
+        - name: eventKey
+          in: query
+          schema:
+            type: string
+        - name: envelopeType
+          in: query
+          schema:
+            type: string
+        - name: phase
+          in: query
+          schema:
+            type: string
+        - name: serviceType
+          in: query
+          schema:
+            type: string
+        - name: isActive
+          in: query
+          schema:
+            type: boolean
       responses:
         '200':
           description: All email templates
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/EmailTemplate'
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EmailTemplate'
+                  total:
+                    type: integer
         '403':
           $ref: '#/components/responses/Forbidden'
 
@@ -1056,7 +1066,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EmailTemplate'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  template:
+                    $ref: '#/components/schemas/EmailTemplate'
         '400':
           $ref: '#/components/responses/BadRequest'
         '403':
@@ -1107,7 +1124,14 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EmailTemplate'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  template:
+                    $ref: '#/components/schemas/EmailTemplate'
         '404':
           $ref: '#/components/responses/NotFound'
         '403':
@@ -1354,6 +1378,29 @@ components:
           type: string
           description: Who is submitting the request
 
+    RequestCreatePayload:
+      type: object
+      description: Payload for POST /api/requests. Supports either service type or service ID as identifier.
+      required:
+        - initiator
+        - parameters
+      properties:
+        type:
+          type: string
+          description: Service type identifier (e.g., comprehensive-student-document)
+        serviceId:
+          type: string
+          description: Service ID identifier (e.g., SERVICE-999)
+        initiator:
+          type: string
+          description: Actor creating the request
+        parameters:
+          type: object
+          description: Service-specific request parameters
+      anyOf:
+        - required: [type]
+        - required: [serviceId]
+
     CreateServicePayload:
       type: object
       required:
@@ -1398,12 +1445,33 @@ components:
           type: string
         subject:
           type: string
-        body:
+        htmlBody:
+          type: string
+        description:
+          type: string
+        templateScope:
+          type: string
+          enum: [generic, envelope, service]
+        eventKey:
+          type: string
+        serviceType:
+          type: string
+        isActive:
+          type: boolean
+        envelopeType:
+          type: string
+        phase:
           type: string
         variables:
           type: array
           items:
             type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     SchemaResponse:
       type: object

@@ -18,94 +18,23 @@ export class ThirdPartyService {
   }
 
   /**
-   * Send approval request via email
-   * Integrates with EmailService to send formatted approval emails with approval/deny links
-   * Links redirect to Phase 2 UI (Dashboard) for approvers to handle decisions
+   * Register an approver as pending.
+   * Token generation and email sending are handled exclusively by the orchestrator
+   * via sendEnvelopeEmailTemplate() — this method only validates and sets status.
    */
   async sendApprovalRequest(req: ServiceRequest, approver: Approver, uiBaseUrl: string = process.env.FRONTEND_BASE_URL || 'http://localhost:5173'): Promise<{ status: 'approved' | 'pending_external' | 'denied'; approver: Approver }> {
     try {
-      // Validate that approver email is present
       if (!approver.id || !approver.id.includes('@')) {
-        this.logger.error(`❌ Invalid approver email format: ${approver.id}`);
+        this.logger.error(`❌ Invalid approver email: ${approver.id}`);
         throw new Error(`Invalid approver email: ${approver.id}`);
       }
-
-      // Check if email service is available
-      if (!this.emailService) {
-        this.logger.warn(`⚠️  EmailService not initialized - approval request cannot be sent to ${approver.id}`);
-        throw new Error('EmailService not initialized');
-      }
-
-      // Generate approval token and save to DB
-      const configuredExpiryHours = (req.envelopes.approval as any)?.expiryHours;
-      const { generateApprovalToken } = await import('../api/routes/approvals.js');
-      const token = await generateApprovalToken(req.id, approver.id, configuredExpiryHours);
-      this.logger.debug(`🔐 Generated approval token for request ${req.id}`);
-
-      // Build approval and deny links - point to Phase 2 UI
-      const approvalLink = `${uiBaseUrl}/approvals/${token}`;
-      const denyLink = `${uiBaseUrl}/approvals/${token}`;
-      const expiresAt = configuredExpiryHours === 0
-        ? 'Never'
-        : new Date(Date.now() + ((configuredExpiryHours ?? 24) * 60 * 60 * 1000)).toISOString();
-
-      // Try to fetch service-specific email template
-      let htmlTemplate: string | undefined;
-      this.logger.debug(`🔍 [TEMPLATE-LOOKUP-START] Service type: ${req.type}, StateManager available: ${!!this.stateManager}`);
-      
-      if (!this.stateManager) {
-        this.logger.debug(`❌ [TEMPLATE-LOOKUP] StateManager is NULL!`);
-      } else {
-        try {
-          // Step 1: Get service definition by type
-          this.logger.debug(`🔍 [TEMPLATE-LOOKUP] Fetching service definition for: ${req.type}`);
-          const service = await (this.stateManager as any).getServiceDefinitionByType(req.type);
-          
-          if (!service) {
-            this.logger.debug(`❌ [TEMPLATE-LOOKUP] Service definition NOT FOUND for type: ${req.type}`);
-          } else if (!service.definition?.envelopes?.approval?.emailTemplateId) {
-            this.logger.debug(`❌ [TEMPLATE-LOOKUP] No emailTemplateId in service definition`);
-          } else {
-            const templateId = service.definition.envelopes.approval.emailTemplateId;
-            this.logger.debug(`✅ [TEMPLATE-LOOKUP] Found emailTemplateId: ${templateId}`);
-            
-            // Step 2: Fetch the template from MongoDB
-            this.logger.debug(`🔍 [TEMPLATE-LOOKUP] Fetching template from MongoDB: ${templateId}`);
-            const template = await (this.stateManager as any).getEmailTemplate(templateId);
-            
-            if (!template) {
-              this.logger.debug(`❌ [TEMPLATE-LOOKUP] Template NOT FOUND in MongoDB: ${templateId}`);
-            } else if (!template.htmlBody) {
-              this.logger.debug(`❌ [TEMPLATE-LOOKUP] Template has no htmlBody: ${templateId}`);
-            } else {
-              htmlTemplate = template.htmlBody;
-              this.logger.debug(`✅ [TEMPLATE-LOOKUP-SUCCESS] Loaded custom template: ${templateId}`);
-            }
-          }
-        } catch (error) {
-          this.logger.debug(`❌ [TEMPLATE-LOOKUP] Exception: ${error}`);
-        }
-      }
-
-      // NOTE: Email sending is handled by the orchestrator via sendEnvelopeEmailTemplate()
-      // This method only generates the approval token and prepares the approval link
-      this.logger.info(`🔐 Approval request prepared for ${approver.id} | Token: ${token.substring(0, 8)}... | Link: ${approvalLink}`);
-
-      // Set approver status to pending and return pending_external
       approver.status = 'pending';
-
-      return {
-        status: 'pending_external',
-        approver,
-      };
+      this.logger.info(`📋 Approver registered as pending: ${approver.id} | Request: ${req.id}`);
+      return { status: 'pending_external', approver };
     } catch (error) {
-      this.logger.error(`❌ Error in approval workflow for ${approver.id}: ${error}`);
-      // Return pending_external anyway - don't fail the whole flow
+      this.logger.error(`❌ Error registering approver ${approver.id}: ${error}`);
       approver.status = 'pending';
-      return {
-        status: 'pending_external',
-        approver,
-      };
+      return { status: 'pending_external', approver };
     }
   }
 

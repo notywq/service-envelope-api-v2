@@ -43,30 +43,57 @@ const router = Router();
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { type, initiator, parameters } = req.body;
+    const { type, serviceId, initiator, parameters } = req.body;
 
     // Validate required fields
-    if (!type || !initiator || !parameters) {
+    if ((!type && !serviceId) || !initiator || !parameters) {
       return res.status(400).json({
-        error: 'Missing required fields: type, initiator, parameters',
+        error: 'Missing required fields: (type or serviceId), initiator, parameters',
       });
     }
 
-    // Get service definition from registry/MongoDB
-    const serviceDefinition = await appContext.stateManager.getServiceDefinitionByType(type);
+    // Resolve service definition using either type or serviceId.
+    // Canonical request.type remains the service definition type for backward compatibility.
+    let serviceDefinition: any = null;
+
+    if (serviceId) {
+      serviceDefinition = await appContext.stateManager.getServiceDefinition(serviceId);
+    }
+
+    if (!serviceDefinition && type) {
+      serviceDefinition = await appContext.stateManager.getServiceDefinitionByType(type);
+    }
+
     if (!serviceDefinition) {
       return res.status(400).json({
-        error: `Service type "${type}" not found`,
+        error: `Service not found for identifier: ${serviceId || type}`,
       });
     }
+
+    if (serviceId && type && serviceDefinition.type !== type) {
+      return res.status(400).json({
+        error: `Identifier mismatch: serviceId "${serviceId}" is type "${serviceDefinition.type}", not "${type}"`,
+      });
+    }
+
+    const resolvedType = serviceDefinition.type || type;
 
     // Validate parameters against service definition schema
     const validator = new ParameterValidator(appContext.logger);
     const validationResult = validator.validateAgainstSchema(parameters, serviceDefinition);
+    const expectedParameterSchema =
+      serviceDefinition?.envelopes?.request?.parameters ||
+      serviceDefinition?.definition?.envelopes?.request?.parameters || {};
     if (!validationResult.isValid) {
       return res.status(400).json({
         error: 'Invalid parameters',
         validationErrors: validationResult.errors,
+        validationDetails: validationResult.details || [],
+        schemaContext: {
+          serviceId: serviceDefinition.id,
+          serviceType: serviceDefinition.type,
+          expectedParameters: Object.keys(expectedParameterSchema),
+        },
       });
     }
 
@@ -78,7 +105,7 @@ router.post('/', async (req: Request, res: Response) => {
     // Create initial request with all 6 envelopes
     const newRequest = {
       id: requestId,
-      type,
+      type: resolvedType,
       initiator,
       overallStatus: 'queued',
       createdAt: now.toISOString(),
@@ -148,7 +175,9 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Save to MongoDB
     await appContext.stateManager.saveRequest(newRequest as any);
-    appContext.logger.info(`📝 New request created: ${requestId} | Type: ${type}`);
+    appContext.logger.info(
+      `📝 New request created: ${requestId} | Type: ${resolvedType} | ServiceId: ${serviceDefinition.id || serviceId || 'n/a'}`
+    );
 
     // Acquire lock and start orchestration pipeline
     const lock = await appContext.requestProcessingLock.acquire(requestId);
@@ -170,6 +199,8 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(201).json({
       success: true,
       requestId: newRequest.id,
+      type: resolvedType,
+      serviceId: serviceDefinition.id,
       status: newRequest.overallStatus,
       envelopes: newRequest.envelopes,
       message: 'Request submitted successfully. Processing initiated.',

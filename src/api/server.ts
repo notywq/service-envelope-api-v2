@@ -19,7 +19,6 @@ import { DeliveryProcessor } from '../processors/delivery-processor.js';
 import { FeedbackProcessor } from '../processors/feedback-processor.js';
 import { ThirdPartyService } from '../services/third-party-service.js';
 import { RequestProcessingLock } from '../utils/request-processing-lock.js';
-import { ServiceRequest, EnvelopeCollection, RequestEnvelope, ApprovalEnvelope, PaymentEnvelope, ProcessingEnvelope, DeliveryEnvelope, FeedbackEnvelope } from '../types/envelope.types.js';
 import servicesRouter from './routes/services.js';
 import requestsRouter from './routes/requests.js';
 import authRouter from './routes/auth.js';
@@ -211,143 +210,6 @@ async function initializeApp(): Promise<Express> {
   app.use('/api/webhooks', paymentsRouter);
   app.use('/api/mock', mockServiceApisRouter);  // Mock APIs for testing
 
-  // Unified submit endpoint - service_id in request body
-  app.post('/api/submit', async (req: Request, res: Response) => {
-    try {
-      const { service_id, ...parameters } = req.body;
-
-      if (!service_id) {
-        return res.status(400).json({ error: 'service_id is required in request body' });
-      }
-
-      const service = appContext.serviceRegistry.getService(service_id);
-      if (!service) {
-        return res.status(404).json({ error: `Service ${service_id} not found` });
-      }
-
-      appContext.logger.info(`📝 Submitting request for service: ${service_id}`);
-
-      // Helper function from services route - create request
-      const { randomUUID } = await import('crypto');
-      const requestId = `req-${Date.now()}-${randomUUID().substring(0, 8)}`;
-      const now = new Date().toISOString();
-
-      // Build approvers from all supported rule fields so every intended approver receives a token.
-      const approvalConfig = service.envelopes?.approval;
-      const approvalRules = approvalConfig?.approvalRules || {};
-      const approverSet = new Set<string>();
-
-      if (Array.isArray(approvalRules.requiredApprovers)) {
-        approvalRules.requiredApprovers.forEach((email: string) => approverSet.add(email));
-      }
-      if (Array.isArray(approvalRules.atLeastOneOf)) {
-        approvalRules.atLeastOneOf.forEach((email: string) => approverSet.add(email));
-      }
-      if (typeof approvalRules.specificApprover === 'string' && approvalRules.specificApprover.trim()) {
-        approverSet.add(approvalRules.specificApprover);
-      }
-      if (Array.isArray(approvalConfig?.approvers)) {
-        approvalConfig.approvers.forEach((email: string) => approverSet.add(email));
-      }
-
-      const approverList: any[] = Array.from(approverSet).map((approverEmail: string) => ({
-        id: approverEmail,
-        email: approverEmail,
-        role: 'approver',
-        status: 'pending',
-      }));
-
-      const envelopes: EnvelopeCollection = {
-        request: {
-          status: 'in_progress',
-          timestamp: now,
-          required: true,
-          sourceSystem: parameters.sourceSystem || 'api',
-          validationStatus: 'passed',
-          validationErrors: [],
-          parameters: parameters,
-        } as RequestEnvelope,
-        approval: {
-          status: 'pending',
-          timestamp: now,
-          required: service.envelopes?.approval?.required || false,
-          approvers: approverList,
-          approvalRules: service.envelopes?.approval?.approvalRules || { type: 'all_must_approve' },
-          expiryHours: service.envelopes?.approval?.expiryHours,
-        } as ApprovalEnvelope,
-        payment: {
-          status: 'pending',
-          timestamp: now,
-          required: service.envelopes?.payment?.required || false,
-          charges: service.envelopes?.payment?.charges || [],
-          paymentMethod: 'credit_card',
-        } as PaymentEnvelope,
-        processing: {
-          status: 'pending',
-          timestamp: now,
-          required: true,
-          tasks: service.envelopes?.processing?.tasks || [],
-        } as ProcessingEnvelope,
-        delivery: {
-          status: 'pending',
-          timestamp: now,
-          required: service.envelopes?.delivery?.required || false,
-          method: service.envelopes?.delivery?.method || 'email',
-          details: service.envelopes?.delivery?.details || {},
-          deliveryAttempts: 0,
-        } as DeliveryEnvelope,
-        feedback: {
-          status: 'pending',
-          timestamp: now,
-          required: service.envelopes?.feedback?.required || false,
-        } as FeedbackEnvelope,
-      };
-
-      const serviceRequest: ServiceRequest = {
-        id: requestId,
-        type: service_id,
-        initiator: parameters.initiator || parameters.studentId || 'unknown',
-        overallStatus: 'queued' as const,
-        createdAt: now,
-        lastUpdated: now,
-        history: [
-          {
-            status: 'queued',
-            timestamp: now,
-            envelope: 'system',
-            notes: 'Request submitted via /api/submit',
-          },
-        ],
-        envelopes,
-      } as ServiceRequest;
-
-      await appContext.stateManager.saveRequest(serviceRequest);
-      appContext.logger.info(`✅ Request created: ${requestId}`);
-
-      appContext.orchestrator.processRequest(serviceRequest).subscribe({
-        next: (result) => {
-          appContext.logger.info(`📊 Request processed: ${result.id} -> ${result.overallStatus}`);
-        },
-        error: (err) => {
-          appContext.logger.error(`❌ Error processing request: ${err.message}`);
-        },
-      });
-
-      res.status(201).json({
-        requestId,
-        status: 'queued',
-        message: 'Request submitted successfully',
-        service: {
-          id: service_id,
-          name: service.name,
-        },
-      });
-    } catch (error) {
-      appContext.logger.error('Error submitting request:', error);
-      res.status(500).json({ error: 'Failed to submit request', details: error instanceof Error ? error.message : 'Unknown error' });
-    }
-  });
-
   // Health check
   app.get('/health', (req: Request, res: Response) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -361,7 +223,7 @@ async function initializeApp(): Promise<Express> {
       endpoints: [
         'POST /api/auth/login',
         'GET /api/services',
-        'POST /api/services/:serviceId/submit',
+        'POST /api/requests',
         'GET /api/requests',
         'GET /api/requests/:requestId',
         'POST /api/requests/:requestId/resume',

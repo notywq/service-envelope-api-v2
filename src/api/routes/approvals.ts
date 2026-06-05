@@ -7,7 +7,6 @@
 import { Router, Request, Response } from 'express';
 import { appContext } from '../server.js';
 import { randomUUID } from 'crypto';
-import { ServiceRequest } from '../../types/envelope.types.js';
 
 const router = Router();
 
@@ -19,97 +18,82 @@ function isApprovalTokenExpired(expiresAt: any): boolean {
 }
 
 /**
- * Helper function to send payment notification email when approvals complete
+ * Substitute {{variables}} in text with context values.
  */
-async function sendPaymentNotificationEmail(request: ServiceRequest) {
+function substituteTemplateVariables(text: string, context: Record<string, any>): string {
+  return text.replace(/\{\{(\w+)\}\}/g, (match, key) => {
+    return context[key] !== undefined && context[key] !== null ? String(context[key]) : match;
+  });
+}
+
+/**
+ * Send denial/cancellation notification via Mongo email templates.
+ * Resolution order: envelope-configured cancel template -> service-specific generic -> global generic.
+ */
+async function sendDenialNotificationEmail(request: any, reason: string, approverId: string): Promise<void> {
   try {
-    const requestorEmail = request.envelopes.request.parameters?.initiatorEmail;
-    const requestorName = request.envelopes.request.parameters?.initiatorName || 'Student';
-    
-    if (!requestorEmail) {
-      appContext.logger.warn(`⚠️  No requestor email found for request ${request.id}`);
+    const requestParams = request.envelopes?.request?.parameters || {};
+    const recipient = requestParams.email || request.initiator;
+    if (!recipient) {
+      appContext.logger.warn(`[DENIAL-EMAIL] No requestor email for request ${request.id}`);
       return;
     }
 
-    appContext.logger.info(`💌 Preparing payment notification email for ${requestorEmail}`);
+    const serviceDefinition = await appContext.stateManager.getServiceDefinitionByType(request.type);
+    const envs = serviceDefinition?.envelopes || serviceDefinition?.definition?.envelopes || {};
+    const configuredCancelTemplate = envs?.approval?.emailTemplateCancelEnvelope;
 
-    // Calculate total amount to pay
-    const totalAmount = request.envelopes.payment.charges?.reduce((sum, charge) => sum + charge.amount, 0) || 0;
-    const frontendBaseUrl = process.env.FRONTEND_BASE_URL || 'http://localhost:5173';
-    const phase2PaymentLink = `${frontendBaseUrl}/payment?requestId=${request.id}`;
+    const candidateNames = [
+      configuredCancelTemplate,
+      `${request.type}-request-denied`,
+      'request-denied',
+      `${request.type}-request-cancelled`,
+      'request-cancelled',
+    ].filter((name): name is string => !!name);
 
-    // Try to fetch service-specific payment template
-    let htmlTemplate: string | undefined;
-    appContext.logger.debug(`🔍 [PAYMENT-EMAIL-TEMPLATE] Looking up template for service: ${request.type}`);
-    
-    try {
-      // Step 1: Get service definition by type
-      const service = await (appContext.stateManager as any).getServiceDefinitionByType(request.type);
-      
-      if (!service) {
-        appContext.logger.debug(`❌ [PAYMENT-EMAIL-TEMPLATE] Service definition NOT found for type: ${request.type}`);
-      } else if (!service.definition?.envelopes?.payment?.emailTemplateId) {
-        appContext.logger.debug(`❌ [PAYMENT-EMAIL-TEMPLATE] No emailTemplateId configured in YAML`);
-      } else {
-        const templateId = service.definition.envelopes.payment.emailTemplateId;
-        appContext.logger.debug(`✅ [PAYMENT-EMAIL-TEMPLATE] Found emailTemplateId in YAML: ${templateId}`);
-        
-        // Step 2: Fetch the template from MongoDB
-        const template = await (appContext.stateManager as any).getEmailTemplate(templateId);
-        
-        if (!template) {
-          appContext.logger.warn(`⚠️  [PAYMENT-EMAIL-TEMPLATE] Template NOT found in MongoDB: ${templateId}`);
-        } else if (!template.htmlBody) {
-          appContext.logger.warn(`⚠️  [PAYMENT-EMAIL-TEMPLATE] Template exists but has no htmlBody: ${templateId}`);
-        } else {
-          htmlTemplate = template.htmlBody;
-          appContext.logger.info(`✅ [PAYMENT-EMAIL-SENT] Payment notification template loaded and applied: ${templateId}`);
-        }
+    let template: any = null;
+    for (const name of [...new Set(candidateNames)]) {
+      template = await appContext.stateManager.getEmailTemplateByName(name);
+      if (template) {
+        appContext.logger.info(`[DENIAL-EMAIL] Using template: ${name}`);
+        break;
       }
-    } catch (error) {
-      appContext.logger.error(`❌ [PAYMENT-EMAIL-TEMPLATE] Error loading template: ${error}`);
     }
 
-    // Replace placeholders if using custom template
-    if (htmlTemplate) {
-      // First replace system-level placeholders
-      let processedHtml = htmlTemplate;
-      processedHtml = processedHtml.replace(/\{\{requestId\}\}/g, request.id);
-      processedHtml = processedHtml.replace(/\{\{totalAmount\}\}/g, totalAmount.toFixed(2));
-      processedHtml = processedHtml.replace(/\{\{paymentLink\}\}/g, phase2PaymentLink);
-      processedHtml = processedHtml.replace(/\{\{firstName\}\}/g, request.envelopes.request.parameters?.firstName || requestorName);
-      
-      // Then replace all service parameters dynamically
-      if (request.envelopes.request.parameters) {
-        Object.entries(request.envelopes.request.parameters).forEach(([key, value]) => {
-          const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-          const stringValue = typeof value === 'string' ? value : (value ? String(value) : '');
-          processedHtml = processedHtml.replace(placeholder, stringValue);
-        });
-      }
-      htmlTemplate = processedHtml;
+    if (!template) {
+      appContext.logger.warn(`[DENIAL-EMAIL] No template found from candidates: ${candidateNames.join(', ')}`);
+      return;
     }
 
-    // Use custom template if available
-    const html = htmlTemplate || `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>✅ Request Approved - Payment Required</h2>
-        <p>Hello ${requestorName},</p>
-        <p>Your request has been approved. Please proceed with payment.</p>
-        <p><a href="${phase2PaymentLink}" style="background-color: #1976d2; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">💳 Proceed to Payment</a></p>
-      </div>
-    `;
+    const context = {
+      requestId: request.id,
+      serviceType: request.type,
+      studentId: requestParams.studentId || '',
+      firstName: requestParams.firstName || '',
+      lastName: requestParams.lastName || '',
+      email: recipient,
+      approverId,
+      reason,
+      cancellationReason: reason,
+      failedTask: 'Approval Process',
+      failureDetails: reason,
+      currentTimestamp: new Date().toISOString(),
+    };
 
-    // Send email
-    await appContext.emailService.sendEmail({
-      to: requestorEmail,
-      subject: 'Request Approved - Payment Required',
+    const subject = substituteTemplateVariables(template.subject, context);
+    const html = substituteTemplateVariables(template.htmlBody, context);
+
+    const sent = await appContext.emailService.sendEmail({
+      to: recipient,
+      subject,
       html,
     });
-    appContext.logger.info(`✅ Payment notification email sent to ${requestorEmail}`);
 
+    if (!sent) {
+      appContext.logger.warn(`[DENIAL-EMAIL] Send returned false for ${recipient}`);
+    }
   } catch (error) {
-    appContext.logger.error(`Failed to send payment notification email: ${(error as Error).message}`);
+    appContext.logger.warn(`[DENIAL-EMAIL] Failed to send denial email: ${error}`);
   }
 }
 
@@ -278,10 +262,7 @@ router.post('/:token/approve', async (req: Request, res: Response) => {
     // Resume if approval is complete
     if (approvalComplete) {
       appContext.logger.info(`✅ Approval complete for request ${tokenData.requestId} (${ruleType})`);
-      
-      // Send payment notification email to requestor
-      await sendPaymentNotificationEmail(request);
-      
+
       // Acquire lock and auto-resume orchestrator
       const lock = await appContext.requestProcessingLock.acquire(tokenData.requestId);
       
@@ -379,25 +360,8 @@ router.post('/:token/deny', async (req: Request, res: Response) => {
     await appContext.stateManager.saveRequest(request);
     appContext.logger.info(`❌ Request cancelled: ${tokenData.requestId} by ${tokenData.approverId}`);
 
-    // Send denial email to requestor
-    try {
-      const requestorEmail = request.envelopes.request.parameters?.email || request.initiator;
-      const requestorName = `${request.envelopes.request.parameters?.firstName || ''} ${request.envelopes.request.parameters?.lastName || ''}`.trim();
-      
-      await appContext.emailService?.sendDenialEmail({
-        requestorEmail,
-        requestorName,
-        requestId: tokenData.requestId,
-        approverId: tokenData.approverId,
-        reason,
-        serviceType: request.type,
-      });
-
-      appContext.logger.info(`📧 Denial email sent to ${requestorEmail} for request ${tokenData.requestId}`);
-    } catch (emailError) {
-      appContext.logger.warn(`⚠️ Failed to send denial email: ${emailError}`);
-      // Don't fail the denial just because email didn't send
-    }
+    // Send denial email to requestor via template resolver
+    await sendDenialNotificationEmail(request, reason, tokenData.approverId);
 
     res.json({
       requestId: tokenData.requestId,

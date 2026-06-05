@@ -127,6 +127,10 @@ const EmailTemplateSchema = new Schema({
   subject: { type: String, required: true },
   htmlBody: { type: String, required: true },
   description: String,
+  templateScope: String, // generic | envelope | service
+  eventKey: String, // e.g., request-cancelled, request-denied, approval-start
+  serviceType: String, // optional scope for service-specific overrides
+  isActive: { type: Boolean, default: true },
   envelopeType: String, // e.g., 'request', 'approval', 'payment', 'processing', 'delivery', 'feedback'
   phase: String, // e.g., 'confirmation', 'start', 'complete'
   variables: [String], // e.g., ['studentName', 'requestType', 'approverName']
@@ -140,6 +144,10 @@ interface EmailTemplateDoc extends Document {
   subject: string;
   htmlBody: string;
   description: string;
+  templateScope?: 'generic' | 'envelope' | 'service';
+  eventKey?: string;
+  serviceType?: string;
+  isActive?: boolean;
   envelopeType?: string;
   phase?: string;
   variables: string[];
@@ -178,6 +186,42 @@ const SchemaVersionModel = mongoose.model<SchemaVersionDoc>(
 
 export class MongoDBStateManager {
   constructor(private logger: Logger) {}
+
+  private normalizeLoadedServiceDefinition(service: any): any {
+    if (!service) {
+      return service;
+    }
+
+    const canonical = service.definition || service;
+    const resolvedId = service.id || canonical.id || service.serviceId;
+    const resolvedType = service.type || canonical.type;
+    const resolvedName = service.name || canonical.name;
+    const resolvedDescription = service.description || canonical.description;
+    const resolvedInitiator = service.initiator || canonical.initiator;
+    const resolvedEnvelopes = service.envelopes || canonical.envelopes || {};
+
+    const normalizedCanonical = {
+      ...canonical,
+      id: resolvedId,
+      type: resolvedType,
+      name: resolvedName,
+      description: resolvedDescription,
+      initiator: resolvedInitiator,
+      envelopes: resolvedEnvelopes,
+    };
+
+    return {
+      ...service,
+      id: resolvedId,
+      serviceId: service.serviceId || canonical.serviceId || resolvedId,
+      type: resolvedType,
+      name: resolvedName,
+      description: resolvedDescription,
+      initiator: resolvedInitiator,
+      envelopes: resolvedEnvelopes,
+      definition: normalizedCanonical,
+    };
+  }
 
   async connect(mongoUri: string): Promise<void> {
     try {
@@ -411,7 +455,7 @@ export class MongoDBStateManager {
   async getServiceDefinition(serviceId: string): Promise<any> {
     try {
       const doc = await ServiceDefinitionModel.findOne({ id: serviceId });
-      return doc ? doc.toObject() : null;
+      return doc ? this.normalizeLoadedServiceDefinition(doc.toObject()) : null;
     } catch (error) {
       this.logger.error(`Failed to get service definition ${serviceId}:`, error);
       return null;
@@ -426,7 +470,7 @@ export class MongoDBStateManager {
       if (docs.length === 0) {
         this.logger.warn('[ServiceRegistry] No documents found in servicedefinitions collection');
       }
-      return docs.map(doc => doc.toObject());
+      return docs.map(doc => this.normalizeLoadedServiceDefinition(doc.toObject()));
     } catch (error) {
       this.logger.error('Failed to get all service definitions:', error);
       if (error instanceof Error) {
@@ -440,7 +484,7 @@ export class MongoDBStateManager {
   async getServiceDefinitionByType(type: string): Promise<any> {
     try {
       const doc = await ServiceDefinitionModel.findOne({ type });
-      return doc ? doc.toObject() : null;
+      return doc ? this.normalizeLoadedServiceDefinition(doc.toObject()) : null;
     } catch (error) {
       this.logger.error(`Failed to get service definition by type ${type}:`, error);
       return null;

@@ -11,18 +11,30 @@ const router = Router();
 
 /**
  * Delivery Status Code Mapping
+ *
+ * Codes 0-3 apply to all methods.
+ * Code 4 is pickup-only and triggers orchestrator completion (same as code 3 for email/physical_mail).
+ *
+ * Physical mail flow:   0 → 1 → 2 → 3  (manual triggers)
+ * Email flow:           auto-completes on send; code 3 can still confirm
+ * Pickup flow:          0 → 1 (ready_for_pickup) → 4 (pickup_complete)  (manual triggers)
  */
 const DELIVERY_STATUS_CODES: Record<number | string, number | string> = {
+  // Numeric → name
   0: 'processing',
-  1: 'ready_to_deliver',
-  2: 'out_for_delivery',
-  3: 'delivered',
+  1: 'ready_to_deliver',      // physical_mail / email
+  2: 'out_for_delivery',      // physical_mail
+  3: 'delivered',             // physical_mail / email completion
+  4: 'pickup_complete',       // pickup completion (manually triggered)
+  // Name → numeric
   'processing': 0,
   'ready_to_deliver': 1,
+  'ready_for_pickup': 1,      // pickup-specific alias for code 1
   'out_for_delivery': 2,
+  'in_transit': 2,            // legacy alias
   'delivered': 3,
-  'in_transit': 2,  // Map legacy in_transit to out_for_delivery
-  'received': 3,  // Map legacy received to delivered
+  'received': 3,              // legacy alias
+  'pickup_complete': 4,
 };
 
 /**
@@ -49,15 +61,23 @@ router.post('/:requestId', async (req: Request, res: Response) => {
         error: 'Missing required fields',
         required: ['requestId', 'status'],
         validStatuses: {
-          codes: [0, 1, 2, 3],
-          names: ['processing', 'ready_to_deliver', 'out_for_delivery', 'delivered'],
+          all: {
+            codes: [0, 1, 2, 3, 4],
+            names: ['processing', 'ready_to_deliver', 'ready_for_pickup', 'out_for_delivery', 'delivered', 'pickup_complete'],
+          },
+          byMethod: {
+            email:         { flow: '0 → 3', codes: [0, 3], notes: 'auto-completes on send; code 3 confirms delivery' },
+            physical_mail: { flow: '0 → 1 → 2 → 3', codes: [0, 1, 2, 3], notes: 'all steps manual' },
+            pickup:        { flow: '0 → 1 (ready_for_pickup) → 4 (pickup_complete)', codes: [0, 1, 4], notes: 'all steps manual; code 4 completes delivery' },
+          },
           meaning: {
-            0: 'Processing - Preparing document for delivery',
-            1: 'Ready to Deliver - Document ready, awaiting shipment',
-            2: 'Out for Delivery - In transit to recipient',
-            3: 'Delivered - Document delivered successfully'
-          }
-        }
+            0: 'Processing – Preparing document',
+            1: 'Ready to Deliver / Ready for Pickup – Document ready',
+            2: 'Out for Delivery – In transit (physical_mail)',
+            3: 'Delivered – Confirmed delivery (email / physical_mail)',
+            4: 'Pickup Complete – Customer collected document (pickup only)',
+          },
+        },
       });
     }
 
@@ -74,13 +94,13 @@ router.post('/:requestId', async (req: Request, res: Response) => {
     }
 
     // Validate status
-    if (statusCode === undefined || ![0, 1, 2, 3].includes(statusCode) || !statusName) {
+    if (statusCode === undefined || ![0, 1, 2, 3, 4].includes(statusCode) || !statusName) {
       return res.status(400).json({
         error: `Invalid delivery status: ${status}`,
         validStatuses: {
-          codes: [0, 1, 2, 3],
-          names: ['processing', 'ready_to_deliver', 'out_for_delivery', 'delivered']
-        }
+          codes: [0, 1, 2, 3, 4],
+          names: ['processing', 'ready_to_deliver', 'ready_for_pickup', 'out_for_delivery', 'delivered', 'pickup_complete'],
+        },
       });
     }
 
@@ -136,47 +156,59 @@ router.post('/:requestId', async (req: Request, res: Response) => {
         appContext.logger.info(`[DELIVERY-IN-TRANSIT] Request ${requestId} | Document in transit | Location: ${location || 'N/A'}`);
         break;
 
-      case 3: // Delivered
+      case 3: // Delivered (email / physical_mail)
         delivery.status = 'completed';
         delivery.deliveredAt = statusUpdate.timestamp;
-        appContext.logger.info(`[DELIVERY-COMPLETED] Request ${requestId} | Document delivered successfully | Delivered at: ${statusUpdate.timestamp}`);
-        
-        // Save updated request first
-        await appContext.stateManager.saveRequest(request);
-        
-        // Acquire lock and auto-resume orchestrator
-        const lock = await appContext.requestProcessingLock.acquire(requestId);
-        
-        appContext.orchestrator.processRequest(request).subscribe({
-          next: (result) => {
-            appContext.logger.info(`📊 Request auto-resumed after delivery completion: ${result.id} -> ${result.overallStatus}`);
-          },
-          error: (err) => {
-            appContext.logger.error(`❌ Error in auto-resume: ${err.message}`);
-            lock.release();
-          },
-          complete: () => {
-            lock.release();
-            appContext.logger.info(`   ℹ️  Orchestrator completed, lock released`);
-          },
-        });
-        
-        res.json({
-          requestId,
-          message: `Delivery status updated to: ${statusName} (code: ${statusCode}) and orchestrator auto-resumed.`,
-          delivery: {
-            currentStatus: delivery.currentStatus,
-            currentStatusCode: delivery.currentStatusCode,
-            lastStatusUpdate: delivery.lastStatusUpdate,
-            deliveredAt: delivery.deliveredAt
-          },
-        });
-        return;
+        appContext.logger.info(
+          `[DELIVERY-COMPLETED] Request ${requestId} | Delivered | At: ${statusUpdate.timestamp}`
+        );
+        break;
+
+      case 4: // Pickup Complete (pickup method)
+        delivery.status = 'completed';
+        delivery.deliveredAt = statusUpdate.timestamp;
+        appContext.logger.info(
+          `[DELIVERY-PICKUP-COMPLETE] Request ${requestId} | Customer collected document | At: ${statusUpdate.timestamp}`
+        );
+        break;
     }
 
-    // Save updated request
+    // Save first, then resume orchestrator for completion codes
     await appContext.stateManager.saveRequest(request);
 
+    if (statusCode === 3 || statusCode === 4) {
+      const lock = await appContext.requestProcessingLock.acquire(requestId);
+
+      appContext.orchestrator.processRequest(request).subscribe({
+        next: (result) => {
+          appContext.logger.info(
+            `📊 Request auto-resumed after delivery completion: ${result.id} -> ${result.overallStatus}`
+          );
+        },
+        error: (err) => {
+          appContext.logger.error(`❌ Error in auto-resume: ${err.message}`);
+          lock.release();
+        },
+        complete: () => {
+          lock.release();
+          appContext.logger.info(`   ℹ️  Orchestrator completed, lock released`);
+        },
+      });
+
+      res.json({
+        requestId,
+        message: `Delivery status updated to: ${statusName} (code: ${statusCode}) — orchestrator auto-resumed.`,
+        delivery: {
+          currentStatus: delivery.currentStatus,
+          currentStatusCode: delivery.currentStatusCode,
+          lastStatusUpdate: delivery.lastStatusUpdate,
+          deliveredAt: delivery.deliveredAt,
+        },
+      });
+      return;
+    }
+
+    // Non-completion codes (0-2): request already saved above.
     res.json({
       requestId,
       message: `Delivery status updated to: ${statusName} (code: ${statusCode})`,
