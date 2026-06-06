@@ -201,11 +201,20 @@ router.post('/:requestId', async (req: Request, res: Response) => {
 
     // Handle status transitions by method-specific code map
     if (matchedCode.completes) {
-      delivery.status = 'completed';
-      delivery.deliveredAt = statusUpdate.timestamp;
-      appContext.logger.info(
-        `[DELIVERY-COMPLETED] Request ${requestId} | Method: ${deliveryMethod} | ${normalizedCodeName} (${normalizedCodeNumber}) | At: ${statusUpdate.timestamp}`
-      );
+      if (deliveryMethod === 'email' && normalizedCodeName === 'email_sent') {
+        // For email, code 1 is a trigger to dispatch the document email.
+        // DeliveryProcessor will send the email and then mark envelope completed.
+        delivery.status = 'in_progress';
+        appContext.logger.info(
+          `[DELIVERY-EMAIL-TRIGGER] Request ${requestId} | Method: ${deliveryMethod} | ${normalizedCodeName} (${normalizedCodeNumber}) | Triggering email dispatch`
+        );
+      } else {
+        delivery.status = 'completed';
+        delivery.deliveredAt = statusUpdate.timestamp;
+        appContext.logger.info(
+          `[DELIVERY-COMPLETED] Request ${requestId} | Method: ${deliveryMethod} | ${normalizedCodeName} (${normalizedCodeNumber}) | At: ${statusUpdate.timestamp}`
+        );
+      }
     } else {
       if (delivery.status !== 'in_progress') {
         delivery.status = 'in_progress';

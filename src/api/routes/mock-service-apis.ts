@@ -70,6 +70,32 @@ router.post('/documents/generate-record', (req: Request, res: Response) => {
   }
 });
 
+router.post('/documents/generate-dummy', (req: Request, res: Response) => {
+  try {
+    const { studentId, documentType, numberOfCopies } = req.body;
+
+    appContext.logger.info(
+      `[MOCK-REGISTRY-API] ✅ Generating ${documentType} for student ${studentId} (${numberOfCopies} copies)`
+    );
+
+    // Return success response
+    res.status(201).json({
+      success: true,
+      studentId,
+      documentType,
+      numberOfCopies,
+      documentId: `DOC-${Date.now()}`,
+      documentUrl: `https://ontheline.trincoll.edu/images/bookdown/sample-local-pdf.pdf`,
+      generatedAt: new Date().toISOString(),
+      status: 'completed',
+      message: `${documentType} generated successfully`,
+    });
+  } catch (error) {
+    appContext.logger.error('[MOCK-REGISTRY-API] Error generating record:', error);
+    res.status(500).json({ error: 'Failed to generate record' });
+  }
+});
+
 /**
  * POST /api/mock/documents/generate-transcript
  * Mock Registry API endpoint - Generate student transcript

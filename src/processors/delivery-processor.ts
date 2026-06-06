@@ -44,7 +44,6 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
     // Code 4 = pickup_complete (pickup only).
     // Envelope may be in_progress or pending_external when the external trigger arrives.
     const isDelivered =
-      envelope.currentStatus === 'email_sent' ||
       envelope.currentStatus === 'delivered' ||
       envelope.currentStatus === 'picked_up';
 
@@ -61,6 +60,21 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
     if (envelope.status === 'pending') {
       // Check if delivery details were pre-submitted via POST /api/delivery/{requestId}/details
       if (envelope.method) {
+        if (envelope.method === 'email') {
+          this.recordAutomaticDeliveryState(
+            envelope,
+            'email_pending',
+            0,
+            'Email delivery is pending; document is being prepared'
+          );
+          envelope.status = 'pending_external';
+          envelope.timestamp = new Date().toISOString();
+          this.logger.info(
+            `[DELIVERY-AWAIT-CONFIRM] Request ${request.id} | email delivery pending; awaiting code 1 (email_sent) via POST /api/delivery-status/${request.id}`
+          );
+          return of(envelope);
+        }
+
         // Details already provided, proceed to in_progress
         this.logger.info(
           `[DELIVERY-DETAILS-FOUND] Request ${request.id} | Using pre-submitted delivery method: ${envelope.method}`
@@ -70,17 +84,20 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
 
         return from(this.executeDelivery(request, envelope)).pipe(
           map(() => {
-            // Email is done once sent — auto-complete.
-            // physical_mail and pickup must be manually confirmed via /api/delivery-status/:requestId.
+            // Keep email aligned with method-aware status flow.
+            // Email now starts at code 0 (email_pending) and waits for an explicit
+            // transition to code 1 (email_sent) via /api/delivery-status/:requestId.
             if (envelope.method === 'email') {
               this.recordAutomaticDeliveryState(
                 envelope,
-                'email_sent',
-                1,
-                'Delivery email sent successfully'
+                'email_pending',
+                0,
+                'Email delivery is pending; document is being prepared'
               );
-              envelope.status = 'completed';
-              this.logger.info(`[DELIVERY-AUTO-COMPLETE] Request ${request.id} | Email delivery auto-completed`);
+              envelope.status = 'pending_external';
+              this.logger.info(
+                `[DELIVERY-AWAIT-CONFIRM] Request ${request.id} | email delivery pending; awaiting code 1 (email_sent) via POST /api/delivery-status/${request.id}`
+              );
             } else {
               this.recordAutomaticDeliveryState(
                 envelope,
@@ -123,6 +140,42 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
     // Also handles the case where status is pending_external but method was already set
     // by a pre-submitted /details call that somehow left a stale pending_external state.
     if (envelope.method && (envelope.status === 'in_progress' || envelope.status === 'pending_external')) {
+      if (envelope.method === 'email') {
+        // Explicit trigger path: code 1 (email_sent) posted through /api/delivery-status/:requestId
+        // sets currentStatus=email_sent and status=in_progress. Only then do we dispatch email.
+        if (envelope.currentStatus === 'email_sent' && envelope.status === 'in_progress') {
+          return from(this.executeEmailDelivery(request, envelope)).pipe(
+            map(() => {
+              this.recordAutomaticDeliveryState(
+                envelope,
+                'email_sent',
+                1,
+                'Delivery email sent successfully'
+              );
+              envelope.status = 'completed';
+              envelope.deliveredAt = envelope.deliveredAt || new Date().toISOString();
+              envelope.timestamp = new Date().toISOString();
+              this.logger.info(`[DELIVERY-AUTO-COMPLETE] Request ${request.id} | Email delivery completed after code 1 trigger`);
+              return envelope;
+            })
+          );
+        }
+
+        // Default email state while waiting for explicit code 1 trigger.
+        this.recordAutomaticDeliveryState(
+          envelope,
+          'email_pending',
+          0,
+          'Email delivery is pending; document is being prepared'
+        );
+        envelope.status = 'pending_external';
+        envelope.timestamp = new Date().toISOString();
+        this.logger.info(
+          `[DELIVERY-AWAIT-CONFIRM] Request ${request.id} | email delivery pending; awaiting code 1 (email_sent) via POST /api/delivery-status/${request.id}`
+        );
+        return of(envelope);
+      }
+
       envelope.status = 'in_progress';
       envelope.timestamp = new Date().toISOString();
 
@@ -131,12 +184,14 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
           if (envelope.method === 'email') {
             this.recordAutomaticDeliveryState(
               envelope,
-              'email_sent',
-              1,
-              'Delivery email sent successfully'
+              'email_pending',
+              0,
+              'Email delivery is pending; document is being prepared'
             );
-            envelope.status = 'completed';
-            this.logger.info(`[DELIVERY-AUTO-COMPLETE] Request ${request.id} | Email delivery auto-completed`);
+            envelope.status = 'pending_external';
+            this.logger.info(
+              `[DELIVERY-AWAIT-CONFIRM] Request ${request.id} | email delivery pending; awaiting code 1 (email_sent) via POST /api/delivery-status/${request.id}`
+            );
           } else {
             this.recordAutomaticDeliveryState(
               envelope,
@@ -340,7 +395,7 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
    */
   private setCurrentDeliveryState(
     envelope: DeliveryEnvelope,
-    codeName: 'email_sent' | 'preparing' | 'ready_to_deliver' | 'out_for_delivery' | 'delivered' | 'ready_for_pickup' | 'picked_up',
+    codeName: 'email_pending' | 'email_sent' | 'preparing' | 'ready_to_deliver' | 'out_for_delivery' | 'delivered' | 'ready_for_pickup' | 'picked_up',
     codeNumber: number
   ): void {
     envelope.currentStatus = codeName;
@@ -354,7 +409,7 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
    */
   private recordAutomaticDeliveryState(
     envelope: DeliveryEnvelope,
-    codeName: 'email_sent' | 'preparing' | 'ready_to_deliver' | 'out_for_delivery' | 'delivered' | 'ready_for_pickup' | 'picked_up',
+    codeName: 'email_pending' | 'email_sent' | 'preparing' | 'ready_to_deliver' | 'out_for_delivery' | 'delivered' | 'ready_for_pickup' | 'picked_up',
     codeNumber: number,
     notes: string
   ): void {

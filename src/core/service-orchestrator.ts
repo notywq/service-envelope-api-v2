@@ -120,6 +120,28 @@ export class ServiceOrchestrator {
     if (['completed', 'waived'].includes(envelope.status)) {
       console.log(`⏭️  [PROCESS-ENVELOPE-SKIP] Skipping ${envelopeType.toUpperCase()} (already ${envelope.status})`);
       this.logger.info(`Skipping ${envelopeType.toUpperCase()} (status: ${envelope.status.toUpperCase()}) for request ${request.id}`);
+
+      // Delivery can be completed externally via /api/delivery-status final codes.
+      // Ensure END email still fires exactly once for non-email methods.
+      const envelopeForEmailCheck = request.envelopes[envelopeType] as any;
+      const deliveryMethod = envelopeType === 'delivery'
+        ? (request.envelopes.delivery as any)?.method
+        : undefined;
+      const shouldSendDeliveryEndFromSkip =
+        envelopeType === 'delivery' &&
+        envelope.status === 'completed' &&
+        deliveryMethod &&
+        deliveryMethod !== 'email' &&
+        !envelopeForEmailCheck?.endEmailSentAt;
+
+      if (shouldSendDeliveryEndFromSkip) {
+        console.log(`📧 [DELIVERY] Sending END email from skip path (externally completed)`);
+        this.sendEnvelopeEmailTemplate(request, envelopeType, 'end').catch(err => {
+          console.log(`⚠️  [DELIVERY-END-EMAIL] Failed in skip path:`, err.message);
+          this.logger.warn(`Failed to process completion email for ${envelopeType} from skip path:`, err);
+        });
+      }
+
       return of(request);
     }
 
@@ -215,8 +237,21 @@ export class ServiceOrchestrator {
           // If both start and end are due in the same pass (fast envelopes), ensure start is
           // dispatched first, then end, to keep logs and recipient experience in sequence.
           const envelopeForEmailCheck = request.envelopes[envelopeType] as any;
+          const deliveryMethod = envelopeType === 'delivery'
+            ? (request.envelopes.delivery as any)?.method
+            : undefined;
           let startEmailPromise: Promise<void> | null = null;
-          if (!envelopeForEmailCheck?.startEmailSentAt) {
+          // Delivery semantics:
+          // - email method: document email is sent by DeliveryProcessor on code 1 trigger
+          // - physical_mail/pickup: send delivery START email when delivery begins
+          const shouldSendStartEmail =
+            !envelopeForEmailCheck?.startEmailSentAt &&
+            (
+              envelopeType !== 'delivery' ||
+              (deliveryMethod && deliveryMethod !== 'email')
+            );
+
+          if (shouldSendStartEmail) {
             console.log(`📧 [${envelopeType.toUpperCase()}] Sending START email (first time)`);
             startEmailPromise = this.sendEnvelopeEmailTemplate(request, envelopeType, 'start').catch(err => {
               console.log(`⚠️  [${envelopeType.toUpperCase()}-START-EMAIL] Failed:`, err.message);
@@ -227,7 +262,18 @@ export class ServiceOrchestrator {
           }
 
           // Send end email exactly once on completion — guard prevents double-fire on resume.
-          if (updatedEnvelope.status === 'completed' && !envelopeForEmailCheck?.endEmailSentAt) {
+          // Keep one meaningful delivery email in success path:
+          // do not send envelope END email for delivery, because delivery notifications
+          // are method-driven (email dispatch on code 1, pickup-ready notification, etc.).
+          const shouldSendEndEmail =
+            updatedEnvelope.status === 'completed' &&
+            !envelopeForEmailCheck?.endEmailSentAt &&
+            (
+              envelopeType !== 'delivery' ||
+              (deliveryMethod && deliveryMethod !== 'email')
+            );
+
+          if (shouldSendEndEmail) {
             const sendEndEmail = () => {
               console.log(`📧 [${envelopeType.toUpperCase()}] Sending END email (completion)`);
               this.sendEnvelopeEmailTemplate(request, envelopeType, 'end').catch(err => {
