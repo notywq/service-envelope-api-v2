@@ -9,6 +9,12 @@ envelopes:
   request:
     required: true
     parameters:
+      studentId:
+        type: String
+        required: true
+        description: Student ID number
+        minLength: 1
+        maxLength: 30
       firstName:
         type: String
         required: true
@@ -52,7 +58,7 @@ envelopes:
         retries: 2
         successCodes: [200]
         payload:
-          studentId: "{{firstName}}-{{lastName}}"
+          studentId: "{{studentId}}"
           firstName: "{{firstName}}"
           lastName: "{{lastName}}"
 
@@ -65,7 +71,7 @@ envelopes:
         retries: 2
         successCodes: [201]
         payload:
-          studentId: "{{firstName}}-{{lastName}}"
+          studentId: "{{studentId}}"
           documentType: "Student ID"
           numberOfCopies: 1
 
