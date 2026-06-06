@@ -252,6 +252,9 @@ export class MongoDBStateManager {
           const existingHasMethod = Boolean(existingDelivery.method);
 
           if (!incomingHasMethod && existingHasMethod) {
+            this.logger.info(
+              `[SAVE-REQUEST-MERGE] Request ${request.id} | Preserving persisted delivery method | existing=${String(existingDelivery.method)} incoming=${String(incomingDelivery.method)}`
+            );
             incomingDelivery.method = existingDelivery.method;
             incomingDelivery.details = existingDelivery.details;
             incomingDelivery.deliveryAttempts = incomingDelivery.deliveryAttempts ?? existingDelivery.deliveryAttempts;

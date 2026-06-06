@@ -12,9 +12,22 @@ const router = Router();
 const VALID_METHODS = ['email', 'physical_mail', 'pickup'] as const;
 type DeliveryMethod = typeof VALID_METHODS[number];
 
+function normalizeDeliveryMethod(method: unknown): DeliveryMethod | undefined {
+  if (typeof method !== 'string') {
+    return undefined;
+  }
+
+  const normalized = method.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (VALID_METHODS.includes(normalized as DeliveryMethod)) {
+    return normalized as DeliveryMethod;
+  }
+
+  return undefined;
+}
+
 function normalizeDeliveryPayload(body: any): { method?: DeliveryMethod; details?: Record<string, any> } {
   // Preferred payload shape (/details): { deliveryMethod, deliveryDetails }
-  const deliveryMethod = body?.deliveryMethod as DeliveryMethod | undefined;
+  const deliveryMethod = normalizeDeliveryMethod(body?.deliveryMethod);
   const deliveryDetails = body?.deliveryDetails as Record<string, any> | undefined;
 
   if (deliveryMethod || deliveryDetails) {
@@ -26,7 +39,7 @@ function normalizeDeliveryPayload(body: any): { method?: DeliveryMethod; details
 
   // Backward-compatible shape (/method): { method, details }
   return {
-    method: body?.method as DeliveryMethod | undefined,
+    method: normalizeDeliveryMethod(body?.method),
     details: body?.details as Record<string, any> | undefined,
   };
 }
@@ -49,7 +62,12 @@ function normalizeDeliveryPayload(body: any): { method?: DeliveryMethod; details
 router.post('/:requestId/details', async (req: Request, res: Response) => {
   try {
     const { requestId } = req.params;
+    const rawMethod = req.body?.deliveryMethod ?? req.body?.method;
     const { method: deliveryMethod, details: deliveryDetails } = normalizeDeliveryPayload(req.body);
+
+    appContext.logger.info(
+      `[DELIVERY-DETAILS-IN] Request ${requestId} | RawMethod: ${String(rawMethod)} | NormalizedMethod: ${String(deliveryMethod)} | HasDetails: ${Boolean(deliveryDetails)}`
+    );
 
     // Validate required fields
     if (!deliveryMethod || !deliveryDetails) {
@@ -85,6 +103,10 @@ router.post('/:requestId/details', async (req: Request, res: Response) => {
       request.envelopes.delivery.deliveryHistory = [];
     }
 
+    appContext.logger.info(
+      `[DELIVERY-DETAILS-PRE] Request ${requestId} | overallStatus=${request.overallStatus} | delivery.status=${request.envelopes.delivery.status} | delivery.method=${String(request.envelopes.delivery.method)}`
+    );
+
     // Store method + details in all cases so tracking payload has a method immediately.
     request.envelopes.delivery.method = deliveryMethod;
     request.envelopes.delivery.details = {
@@ -109,6 +131,12 @@ router.post('/:requestId/details', async (req: Request, res: Response) => {
 
     // Save to MongoDB
     await appContext.stateManager.saveRequest(request);
+
+    const persisted = await appContext.stateManager.loadRequest(requestId);
+    const persistedDelivery: any = persisted?.envelopes?.delivery;
+    appContext.logger.info(
+      `[DELIVERY-DETAILS-POST] Request ${requestId} | persisted.delivery.method=${String(persistedDelivery?.method)} | persisted.delivery.status=${String(persistedDelivery?.status)} | persisted.overallStatus=${String(persisted?.overallStatus)}`
+    );
 
     appContext.logger.info(
       `✅ Delivery details saved for request ${requestId}: ${deliveryMethod}${autoResumed ? ' | auto-resume triggered' : ''}`
@@ -200,6 +228,10 @@ router.get('/:requestId/method', async (req: Request, res: Response) => {
 
     const delivery = request.envelopes.delivery;
     const deliveryMethod = delivery.method?.toUpperCase().replace(/_/g, '_') || null;
+
+    appContext.logger.info(
+      `[DELIVERY-METHOD-GET] Request ${requestId} | stored.method=${String(delivery.method)} | response.deliveryMethod=${String(deliveryMethod)} | delivery.status=${String(delivery.status)} | overallStatus=${String(request.overallStatus)}`
+    );
 
     res.json({
       requestId,
