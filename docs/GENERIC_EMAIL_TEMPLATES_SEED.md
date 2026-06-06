@@ -386,6 +386,10 @@ These are the names backend will fall back to when no service-specific template 
         <strong>Pickup:</strong> You will be notified when your documents are ready for collection.
       </p>
     </div>
+    <div style="margin-top:16px;padding:14px 18px;background:#f5f5f5;border-radius:4px;">
+      <p style="margin:0 0 8px 0;font-size:13px;color:#333;"><strong>Tracking ID:</strong> {{trackingId}}</p>
+      <p style="margin:0;font-size:13px;"><a href="{{deliveryTrackingUrl}}" style="color:#1976d2;text-decoration:none;font-weight:bold;">Track Delivery Status</a></p>
+    </div>
   </div>
   <div style="background:#f5f5f5;padding:16px 32px;border-top:1px solid #e0e0e0;">
     <p style="margin:0;font-size:11px;color:#999;text-align:center;">This is an automated message from the MAPUA Service Envelope System. Please do not reply to this email.</p>
@@ -850,6 +854,140 @@ Not auto-triggered yet — create these to complete your catalog and enable futu
 
 ---
 
+### `delivery-email-document`
+**eventKey:** `delivery-email-document` | **envelopeType:** `delivery` | **phase:** `document`
+
+**subject:** `Your Documents Are Ready — {{serviceType}} ({{requestId}})`
+
+```html
+<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;background:#ffffff;">
+  <div style="background-color:#003a70;padding:24px 32px;">
+    <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;">MAPUA Service Portal</h1>
+  </div>
+  <div style="padding:32px;">
+    <h2 style="color:#2e7d32;margin-top:0;">&#10003; Your Documents Are Attached</h2>
+    <p style="color:#333;line-height:1.6;">Hello <strong>{{firstName}}</strong>,</p>
+    <p style="color:#333;line-height:1.6;">Your requested documents for <strong>{{serviceType}}</strong> are ready. You can access them using the secure links below.</p>
+    <div style="background:#f5f5f5;border-left:4px solid #2e7d32;padding:16px 20px;margin:24px 0;border-radius:3px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;width:40%;">Request ID:</td>
+          <td style="padding:8px 0;color:#1976d2;font-weight:bold;">{{requestId}}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Service Type:</td>
+          <td style="padding:8px 0;color:#555;">{{serviceType}}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Student ID:</td>
+          <td style="padding:8px 0;color:#555;">{{studentId}}</td>
+        </tr>
+      </table>
+    </div>
+    <div style="background:#e8f5e9;border:1px solid #c8e6c9;padding:16px 20px;border-radius:4px;margin:24px 0;">
+      <p style="margin:0 0 10px 0;font-size:13px;font-weight:bold;color:#2e7d32;">Document Links:</p>
+      {{documentLinks}}
+      <p style="margin:10px 0 0 0;font-size:11px;color:#666;">Links are secure and accessible only to authorized users. If you did not request these documents, please contact the Registrar immediately.</p>
+    </div>
+    <p style="color:#333;line-height:1.6;">If you experience any issues accessing your documents, please reply to the service office or contact us directly.</p>
+  </div>
+  <div style="background:#f5f5f5;padding:16px 32px;border-top:1px solid #e0e0e0;">
+    <p style="margin:0;font-size:11px;color:#999;text-align:center;">This is an automated message from the MAPUA Service Envelope System. Please do not reply to this email.</p>
+  </div>
+</div>
+```
+
+---
+
+### `delivery-shipped`
+**eventKey:** `delivery-shipped` | **envelopeType:** `delivery` | **phase:** `shipped`
+
+**subject:** `Your Documents Have Been Shipped ({{requestId}})`
+
+```html
+<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;background:#ffffff;">
+  <div style="background-color:#003a70;padding:24px 32px;">
+    <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;">MAPUA Service Portal</h1>
+  </div>
+  <div style="padding:32px;">
+    <h2 style="color:#1565c0;margin-top:0;">&#128230; Your Documents Are On Their Way</h2>
+    <p style="color:#333;line-height:1.6;">Hello <strong>{{firstName}}</strong>,</p>
+    <p style="color:#333;line-height:1.6;">Your documents have been dispatched via courier and are on their way to you.</p>
+    <div style="background:#f5f5f5;border-left:4px solid #1976d2;padding:16px 20px;margin:24px 0;border-radius:3px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;width:40%;">Request ID:</td>
+          <td style="padding:8px 0;color:#1976d2;font-weight:bold;">{{requestId}}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Service Type:</td>
+          <td style="padding:8px 0;color:#555;">{{serviceType}}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Tracking ID:</td>
+          <td style="padding:8px 0;color:#1976d2;font-weight:bold;">{{trackingId}}</td>
+        </tr>
+      </table>
+    </div>
+    <div style="margin-top:8px;padding:14px 18px;background:#e3f2fd;border:1px solid #bbdefb;border-radius:4px;">
+      <p style="margin:0 0 8px 0;font-size:13px;color:#1565c0;"><strong>Track your shipment:</strong></p>
+      <p style="margin:0;font-size:13px;"><a href="{{deliveryTrackingUrl}}" style="color:#1976d2;text-decoration:none;font-weight:bold;">View Delivery Status &#8594;</a></p>
+    </div>
+    <p style="color:#333;line-height:1.6;margin-top:20px;">Please ensure someone is available to receive the parcel at your provided address. Bring a valid ID if a signature is required.</p>
+  </div>
+  <div style="background:#f5f5f5;padding:16px 32px;border-top:1px solid #e0e0e0;">
+    <p style="margin:0;font-size:11px;color:#999;text-align:center;">This is an automated message from the MAPUA Service Envelope System. Please do not reply to this email.</p>
+  </div>
+</div>
+```
+
+---
+
+### `delivery-pickup-ready`
+**eventKey:** `delivery-pickup-ready` | **envelopeType:** `delivery` | **phase:** `pickup`
+
+**subject:** `Your Documents Are Ready for Pickup ({{requestId}})`
+
+```html
+<div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;background:#ffffff;">
+  <div style="background-color:#003a70;padding:24px 32px;">
+    <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;">MAPUA Service Portal</h1>
+  </div>
+  <div style="padding:32px;">
+    <h2 style="color:#2e7d32;margin-top:0;">&#10003; Ready for Pickup</h2>
+    <p style="color:#333;line-height:1.6;">Hello <strong>{{firstName}}</strong>,</p>
+    <p style="color:#333;line-height:1.6;">Your documents for <strong>{{serviceType}}</strong> are ready and waiting for you to collect.</p>
+    <div style="background:#f5f5f5;border-left:4px solid #2e7d32;padding:16px 20px;margin:24px 0;border-radius:3px;">
+      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;width:40%;">Request ID:</td>
+          <td style="padding:8px 0;color:#1976d2;font-weight:bold;">{{requestId}}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Service Type:</td>
+          <td style="padding:8px 0;color:#555;">{{serviceType}}</td>
+        </tr>
+      </table>
+    </div>
+    <div style="background:#e8f5e9;border:1px solid #c8e6c9;padding:16px 20px;border-radius:4px;margin:24px 0;">
+      <p style="margin:0 0 6px 0;font-size:13px;font-weight:bold;color:#2e7d32;">Pickup Instructions</p>
+      <p style="margin:0;font-size:13px;color:#333;line-height:1.6;">
+        Please proceed to the <strong>Registrar / Records Office</strong> during operating hours.<br/>
+        Bring your <strong>valid school ID</strong> and reference your Request ID when claiming.
+      </p>
+    </div>
+    <div style="background:#fff3e0;border:1px solid #ffe0b2;padding:14px 18px;border-radius:4px;">
+      <p style="margin:0;font-size:12px;color:#e65100;"><strong>Important:</strong> Documents not claimed within the designated period will be returned to the issuing office. Please claim as soon as possible.</p>
+    </div>
+  </div>
+  <div style="background:#f5f5f5;padding:16px 32px;border-top:1px solid #e0e0e0;">
+    <p style="margin:0;font-size:11px;color:#999;text-align:center;">This is an automated message from the MAPUA Service Envelope System. Please do not reply to this email.</p>
+  </div>
+</div>
+```
+
+---
+
 ## Available Template Variables
 
 All templates support these `{{variableName}}` substitutions:
@@ -876,6 +1014,10 @@ All templates support these `{{variableName}}` substitutions:
 | `paymentLink` | Deep link to payment page |
 | `feedbackLink` | Deep link to feedback form |
 | `feedbackToken` | Unique feedback token |
+| `trackingId` | Shipment tracking identifier |
+| `deliveryTrackingUrl` | Link to delivery tracking page |
+| `documentLinks` | HTML list of resolved document links (delivery email) |
+| `documentLinksText` | Plain-text list of resolved document links |
 | `approverId` | Approver ID (denial emails) |
 | `reason` | Denial reason (denial emails) |
 | `failedTask` | Failed step name (cancellation emails) |

@@ -211,26 +211,37 @@ export class ServiceOrchestrator {
 
         console.log(`\n📧 [ENVELOPE-PROCESSING] ${envelopeType.toUpperCase()}: Processing complete with status: ${updatedEnvelope.status}`);
 
-        // Send start email exactly once per envelope — guard prevents double-fire on resume.
-        const envelopeForEmailCheck = request.envelopes[envelopeType] as any;
-        if (!envelopeForEmailCheck?.startEmailSentAt) {
-          console.log(`📧 [${envelopeType.toUpperCase()}] Sending START email (first time)`);
-          this.sendEnvelopeEmailTemplate(request, envelopeType, 'start').catch(err => {
-            console.log(`⚠️  [${envelopeType.toUpperCase()}-START-EMAIL] Failed:`, err.message);
-            this.logger.warn(`Failed to process start email for ${envelopeType}:`, err);
-          });
-        } else {
-          console.log(`⏭️  [${envelopeType.toUpperCase()}] START email already sent, skipping`);
-        }
+          // Send start email exactly once per envelope — guard prevents double-fire on resume.
+          // If both start and end are due in the same pass (fast envelopes), ensure start is
+          // dispatched first, then end, to keep logs and recipient experience in sequence.
+          const envelopeForEmailCheck = request.envelopes[envelopeType] as any;
+          let startEmailPromise: Promise<void> | null = null;
+          if (!envelopeForEmailCheck?.startEmailSentAt) {
+            console.log(`📧 [${envelopeType.toUpperCase()}] Sending START email (first time)`);
+            startEmailPromise = this.sendEnvelopeEmailTemplate(request, envelopeType, 'start').catch(err => {
+              console.log(`⚠️  [${envelopeType.toUpperCase()}-START-EMAIL] Failed:`, err.message);
+              this.logger.warn(`Failed to process start email for ${envelopeType}:`, err);
+            });
+          } else {
+            console.log(`⏭️  [${envelopeType.toUpperCase()}] START email already sent, skipping`);
+          }
 
-        // Send end email exactly once on completion — guard prevents double-fire on resume.
-        if (updatedEnvelope.status === 'completed' && !envelopeForEmailCheck?.endEmailSentAt) {
-          console.log(`📧 [${envelopeType.toUpperCase()}] Sending END email (completion)`);
-          this.sendEnvelopeEmailTemplate(request, envelopeType, 'end').catch(err => {
-            console.log(`⚠️  [${envelopeType.toUpperCase()}-END-EMAIL] Failed:`, err.message);
-            this.logger.warn(`Failed to process completion email for ${envelopeType}:`, err);
-          });
-        }
+          // Send end email exactly once on completion — guard prevents double-fire on resume.
+          if (updatedEnvelope.status === 'completed' && !envelopeForEmailCheck?.endEmailSentAt) {
+            const sendEndEmail = () => {
+              console.log(`📧 [${envelopeType.toUpperCase()}] Sending END email (completion)`);
+              this.sendEnvelopeEmailTemplate(request, envelopeType, 'end').catch(err => {
+                console.log(`⚠️  [${envelopeType.toUpperCase()}-END-EMAIL] Failed:`, err.message);
+                this.logger.warn(`Failed to process completion email for ${envelopeType}:`, err);
+              });
+            };
+
+            if (startEmailPromise) {
+              void startEmailPromise.finally(sendEndEmail);
+            } else {
+              sendEndEmail();
+            }
+          }
 
         // Pause if processor signals pending_external
         if (updatedEnvelope.status === 'pending_external') {
@@ -379,23 +390,36 @@ export class ServiceOrchestrator {
       const configuredTemplateName = phase === 'start'
         ? envelopeConfig.emailTemplateStartEnvelope 
         : envelopeConfig.emailTemplateEndEnvelope;
+      const envelopeDefaultTemplateName = phase === 'start'
+        ? envelopeConfig.defaultEmailTemplateStartEnvelope
+        : envelopeConfig.defaultEmailTemplateEndEnvelope;
 
       const genericEventKey = `${String(envelopeType)}-${phase}`;
       const templateCandidates = [
         configuredTemplateName,
+        envelopeDefaultTemplateName,
         `${request.type}-${genericEventKey}`,
         genericEventKey,
       ];
 
-      console.log(`🔍 ${marker} Resolving template candidates: ${templateCandidates.filter(Boolean).join(', ')}`);
-      const template = await this.resolveEmailTemplateByCandidates(templateCandidates);
+      const candidateLogList = [...new Set(templateCandidates.filter((candidate): candidate is string => !!candidate))];
+      console.log(`🔍 ${marker} Resolving template candidates: ${candidateLogList.join(', ')}`);
+      const templateResolution = await this.resolveEmailTemplateByCandidates(templateCandidates, {
+        yamlConfiguredCandidates: [configuredTemplateName, envelopeDefaultTemplateName],
+        serviceScopedGenericCandidates: [`${request.type}-${genericEventKey}`],
+        globalGenericCandidates: [genericEventKey],
+      });
 
-      if (!template) {
+      if (!templateResolution) {
         console.log(`❌ ${marker} Template NOT found for any candidate`);
-        this.logger.warn(`📧 Email template not found for candidates: ${templateCandidates.filter(Boolean).join(', ')}`);
+        this.logger.warn(`📧 Email template not found for candidates: ${candidateLogList.join(', ')}`);
         return;
       }
+      const template = templateResolution.template;
       console.log(`✅ ${marker} Template loaded: ${template.name}`);
+      this.logger.info(
+        `[TEMPLATE-RESOLUTION] Request ${request.id} | Envelope ${String(envelopeType)}:${phase} | Matched: ${templateResolution.matchedCandidate} | Source: ${templateResolution.source} | TemplateId: ${template.id || 'n/a'} | TemplateScope: ${template.templateScope || 'n/a'}`
+      );
 
       // Determine recipients based on envelope type
       console.log(`👥 ${marker} Determining recipients for envelope type: ${envelopeType}`);
@@ -594,6 +618,22 @@ export class ServiceOrchestrator {
     const requestEnvelope = request.envelopes.request as any;
     const approvalEnvelope = request.envelopes.approval as any;
     const requestParams = requestEnvelope?.parameters || {};
+    const deliveryEnvelope = request.envelopes.delivery as any;
+
+    const latestDeliveryUpdate =
+      deliveryEnvelope?.deliveryHistory?.[deliveryEnvelope.deliveryHistory.length - 1] || null;
+    const resolvedTrackingId =
+      latestDeliveryUpdate?.trackingId ||
+      deliveryEnvelope?.details?.physical_mail?.trackingId ||
+      '';
+
+    const configuredTrackingUrlTemplate =
+      `${process.env.FRONTEND_BASE_URL || 'http://localhost:5173'}/delivery/${request.id}/tracking`;
+
+    const deliveryTrackingUrl = this.substituteVariables(configuredTrackingUrlTemplate, {
+      requestId: request.id,
+      trackingId: resolvedTrackingId,
+    });
 
     return {
       // Request data
@@ -619,6 +659,12 @@ export class ServiceOrchestrator {
       // Feedback — link generated by FeedbackProcessor and stored on the envelope
       feedbackLink: (request.envelopes.feedback as any)?.feedbackLink || '',
       feedbackToken: (request.envelopes.feedback as any)?.feedbackToken || '',
+      trackingId: resolvedTrackingId,
+      deliveryTrackingUrl,
+
+      // Delivery document links (resolved at execution time by delivery processor, stored on details)
+      documentLinks: deliveryEnvelope?.details?.email?.resolvedDocumentLinksHtml || '',
+      documentLinksText: deliveryEnvelope?.details?.email?.resolvedDocumentLinksText || '',
 
       // Generic fields
       documentTypes: requestParams?.documentTypes?.join(', ') || '',
@@ -642,11 +688,47 @@ export class ServiceOrchestrator {
   /**
    * Resolve a template by trying a prioritized candidate list.
    */
-  private async resolveEmailTemplateByCandidates(candidates: Array<string | undefined | null>): Promise<any | null> {
+  private async resolveEmailTemplateByCandidates(
+    candidates: Array<string | undefined | null>,
+    context?: {
+      yamlConfiguredCandidates?: Array<string | undefined | null>;
+      serviceScopedGenericCandidates?: Array<string | undefined | null>;
+      globalGenericCandidates?: Array<string | undefined | null>;
+      runtimeCandidates?: Array<string | undefined | null>;
+    }
+  ): Promise<{ template: any; matchedCandidate: string; source: string } | null> {
+    const runtimeSet = new Set(
+      (context?.runtimeCandidates || []).filter((candidate): candidate is string => !!candidate)
+    );
+    const yamlConfiguredSet = new Set(
+      (context?.yamlConfiguredCandidates || []).filter((candidate): candidate is string => !!candidate)
+    );
+    const serviceScopedGenericSet = new Set(
+      (context?.serviceScopedGenericCandidates || []).filter((candidate): candidate is string => !!candidate)
+    );
+    const globalGenericSet = new Set(
+      (context?.globalGenericCandidates || []).filter((candidate): candidate is string => !!candidate)
+    );
+
     for (const name of [...new Set(candidates.filter((candidate): candidate is string => !!candidate))]) {
       const template = await this.stateManager.getEmailTemplateByName(name);
       if (template) {
-        return template;
+        let source = 'unknown';
+        if (runtimeSet.has(name)) {
+          source = 'runtime-override';
+        } else if (yamlConfiguredSet.has(name)) {
+          source = 'yaml-service-definition';
+        } else if (serviceScopedGenericSet.has(name)) {
+          source = 'generic-service-scoped';
+        } else if (globalGenericSet.has(name)) {
+          source = 'generic-global';
+        }
+
+        return {
+          template,
+          matchedCandidate: name,
+          source,
+        };
       }
     }
     return null;
@@ -718,7 +800,7 @@ export class ServiceOrchestrator {
     request: ServiceRequest,
     failedTask: string,
     failureDetails: string,
-    triggerEnvelopeType?: 'approval' | 'payment' | 'processing'
+    triggerEnvelopeType?: 'approval' | 'payment' | 'processing' | 'delivery' | 'feedback'
   ): Promise<void> {
     try {
       if (!appContext?.emailService) {
@@ -728,6 +810,7 @@ export class ServiceOrchestrator {
 
       // Resolve cancel/denial template from service definition (per envelope), then service/global generic candidates.
       let configuredCancelTemplateName: string | undefined;
+      let defaultEnvelopeCancelTemplateName: string | undefined;
       try {
         const serviceDefinition = await this.stateManager.getServiceDefinitionByType(request.type);
         const envs = serviceDefinition?.envelopes || serviceDefinition?.definition?.envelopes || {};
@@ -737,23 +820,39 @@ export class ServiceOrchestrator {
           envs?.approval?.emailTemplateCancelEnvelope ||
           envs?.payment?.emailTemplateCancelEnvelope ||
           envs?.processing?.emailTemplateCancelEnvelope;
+        defaultEnvelopeCancelTemplateName =
+          triggerEnvelopeType && envs?.[triggerEnvelopeType]?.defaultEmailTemplateCancelEnvelope
+            ? envs[triggerEnvelopeType].defaultEmailTemplateCancelEnvelope
+            : undefined;
       } catch {
         // Keep fallback
       }
 
       const primaryGenericKey = triggerEnvelopeType === 'approval' ? 'request-denied' : 'request-cancelled';
-      const template = await this.resolveEmailTemplateByCandidates([
+      const templateResolution = await this.resolveEmailTemplateByCandidates([
         configuredCancelTemplateName,
+        defaultEnvelopeCancelTemplateName,
         `${request.type}-${primaryGenericKey}`,
         primaryGenericKey,
         `${request.type}-request-cancelled`,
         'request-cancelled',
-      ]);
+      ], {
+        yamlConfiguredCandidates: [configuredCancelTemplateName, defaultEnvelopeCancelTemplateName],
+        serviceScopedGenericCandidates: [
+          `${request.type}-${primaryGenericKey}`,
+          `${request.type}-request-cancelled`,
+        ],
+        globalGenericCandidates: [primaryGenericKey, 'request-cancelled'],
+      });
 
-      if (!template) {
+      if (!templateResolution) {
         this.logger.warn(`[CANCELLATION-EMAIL] No cancellation template found for request ${request.id}`);
         return;
       }
+      const template = templateResolution.template;
+      this.logger.info(
+        `[TEMPLATE-RESOLUTION] Request ${request.id} | Envelope cancellation:${triggerEnvelopeType || 'unknown'} | Matched: ${templateResolution.matchedCandidate} | Source: ${templateResolution.source} | TemplateId: ${template.id || 'n/a'} | TemplateScope: ${template.templateScope || 'n/a'}`
+      );
 
       // Build email context with failure details
       const requestParams = request.envelopes.request?.parameters || {};

@@ -130,8 +130,8 @@ Each envelope sends start/end emails with emailTemplateStartEnvelope and emailTe
   - Submit button with validation
   - Success page: Thank you message, email confirmation sent
 - **API Calls**:
-  - GET `/api/requests/:requestId/feedback` (fetch feedback status)
-  - POST `/api/feedback/:requestId/submit` with token validation
+  - GET `/api/feedback/token/:token` (fetch feedback status)
+  - POST `/api/feedback/token/:token/submit` (submit feedback)
 
 ---
 
@@ -300,14 +300,14 @@ POST /api/delivery/:requestId/method
 ### 3.5 Feedback Management
 
 ```
-GET /api/feedback/:requestId
-├─ Fetch feedback envelope (public - token not required if in email link)
-└─ Returns: { feedbackLink, expiresAt, feedback: {...} }
+GET /api/feedback/token/:token
+├─ Fetch feedback envelope by token (public token route)
+└─ Returns: { requestId, token, status, feedbackLink, expiresAt, feedback, tokenStatus }
 
-POST /api/feedback/:requestId/submit
+POST /api/feedback/token/:token/submit
 ├─ Submit feedback survey
-├─ Body: { ratings: {...}, comments, token? }
-└─ Returns: { status, submittedAt }
+├─ Body: { ratings: {...}, comments }
+└─ Returns: { status, requestId, token, feedbackReceivedAt }
 ```
 
 ### 3.6 Admin/Service Management

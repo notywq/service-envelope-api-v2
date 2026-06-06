@@ -70,7 +70,7 @@ switch (ruleType) {
 ```
 
 ### 4. JSON Schema Updated
-**File**: `src/schemas/service-request.schema.json`
+**File**: `src/schemas/service-definition.schema.json`
 
 ```json
 "approvalRules": {
@@ -154,7 +154,7 @@ switch (ruleType) {
 1. ✅ `src/types/envelope.types.ts` - Added complex rule to ApprovalRules interface
 2. ✅ `src/processors/approval-processor.ts` - Implemented complex rule logic in calculateApprovalStatus()
 3. ✅ `src/api/routes/approvals.ts` - Added complex case to POST /:token/approve endpoint
-4. ✅ `src/schemas/service-request.schema.json` - Added complex rule schema validation
+4. ✅ `src/schemas/service-definition.schema.json` - Added complex rule schema validation
 
 ## Files Created
 

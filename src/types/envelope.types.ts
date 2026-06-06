@@ -149,6 +149,10 @@ export interface DeliveryEnvelope extends BaseEnvelope {
   deliveredAt?: string;  // Timestamp when delivery was completed (status code 3)
   emailTemplateStartEnvelope?: string;   // Email template sent when delivery starts (document ready)
   emailTemplateEndEnvelope?: string;     // Email template sent when delivery completes
+  emailTemplateCancelEnvelope?: string;  // Email template sent when request is cancelled in delivery context
+  defaultEmailTemplateStartEnvelope?: string; // Optional envelope-level fallback template for start phase
+  defaultEmailTemplateEndEnvelope?: string;   // Optional envelope-level fallback template for end phase
+  defaultEmailTemplateCancelEnvelope?: string; // Optional envelope-level fallback template for cancel phase
   startEmailSentAt?: string;
   endEmailSentAt?: string;
   // Delivery tracking - history of all status updates
@@ -159,6 +163,8 @@ export interface DeliveryEnvelope extends BaseEnvelope {
 }
 
 export interface DeliveryStatusUpdate {
+  code_number?: number;  // Canonical method-aware code number
+  code_name?: string;  // Canonical method-aware code name
   statusCode?: number;  // Status code: 0=processing, 1=ready_to_deliver, 2=out_for_delivery, 3=delivered
   status: string;  // Status name: processing, ready_to_deliver, out_for_delivery, delivered
   timestamp: string;  // ISO timestamp
@@ -174,6 +180,9 @@ export interface DeliveryDetails {
     subject: string;
     templateId?: string;
     attachmentUrls?: string[];
+    // Resolved at delivery execution time from processing task results (via resolveAttachmentsFrom config)
+    resolvedDocumentLinksHtml?: string;
+    resolvedDocumentLinksText?: string;
   };
   physical_mail?: {
     address: string;
@@ -203,6 +212,10 @@ export interface FeedbackEnvelope extends BaseEnvelope {
   autoClosedReason?: string;  // Reason for auto-close (e.g., "Feedback window expired after 24 hours with no submission")
   emailTemplateStartEnvelope?: string;   // Email template sent with survey invite
   emailTemplateEndEnvelope?: string;     // Email template sent after feedback submitted
+  emailTemplateCancelEnvelope?: string;  // Email template sent when request is cancelled in feedback context
+  defaultEmailTemplateStartEnvelope?: string; // Optional envelope-level fallback template for start phase
+  defaultEmailTemplateEndEnvelope?: string;   // Optional envelope-level fallback template for end phase
+  defaultEmailTemplateCancelEnvelope?: string; // Optional envelope-level fallback template for cancel phase
   startEmailSentAt?: string;
   endEmailSentAt?: string;
   feedback?: {
@@ -297,6 +310,10 @@ export interface ServiceDefinition {
     };
     emailTemplateStartEnvelope?: string;  // Email sent when document ready for delivery
     emailTemplateEndEnvelope?: string;    // Email sent when delivery completes
+    emailTemplateCancelEnvelope?: string; // Email sent if request is cancelled in delivery stage
+    defaultEmailTemplateStartEnvelope?: string;
+    defaultEmailTemplateEndEnvelope?: string;
+    defaultEmailTemplateCancelEnvelope?: string;
   };
 
   feedback?: {
@@ -305,6 +322,10 @@ export interface ServiceDefinition {
     surveyId?: string;
     emailTemplateStartEnvelope?: string;  // Email sent with survey invite
     emailTemplateEndEnvelope?: string;    // Email sent after feedback received
+    emailTemplateCancelEnvelope?: string; // Email sent if request is cancelled in feedback stage
+    defaultEmailTemplateStartEnvelope?: string;
+    defaultEmailTemplateEndEnvelope?: string;
+    defaultEmailTemplateCancelEnvelope?: string;
     notificationRequired?: boolean;
     reminderDaysBefore?: number;
   };

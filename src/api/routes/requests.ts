@@ -144,8 +144,9 @@ router.post('/', async (req: Request, res: Response) => {
           required: serviceDefinition.definition?.envelopes?.payment?.required !== false,
         },
         processing: {
-          status: 'queued',
+          status: 'pending',
           tasks: serviceDefinition.definition?.envelopes?.processing?.tasks || [],
+          stopOnFailure: serviceDefinition.definition?.envelopes?.processing?.stopOnFailure !== false,
           timestamp: now.toISOString(),
           required: serviceDefinition.definition?.envelopes?.processing?.required !== false,
         },
@@ -164,8 +165,9 @@ router.post('/', async (req: Request, res: Response) => {
           required: serviceDefinition.definition?.envelopes?.delivery?.required !== false,
         },
         feedback: {
-          status: 'queued',
+          status: 'pending',
           expiryDays: serviceDefinition.definition?.envelopes?.feedback?.expiryDays || 7,
+          autoCloseAfterHours: serviceDefinition.definition?.envelopes?.feedback?.autoCloseAfterHours ?? 24,
           emailTemplateId: serviceDefinition.definition?.envelopes?.feedback?.emailTemplateId,
           timestamp: now.toISOString(),
           required: serviceDefinition.definition?.envelopes?.feedback?.required !== false,

@@ -9,6 +9,28 @@ import { ServiceRequest } from '../../types/envelope.types.js';
 
 const router = Router();
 
+const VALID_METHODS = ['email', 'physical_mail', 'pickup'] as const;
+type DeliveryMethod = typeof VALID_METHODS[number];
+
+function normalizeDeliveryPayload(body: any): { method?: DeliveryMethod; details?: Record<string, any> } {
+  // Preferred payload shape (/details): { deliveryMethod, deliveryDetails }
+  const deliveryMethod = body?.deliveryMethod as DeliveryMethod | undefined;
+  const deliveryDetails = body?.deliveryDetails as Record<string, any> | undefined;
+
+  if (deliveryMethod || deliveryDetails) {
+    return {
+      method: deliveryMethod,
+      details: deliveryDetails,
+    };
+  }
+
+  // Backward-compatible shape (/method): { method, details }
+  return {
+    method: body?.method as DeliveryMethod | undefined,
+    details: body?.details as Record<string, any> | undefined,
+  };
+}
+
 /**
  * POST /api/delivery/:requestId/details
  * Store delivery details for a request before delivery envelope is reached
@@ -27,21 +49,20 @@ const router = Router();
 router.post('/:requestId/details', async (req: Request, res: Response) => {
   try {
     const { requestId } = req.params;
-    const { deliveryMethod, deliveryDetails } = req.body;
+    const { method: deliveryMethod, details: deliveryDetails } = normalizeDeliveryPayload(req.body);
 
     // Validate required fields
     if (!deliveryMethod || !deliveryDetails) {
       return res.status(400).json({
         error: 'Missing required fields: deliveryMethod, deliveryDetails',
-        validMethods: ['email', 'physical_mail', 'pickup'],
+        validMethods: VALID_METHODS,
       });
     }
 
     // Validate method
-    const validMethods = ['email', 'physical_mail', 'pickup'];
-    if (!validMethods.includes(deliveryMethod)) {
+    if (!VALID_METHODS.includes(deliveryMethod)) {
       return res.status(400).json({
-        error: `Invalid delivery method. Must be one of: ${validMethods.join(', ')}`,
+        error: `Invalid delivery method. Must be one of: ${VALID_METHODS.join(', ')}`,
       });
     }
 
@@ -59,11 +80,27 @@ router.post('/:requestId/details', async (req: Request, res: Response) => {
     // Extract method-specific details
     const methodDetails = deliveryDetails[deliveryMethod] || deliveryDetails;
 
-    // Store delivery details (do NOT change status or call orchestrator)
+    // Ensure deliveryHistory is initialized
+    if (!request.envelopes.delivery.deliveryHistory) {
+      request.envelopes.delivery.deliveryHistory = [];
+    }
+
+    // Store method + details in all cases so tracking payload has a method immediately.
     request.envelopes.delivery.method = deliveryMethod;
     request.envelopes.delivery.details = {
       [deliveryMethod]: methodDetails
     };
+
+    let autoResumed = false;
+
+    // If delivery envelope is waiting for a method, selecting details should also activate delivery
+    // and resume the orchestrator. This removes the frontend need to call /method separately.
+    if (request.envelopes.delivery.status === 'pending_external') {
+      request.envelopes.delivery.status = 'in_progress';
+      request.envelopes.delivery.timestamp = new Date().toISOString();
+      request.overallStatus = 'pending_delivery';
+      autoResumed = true;
+    }
 
     // Update last modified timestamp
     request.lastUpdated = new Date().toISOString();
@@ -72,15 +109,36 @@ router.post('/:requestId/details', async (req: Request, res: Response) => {
     await appContext.stateManager.saveRequest(request);
 
     appContext.logger.info(
-      `✅ Delivery details saved for request ${requestId}: ${deliveryMethod}`
+      `✅ Delivery details saved for request ${requestId}: ${deliveryMethod}${autoResumed ? ' | auto-resume triggered' : ''}`
     );
+
+    if (autoResumed) {
+      const lock = await appContext.requestProcessingLock.acquire(requestId);
+
+      appContext.orchestrator.processRequest(request).subscribe({
+        next: (result) => {
+          appContext.logger.info(`📊 Request auto-resumed for delivery via /details: ${result.id} -> ${result.overallStatus}`);
+        },
+        error: (err) => {
+          appContext.logger.error(`❌ Error in auto-resume via /details: ${err.message}`);
+          lock.release();
+        },
+        complete: () => {
+          lock.release();
+          appContext.logger.info(`   ℹ️  Orchestrator completed, lock released`);
+        },
+      });
+    }
 
     res.json({
       status: 'success',
-      message: `Delivery details saved (${deliveryMethod})`,
+      message: autoResumed
+        ? `Delivery details saved (${deliveryMethod}) and processing started.`
+        : `Delivery details saved (${deliveryMethod})`,
       requestId,
       deliveryMethod,
       deliveryDetails: request.envelopes.delivery.details,
+      autoResumed,
     });
   } catch (error) {
     appContext.logger.error(`Error saving delivery details: ${error}`);
@@ -104,88 +162,16 @@ router.post('/:requestId/details', async (req: Request, res: Response) => {
  */
 router.post('/:requestId/method', async (req: Request, res: Response) => {
   try {
-    const { requestId } = req.params;
-    const { method, details } = req.body;
-
-    // Validate method
-    const validMethods = ['email', 'physical_mail', 'pickup'];
-    if (!method || !validMethods.includes(method)) {
-      return res.status(400).json({
-        error: `Invalid delivery method. Must be one of: ${validMethods.join(', ')}`,
-      });
-    }
-
-    // Load request
-    const request = await appContext.stateManager.loadRequest(requestId);
-    if (!request) {
-      return res.status(404).json({ error: `Request ${requestId} not found` });
-    }
-
-    // Verify delivery envelope exists and is waiting for method
-    if (!request.envelopes.delivery) {
-      return res.status(400).json({ error: 'Delivery envelope not found for this request' });
-    }
-
-    if (request.envelopes.delivery.status !== 'pending_external') {
-      return res.status(400).json({
-        error: `Cannot select delivery method when envelope status is ${request.envelopes.delivery.status}`,
-      });
-    }
-
-    // Extract method-specific details from the nested structure
-    // details = { method_name: { method_config }, ... }
-    const methodDetails = details?.[method] || {};
-
-    // Ensure deliveryHistory is initialized
-    if (!request.envelopes.delivery.deliveryHistory) {
-      request.envelopes.delivery.deliveryHistory = [];
-    }
-
-    // Set delivery method and details
-    request.envelopes.delivery.method = method;
-    request.envelopes.delivery.details = {
-      [method]: methodDetails
+    // Backward-compatible alias: normalize /method payload and delegate to /details behavior.
+    req.body = {
+      deliveryMethod: req.body?.method,
+      deliveryDetails: req.body?.details,
     };
-
-    // Mark as in progress
-    request.envelopes.delivery.status = 'in_progress';
-    request.envelopes.delivery.timestamp = new Date().toISOString();
-
-    // Update overall request status
-    request.overallStatus = 'pending_delivery';
-    request.lastUpdated = new Date().toISOString();
-
-    // Save updated request
-    await appContext.stateManager.saveRequest(request);
-
-    appContext.logger.info(
-      `✅ Delivery method [${method}] selected for request ${requestId}.`
-    );
-
-    // Acquire lock and auto-resume orchestrator
-    const lock = await appContext.requestProcessingLock.acquire(requestId);
-    
-    appContext.orchestrator.processRequest(request).subscribe({
-      next: (result) => {
-        appContext.logger.info(`📊 Request auto-resumed for delivery: ${result.id} -> ${result.overallStatus}`);
-      },
-      error: (err) => {
-        appContext.logger.error(`❌ Error in auto-resume: ${err.message}`);
-        lock.release();
-      },
-      complete: () => {
-        lock.release();
-        appContext.logger.info(`   ℹ️  Orchestrator completed, lock released`);
-      },
-    });
-
-    res.json({
-      status: 'success',
-      message: `Delivery method [${method}] selected and processing started.`,
-      requestId,
-      method,
-      deliveryDetails: request.envelopes.delivery.details,
-    });
+    return (router as any).handle({
+      ...req,
+      url: `/${req.params.requestId}/details`,
+      method: 'POST',
+    }, res, () => undefined);
   } catch (error) {
     appContext.logger.error(`Error selecting delivery method: ${error}`);
     res.status(500).json({ error: (error as Error).message });

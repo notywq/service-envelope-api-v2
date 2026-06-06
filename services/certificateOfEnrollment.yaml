@@ -1,0 +1,230 @@
+id: SERV-COE-2026
+type: certificateOfEnrollment
+name: Certificate of Enrollment
+description: Request an official Certificate of Enrollment from the Registrar. The certificate confirms your current enrollment status and may be used for employment, scholarships, bank loans, visa applications, and other official purposes.
+
+initiator: Student
+
+envelopes:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # REQUEST ENVELOPE — student fills out the form
+  # ─────────────────────────────────────────────────────────────────────────────
+  request:
+    required: true
+    emailTemplateStartEnvelope: request-start   # generic fallback
+    emailTemplateEndEnvelope: request-end        # generic fallback
+    parameters:
+      studentId:
+        type: String
+        required: true
+        label: Student ID
+        description: "Your MAPUA student ID (e.g., 2021-12345)"
+        minLength: 5
+        maxLength: 20
+        placeholder: "2021-12345"
+
+      firstName:
+        type: String
+        required: true
+        label: First Name
+        description: Your legal first name as it appears on official records
+        minLength: 2
+        maxLength: 60
+
+      lastName:
+        type: String
+        required: true
+        label: Last Name
+        description: Your legal last name as it appears on official records
+        minLength: 2
+        maxLength: 60
+
+      email:
+        type: String
+        required: true
+        label: Email Address
+        description: The email address where notifications and (if email delivery) your certificate will be sent
+        minLength: 5
+        maxLength: 120
+        placeholder: "you@example.com"
+
+      purpose:
+        type: Dropdown
+        required: true
+        label: Purpose
+        description: Why are you requesting this certificate?
+        options:
+          - label: Employment / Job Application
+            value: employment
+          - label: Bank Loan / Credit Application
+            value: bank_loan
+          - label: Scholarship Application
+            value: scholarship
+          - label: Visa / Immigration
+            value: visa
+          - label: Further Studies / Graduate School
+            value: further_studies
+          - label: Personal Records
+            value: personal_records
+          - label: Other
+            value: other
+        default: employment
+
+      numberOfCopies:
+        type: Number
+        required: true
+        label: Number of Copies
+        description: How many certified copies do you need?
+        min: 1
+        max: 5
+        step: 1
+        default: 1
+
+      deliveryMethod:
+        type: Radio
+        required: true
+        label: Delivery Method
+        description: How would you like to receive your certificate?
+        options:
+          - label: Email (PDF copy, instant)
+            value: email
+          - label: Physical Mail (courier, 3-5 days)
+            value: physical_mail
+          - label: In-Person Pickup (Registrar's Office)
+            value: pickup
+        default: email
+
+      remarks:
+        type: String
+        required: false
+        label: Additional Remarks
+        description: Any special instructions (e.g., specific semester to certify, addressee name)
+        maxLength: 400
+        placeholder: "Optional – leave blank if none"
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # APPROVAL ENVELOPE — Registrar staff approves the request
+  # ─────────────────────────────────────────────────────────────────────────────
+  approval:
+    required: true
+    expiryHours: 48
+    approvalRules:
+      type: specific_approver
+      specificApprover: barondimaranan@gmail.com
+    # Falls back to generic 'approval-start' / 'approval-end' templates
+    emailTemplateStartEnvelope: approval-start
+    emailTemplateEndEnvelope: approval-end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # PAYMENT ENVELOPE — student pays the certification fee
+  # ─────────────────────────────────────────────────────────────────────────────
+  payment:
+    required: true
+    paymentProvider: maya
+    charges:
+      - item: Certificate of Enrollment (processing fee)
+        amount: 150
+        currency: PHP
+        quantity: 1
+    # Falls back to generic 'payment-start' / 'payment-end' templates
+    emailTemplateStartEnvelope: payment-start
+    emailTemplateEndEnvelope: payment-end
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # PROCESSING ENVELOPE — system generates the document
+  # Tasks hit the live mock API endpoints at /api/mock/...
+  # ─────────────────────────────────────────────────────────────────────────────
+  processing:
+    required: true
+    stopOnFailure: true
+    emailTemplateStartEnvelope: processing-start
+    emailTemplateEndEnvelope: processing-end
+    emailTemplateCancelEnvelope: request-cancelled
+
+    tasks:
+      - type: api_call
+        name: Verify Student Records
+        method: POST
+        url: "http://localhost:8000/api/mock/students/verify"
+        payload:
+          studentId: "{{studentId}}"
+          firstName: "{{firstName}}"
+          lastName: "{{lastName}}"
+        timeout: 30000
+        retries: 2
+        successCodes: [200, 201]
+
+      - type: api_call
+        name: Generate Certificate of Enrollment
+        method: POST
+        url: "http://localhost:8000/api/mock/documents/generate-record"
+        payload:
+          studentId: "{{studentId}}"
+          documentType: "certificate_of_enrollment"
+          numberOfCopies: "{{numberOfCopies}}"
+          purpose: "{{purpose}}"
+        timeout: 45000
+        retries: 2
+        successCodes: [200, 201]
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # DELIVERY ENVELOPE — deliver the generated certificate
+  # resolveAttachmentsFrom wires the Generate task's documentUrl into the
+  # delivery email template via {{documentLinks}}
+  # ─────────────────────────────────────────────────────────────────────────────
+  delivery:
+    required: true
+    emailTemplateStartEnvelope: delivery-start
+    emailTemplateEndEnvelope: delivery-end
+    emailTemplateCancelEnvelope: request-cancelled
+
+    deliveryMethods:
+      email:
+        enabled: true
+        # Uses generic 'delivery-email-document' template (with {{documentLinks}})
+        emailTemplateId: delivery-email-document
+        # Resolves the PDF URL from the processing task result into {{documentLinks}}
+        resolveAttachmentsFrom:
+          - taskName: Generate Certificate of Enrollment
+            field: documentUrl
+            label: Certificate of Enrollment (PDF)
+
+      physical_mail:
+        enabled: true
+        carrier: LBC
+        estimatedDays: 5
+        costPercentage: 20
+        requiresApprovalBeforeShip: false
+        requiresSignature: false
+        trackingEnabled: true
+        notificationTemplateId: delivery-shipped   # generic fallback
+        fields:
+          mailingAddress:
+            type: String
+            required: true
+            label: Mailing Address
+            description: Full mailing address for courier delivery
+            maxLength: 300
+            placeholder: "House No., Street, Barangay, City/Municipality, Province, ZIP"
+
+      pickup:
+        enabled: true
+        location: "Registrar's Office, Room 101, Main Building, MAPUA Intramuros Campus"
+        hoursOfOperation: "Monday – Friday, 8:00 AM – 5:00 PM"
+        requiresIDVerification: true
+        pickupDeadlineDays: 30
+        notificationRequired: true
+        notificationTemplateId: delivery-pickup-ready   # generic fallback
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # FEEDBACK ENVELOPE — post-completion survey
+  # ─────────────────────────────────────────────────────────────────────────────
+  feedback:
+    required: true
+    expiryDays: 7
+    autoCloseAfterHours: 24
+    notificationRequired: false
+    # Falls back to generic 'feedback-start' / 'feedback-end' templates
+    emailTemplateStartEnvelope: feedback-start
+    emailTemplateEndEnvelope: feedback-end

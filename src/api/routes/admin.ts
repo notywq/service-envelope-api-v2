@@ -7,8 +7,22 @@ import { Router, Request, Response } from 'express';
 import { appContext } from '../server.js';
 import YAML from 'yaml';
 import { validateServiceDefinition, getServiceSchema, initializeValidator } from '../../utils/schema-validator.js';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 const router = Router();
+
+function resolveCanonicalSchemaPath(): string {
+  const cwdSchemaPath = path.resolve(process.cwd(), 'src', 'schemas', 'service-definition.schema.json');
+  if (fs.existsSync(cwdSchemaPath)) {
+    return cwdSchemaPath;
+  }
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  return path.join(__dirname, '../../schemas/service-definition.schema.json');
+}
 
 function normalizeServiceDefinitionShape(
   parsedYaml: any,
@@ -627,6 +641,79 @@ function validateOptionalEnvelopes(envelopes: any, logger: any): { valid: boolea
 
 // Attach validator to router for access in route handlers
 (router as any).validateOptionalEnvelopes = validateOptionalEnvelopes;
+
+/**
+ * POST /api/admin/schema/upload
+ * Upload a schema version to MongoDB and activate it in AJV validator.
+ * If schema is omitted in body, loads from local src/schemas/service-definition.schema.json.
+ */
+router.post('/schema/upload', async (req: Request, res: Response) => {
+  try {
+    const {
+      version = '1.0.3',
+      name = 'Service Definition Schema v1.0.3',
+      description,
+      schema,
+    } = req.body || {};
+
+    let schemaToUpload = schema;
+    let source = 'request-body';
+
+    if (!schemaToUpload) {
+      const schemaPath = resolveCanonicalSchemaPath();
+      const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
+      schemaToUpload = JSON.parse(schemaContent);
+      source = 'local-file';
+    }
+
+    if (!schemaToUpload || typeof schemaToUpload !== 'object' || Array.isArray(schemaToUpload)) {
+      return res.status(400).json({
+        error: 'Invalid schema payload. Expected JSON schema object.',
+      });
+    }
+
+    // Keep previous validator state in case upload/save fails after validation pass.
+    const previousSchemaDoc = await appContext.stateManager.getLatestSchemaVersion();
+
+    // Validate schema compiles in AJV before saving.
+    try {
+      initializeValidator(schemaToUpload);
+    } catch (compileErr: any) {
+      if (previousSchemaDoc?.schema) {
+        initializeValidator(previousSchemaDoc.schema);
+      }
+      return res.status(400).json({
+        error: 'Schema compilation failed in AJV',
+        details: compileErr?.message || 'Unknown schema compilation error',
+      });
+    }
+
+    await appContext.stateManager.saveSchemaVersion(
+      version,
+      name,
+      schemaToUpload,
+      description || schemaToUpload.description || 'Uploaded via /api/admin/schema/upload'
+    );
+
+    const uploadedSchemaDoc = await appContext.stateManager.getSchemaVersion(version);
+
+    appContext.logger.info(`✅ Uploaded schema version ${version} (source: ${source})`);
+
+    res.status(201).json({
+      success: true,
+      message: `Schema v${version} uploaded and activated`,
+      version,
+      name,
+      source,
+      lastUpdated: uploadedSchemaDoc?.updatedAt || new Date().toISOString(),
+    });
+  } catch (error: any) {
+    appContext.logger.error('Error uploading schema:', error);
+    res.status(500).json({
+      error: 'Failed to upload schema: ' + (error.message || 'Unknown error'),
+    });
+  }
+});
 
 /**
  * GET /api/admin/schema

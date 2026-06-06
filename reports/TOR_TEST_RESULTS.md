@@ -77,7 +77,7 @@ approval:
 | Type System | ✓ Complete | `src/types/envelope.types.ts` |
 | Processor Logic | ✓ Complete | `src/processors/approval-processor.ts` |
 | API Endpoint | ✓ Complete | `src/api/routes/approvals.ts` |
-| Schema Validation | ✓ Complete | `src/schemas/service-request.schema.json` |
+| Schema Validation | ✓ Complete | `src/schemas/service-definition.schema.json` |
 | Documentation | ✓ Complete | `APPROVAL_RULES_GUIDE.md` |
 
 ### Build Status
@@ -137,7 +137,7 @@ approval:
 - `src/types/envelope.types.ts` - ApprovalRules interface
 - `src/processors/approval-processor.ts` - calculateApprovalStatus()
 - `src/api/routes/approvals.ts` - POST /:token/approve endpoint
-- `src/schemas/service-request.schema.json` - Schema validation
+- `src/schemas/service-definition.schema.json` - Canonical schema validation
 
 ### Test Files Created
 - `test-tor-comprehensive.ps1` - Full workflow test

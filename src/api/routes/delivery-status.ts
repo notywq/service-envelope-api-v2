@@ -1,7 +1,7 @@
 /**
  * Delivery Status Update Routes
  * Simple API to update delivery progress and track status changes
- * Supports status updates with codes: 0=processing, 1=ready_to_deliver, 2=out_for_delivery, 3=delivered
+ * Supports method-specific status updates with code_number and code_name
  */
 
 import { Router, Request, Response } from 'express';
@@ -9,33 +9,62 @@ import { appContext } from '../server.js';
 
 const router = Router();
 
-/**
- * Delivery Status Code Mapping
- *
- * Codes 0-3 apply to all methods.
- * Code 4 is pickup-only and triggers orchestrator completion (same as code 3 for email/physical_mail).
- *
- * Physical mail flow:   0 → 1 → 2 → 3  (manual triggers)
- * Email flow:           auto-completes on send; code 3 can still confirm
- * Pickup flow:          0 → 1 (ready_for_pickup) → 4 (pickup_complete)  (manual triggers)
- */
-const DELIVERY_STATUS_CODES: Record<number | string, number | string> = {
-  // Numeric → name
-  0: 'processing',
-  1: 'ready_to_deliver',      // physical_mail / email
-  2: 'out_for_delivery',      // physical_mail
-  3: 'delivered',             // physical_mail / email completion
-  4: 'pickup_complete',       // pickup completion (manually triggered)
-  // Name → numeric
-  'processing': 0,
-  'ready_to_deliver': 1,
-  'ready_for_pickup': 1,      // pickup-specific alias for code 1
-  'out_for_delivery': 2,
-  'in_transit': 2,            // legacy alias
-  'delivered': 3,
-  'received': 3,              // legacy alias
-  'pickup_complete': 4,
+type DeliveryMethod = 'email' | 'physical_mail' | 'pickup';
+
+interface MethodCode {
+  code_number: number;
+  code_name: string;
+  completes: boolean;
+}
+
+const METHOD_STATUS_CODES: Record<DeliveryMethod, MethodCode[]> = {
+  email: [
+    { code_number: 0, code_name: 'email_pending', completes: false },
+    { code_number: 1, code_name: 'email_sent', completes: true },
+  ],
+  physical_mail: [
+    { code_number: 0, code_name: 'preparing', completes: false },
+    { code_number: 1, code_name: 'ready_to_deliver', completes: false },
+    { code_number: 2, code_name: 'out_for_delivery', completes: false },
+    { code_number: 3, code_name: 'delivered', completes: true },
+  ],
+  pickup: [
+    { code_number: 0, code_name: 'preparing', completes: false },
+    { code_number: 1, code_name: 'ready_for_pickup', completes: false },
+    { code_number: 2, code_name: 'picked_up', completes: true },
+  ],
 };
+
+const LEGACY_CODE_NAME_ALIASES: Record<string, string> = {
+  processing: 'preparing',
+  in_transit: 'out_for_delivery',
+  received: 'delivered',
+  pickup_complete: 'picked_up',
+};
+
+function getAllowedStatusSummary() {
+  return {
+    byMethod: {
+      email: {
+        flow: '0(email_pending) → 1(email_sent)',
+        codes: METHOD_STATUS_CODES.email,
+      },
+      physical_mail: {
+        flow: '0(preparing) → 1(ready_to_deliver) → 2(out_for_delivery) → 3(delivered)',
+        codes: METHOD_STATUS_CODES.physical_mail,
+      },
+      pickup: {
+        flow: '0(preparing) → 1(ready_for_pickup) → 2(picked_up)',
+        codes: METHOD_STATUS_CODES.pickup,
+      },
+    },
+    acceptedPayloadFields: [
+      'code_number (preferred)',
+      'code_name (preferred)',
+      'status (legacy backward compatibility)',
+    ],
+  };
+}
 
 /**
  * POST /api/delivery-status/:requestId
@@ -43,7 +72,9 @@ const DELIVERY_STATUS_CODES: Record<number | string, number | string> = {
  * 
  * Body:
  * {
- *   status: 0|1|2|3 or 'processing'|'ready_to_deliver'|'out_for_delivery'|'delivered',
+ *   code_number?: number,
+ *   code_name?: string,
+ *   status?: number|string, // legacy alias for backward compatibility
  *   notes?: 'Your tracking notes',
  *   trackingId?: 'Tracking reference',
  *   location?: 'Current location',
@@ -53,54 +84,27 @@ const DELIVERY_STATUS_CODES: Record<number | string, number | string> = {
 router.post('/:requestId', async (req: Request, res: Response) => {
   try {
     const { requestId } = req.params;
-    let { status, notes, trackingId, location, timestamp } = req.body;
+    let {
+      status,
+      code_number,
+      code_name,
+      notes,
+      trackingId,
+      location,
+      timestamp,
+    } = req.body;
 
     // Validate required fields
-    if (!requestId || status === undefined || status === null) {
+    const hasAnyCode =
+      code_number !== undefined ||
+      (typeof code_name === 'string' && code_name.trim().length > 0) ||
+      status !== undefined;
+
+    if (!requestId || !hasAnyCode) {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['requestId', 'status'],
-        validStatuses: {
-          all: {
-            codes: [0, 1, 2, 3, 4],
-            names: ['processing', 'ready_to_deliver', 'ready_for_pickup', 'out_for_delivery', 'delivered', 'pickup_complete'],
-          },
-          byMethod: {
-            email:         { flow: '0 → 3', codes: [0, 3], notes: 'auto-completes on send; code 3 confirms delivery' },
-            physical_mail: { flow: '0 → 1 → 2 → 3', codes: [0, 1, 2, 3], notes: 'all steps manual' },
-            pickup:        { flow: '0 → 1 (ready_for_pickup) → 4 (pickup_complete)', codes: [0, 1, 4], notes: 'all steps manual; code 4 completes delivery' },
-          },
-          meaning: {
-            0: 'Processing – Preparing document',
-            1: 'Ready to Deliver / Ready for Pickup – Document ready',
-            2: 'Out for Delivery – In transit (physical_mail)',
-            3: 'Delivered – Confirmed delivery (email / physical_mail)',
-            4: 'Pickup Complete – Customer collected document (pickup only)',
-          },
-        },
-      });
-    }
-
-    // Convert status code to name if numeric, or validate name if string
-    let statusCode: number | undefined;
-    let statusName: string = '';
-
-    if (typeof status === 'number') {
-      statusCode = status;
-      statusName = (DELIVERY_STATUS_CODES[statusCode as keyof typeof DELIVERY_STATUS_CODES] as string) || '';
-    } else if (typeof status === 'string') {
-      statusName = status.toLowerCase();
-      statusCode = DELIVERY_STATUS_CODES[statusName as keyof typeof DELIVERY_STATUS_CODES] as number;
-    }
-
-    // Validate status
-    if (statusCode === undefined || ![0, 1, 2, 3, 4].includes(statusCode) || !statusName) {
-      return res.status(400).json({
-        error: `Invalid delivery status: ${status}`,
-        validStatuses: {
-          codes: [0, 1, 2, 3, 4],
-          names: ['processing', 'ready_to_deliver', 'ready_for_pickup', 'out_for_delivery', 'delivered', 'pickup_complete'],
-        },
+        required: ['requestId', 'code_number or code_name (or status for legacy clients)'],
+        validStatuses: getAllowedStatusSummary(),
       });
     }
 
@@ -111,6 +115,65 @@ router.post('/:requestId', async (req: Request, res: Response) => {
     }
 
     const delivery = request.envelopes.delivery;
+    const deliveryMethod = delivery.method as DeliveryMethod | undefined;
+
+    if (!deliveryMethod || !['email', 'physical_mail', 'pickup'].includes(deliveryMethod)) {
+      return res.status(400).json({
+        error: `Delivery method is not selected yet for request ${requestId}. Set delivery method first via POST /api/delivery/${requestId}/details`,
+        validMethods: ['email', 'physical_mail', 'pickup'],
+      });
+    }
+
+    const allowedCodes = METHOD_STATUS_CODES[deliveryMethod];
+
+    // Backward-compat: map legacy status into code_number or code_name
+    if (status !== undefined && code_number === undefined && code_name === undefined) {
+      if (typeof status === 'number') {
+        code_number = status;
+      } else if (typeof status === 'string') {
+        code_name = status;
+      }
+    }
+
+    let normalizedCodeNumber: number | undefined;
+    let normalizedCodeName: string | undefined;
+
+    if (code_number !== undefined && code_number !== null) {
+      const parsedNumber = Number(code_number);
+      const byNumber = allowedCodes.find(c => c.code_number === parsedNumber);
+      if (!byNumber) {
+        return res.status(400).json({
+          error: `Invalid code_number ${code_number} for delivery method ${deliveryMethod}`,
+          deliveryMethod,
+          allowed: allowedCodes,
+        });
+      }
+      normalizedCodeNumber = byNumber.code_number;
+      normalizedCodeName = byNumber.code_name;
+    } else if (typeof code_name === 'string' && code_name.trim()) {
+      const incomingName = code_name.trim().toLowerCase();
+      const canonicalName = LEGACY_CODE_NAME_ALIASES[incomingName] || incomingName;
+      const byName = allowedCodes.find(c => c.code_name === canonicalName);
+      if (!byName) {
+        return res.status(400).json({
+          error: `Invalid code_name ${code_name} for delivery method ${deliveryMethod}`,
+          deliveryMethod,
+          allowed: allowedCodes,
+        });
+      }
+      normalizedCodeNumber = byName.code_number;
+      normalizedCodeName = byName.code_name;
+    }
+
+    if (normalizedCodeNumber === undefined || !normalizedCodeName) {
+      return res.status(400).json({
+        error: `Unable to resolve delivery status code for method ${deliveryMethod}`,
+        deliveryMethod,
+        allowed: allowedCodes,
+      });
+    }
+
+    const matchedCode = allowedCodes.find(c => c.code_number === normalizedCodeNumber)!;
 
     // Initialize deliveryHistory if not exists
     if (!delivery.deliveryHistory) {
@@ -119,8 +182,11 @@ router.post('/:requestId', async (req: Request, res: Response) => {
 
     // Add status update to history
     const statusUpdate: any = {
-      statusCode,
-      status: statusName,
+      code_number: normalizedCodeNumber,
+      code_name: normalizedCodeName,
+      // Backward-compatible fields for older consumers
+      statusCode: normalizedCodeNumber,
+      status: normalizedCodeName,
       notes: notes || '',
       trackingId: trackingId || delivery.details?.physical_mail?.trackingId,
       location: location || '',
@@ -130,53 +196,29 @@ router.post('/:requestId', async (req: Request, res: Response) => {
 
     delivery.deliveryHistory.push(statusUpdate);
     delivery.lastStatusUpdate = statusUpdate.timestamp;
-    delivery.currentStatus = statusName;
-    delivery.currentStatusCode = statusCode;
+    delivery.currentStatus = normalizedCodeName;
+    delivery.currentStatusCode = normalizedCodeNumber;
 
-    // Handle status transitions
-    switch (statusCode) {
-      case 0: // Processing
-        if (delivery.status !== 'in_progress') {
-          delivery.status = 'in_progress';
-        }
-        appContext.logger.info(`[DELIVERY-PROCESSING] Request ${requestId} | Processing started`);
-        break;
-
-      case 1: // Ready to Deliver
-        if (delivery.status !== 'in_progress') {
-          delivery.status = 'in_progress';
-        }
-        appContext.logger.info(`[DELIVERY-READY] Request ${requestId} | Ready for shipment`);
-        break;
-
-      case 2: // Out for Delivery
-        if (delivery.status !== 'in_progress') {
-          delivery.status = 'in_progress';
-        }
-        appContext.logger.info(`[DELIVERY-IN-TRANSIT] Request ${requestId} | Document in transit | Location: ${location || 'N/A'}`);
-        break;
-
-      case 3: // Delivered (email / physical_mail)
-        delivery.status = 'completed';
-        delivery.deliveredAt = statusUpdate.timestamp;
-        appContext.logger.info(
-          `[DELIVERY-COMPLETED] Request ${requestId} | Delivered | At: ${statusUpdate.timestamp}`
-        );
-        break;
-
-      case 4: // Pickup Complete (pickup method)
-        delivery.status = 'completed';
-        delivery.deliveredAt = statusUpdate.timestamp;
-        appContext.logger.info(
-          `[DELIVERY-PICKUP-COMPLETE] Request ${requestId} | Customer collected document | At: ${statusUpdate.timestamp}`
-        );
-        break;
+    // Handle status transitions by method-specific code map
+    if (matchedCode.completes) {
+      delivery.status = 'completed';
+      delivery.deliveredAt = statusUpdate.timestamp;
+      appContext.logger.info(
+        `[DELIVERY-COMPLETED] Request ${requestId} | Method: ${deliveryMethod} | ${normalizedCodeName} (${normalizedCodeNumber}) | At: ${statusUpdate.timestamp}`
+      );
+    } else {
+      if (delivery.status !== 'in_progress') {
+        delivery.status = 'in_progress';
+      }
+      appContext.logger.info(
+        `[DELIVERY-STATUS] Request ${requestId} | Method: ${deliveryMethod} | ${normalizedCodeName} (${normalizedCodeNumber})`
+      );
     }
 
     // Save first, then resume orchestrator for completion codes
     await appContext.stateManager.saveRequest(request);
 
-    if (statusCode === 3 || statusCode === 4) {
+    if (matchedCode.completes) {
       const lock = await appContext.requestProcessingLock.acquire(requestId);
 
       appContext.orchestrator.processRequest(request).subscribe({
@@ -197,8 +239,9 @@ router.post('/:requestId', async (req: Request, res: Response) => {
 
       res.json({
         requestId,
-        message: `Delivery status updated to: ${statusName} (code: ${statusCode}) — orchestrator auto-resumed.`,
+        message: `Delivery status updated to: ${normalizedCodeName} (code: ${normalizedCodeNumber}) — orchestrator auto-resumed.`,
         delivery: {
+          deliveryMethod,
           currentStatus: delivery.currentStatus,
           currentStatusCode: delivery.currentStatusCode,
           lastStatusUpdate: delivery.lastStatusUpdate,
@@ -211,8 +254,9 @@ router.post('/:requestId', async (req: Request, res: Response) => {
     // Non-completion codes (0-2): request already saved above.
     res.json({
       requestId,
-      message: `Delivery status updated to: ${statusName} (code: ${statusCode})`,
+      message: `Delivery status updated to: ${normalizedCodeName} (code: ${normalizedCodeNumber})`,
       delivery: {
+        deliveryMethod,
         currentStatus: delivery.currentStatus,
         currentStatusCode: delivery.currentStatusCode,
         lastStatusUpdate: delivery.lastStatusUpdate,
@@ -249,10 +293,14 @@ router.get('/:requestId/history', async (req: Request, res: Response) => {
       deliveryMethod: delivery.method,
       currentStatus: delivery.currentStatus || delivery.status,
       currentStatusCode: delivery.currentStatusCode,
+      code_name: delivery.currentStatus || delivery.status,
+      code_number: delivery.currentStatusCode,
       lastStatusUpdate: delivery.lastStatusUpdate,
       totalStatusUpdates: history.length,
       history: history.map((update: any) => ({
         sequence: update.updateSequence,
+        code_number: update.code_number ?? update.statusCode,
+        code_name: update.code_name ?? update.status,
         statusCode: update.statusCode,
         status: update.status,
         timestamp: update.timestamp,
@@ -289,8 +337,12 @@ router.get('/:requestId/current', async (req: Request, res: Response) => {
       envelopeStatus: delivery.status,
       currentStatus: delivery.currentStatus || delivery.status,
       currentStatusCode: delivery.currentStatusCode,
+      code_name: delivery.currentStatus || delivery.status,
+      code_number: delivery.currentStatusCode,
       lastStatusUpdate: delivery.lastStatusUpdate,
       lastUpdateDetails: latestUpdate ? {
+        code_number: latestUpdate.code_number ?? latestUpdate.statusCode,
+        code_name: latestUpdate.code_name ?? latestUpdate.status,
         statusCode: latestUpdate.statusCode,
         status: latestUpdate.status,
         timestamp: latestUpdate.timestamp,

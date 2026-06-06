@@ -1,8 +1,8 @@
 openapi: 3.0.0
 info:
   title: Service Envelope API v2.0
-  version: 2.0.0
-  description: Complete REST API for Service Envelope System - manages multi-envelope request workflows, approvals, payments, and delivery
+  version: 2.0.2
+  description: REST API for the Service Envelope System. Updated for unified delivery selection flow where POST /api/delivery/{requestId}/details is the canonical method+details endpoint and may auto-resume orchestrator when delivery is pending external.
   contact:
     name: Service Envelope Team
   license:
@@ -20,6 +20,7 @@ paths:
       tags: [System]
       summary: Health Check
       operationId: healthCheck
+      security: []
       responses:
         '200':
           description: Server is healthy
@@ -35,79 +36,167 @@ paths:
                     type: string
                     format: date-time
 
+  /api:
+    get:
+      tags: [System]
+      summary: API Information
+      operationId: getApiInfo
+      security: []
+      responses:
+        '200':
+          description: API metadata and key endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    example: Service Envelope API
+                  version:
+                    type: string
+                    example: 1.0.0
+                  endpoints:
+                    type: array
+                    items:
+                      type: string
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              requester:
+                value:
+                  email: requester@mapua.edu.ph
+                  password: requester123
+              approver:
+                value:
+                  email: approver@mapua.edu.ph
+                  password: approver123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/auth/verify:
+    post:
+      tags: [Auth]
+      summary: Verify JWT Token
+      operationId: verifyToken
+      security: []
+      parameters:
+        - name: Authorization
+          in: header
+          required: true
+          schema:
+            type: string
+            example: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+          description: Bearer token. Route reads token from Authorization header.
+      responses:
+        '200':
+          description: Token is valid
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                    example: true
+                  user:
+                    type: object
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/services:
     get:
       tags: [Services]
       summary: List All Services
       operationId: listAllServices
+      security: []
       responses:
         '200':
           description: All available services
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ServiceDefinition'
-
-    post:
-      tags: [Services]
-      summary: Submit Service Request (unified)
-      operationId: submitServiceRequest
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ServiceSubmitPayload'
-      responses:
-        '201':
-          description: Request created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceRequest'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    example: 4
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceSummary'
+        '500':
+          $ref: '#/components/responses/ServerError'
 
   /api/services/ids:
     get:
       tags: [Services]
       summary: Get Service IDs Quick Reference
       operationId: getServiceIds
+      security: []
       responses:
         '200':
-          description: List of service IDs and names
+          description: ID/name mapping and list
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  serviceMap:
+                    type: object
+                    additionalProperties:
                       type: string
-                    name:
-                      type: string
+                  services:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        serviceId:
+                          type: string
+                        id:
+                          type: string
+                        name:
+                          type: string
+        '500':
+          $ref: '#/components/responses/ServerError'
 
   /api/services/{serviceId}:
     get:
       tags: [Services]
       summary: Get Service Details
       operationId: getServiceDetails
+      security: []
       parameters:
-        - name: serviceId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/ServiceIdParam'
       responses:
         '200':
-          description: Service configuration
+          description: Service definition details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServiceDefinition'
+                $ref: '#/components/schemas/ServiceDefinitionDetails'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -115,91 +204,105 @@ paths:
       tags: [Services]
       summary: Delete Service
       operationId: deleteService
+      security: []
       parameters:
-        - name: serviceId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/ServiceIdParam'
       responses:
         '200':
           description: Service deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                  serviceId:
+                    type: string
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
 
   /api/requests:
     get:
       tags: [Requests]
       summary: List All Requests
       operationId: listAllRequests
+      security: []
       parameters:
-        - name: status
-          in: query
-          schema:
-            type: string
-            enum: [pending, in_progress, completed, rejected, paused]
-        - name: type
-          in: query
-          schema:
-            type: string
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 20
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - $ref: '#/components/parameters/StatusQueryParam'
+        - $ref: '#/components/parameters/TypeQueryParam'
+        - $ref: '#/components/parameters/LimitQueryParam'
+        - $ref: '#/components/parameters/OffsetQueryParam'
       responses:
         '200':
           description: List of requests
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ServiceRequest'
+                $ref: '#/components/schemas/RequestListResponse'
 
     post:
       tags: [Requests]
       summary: Create Request
       operationId: createRequest
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: '#/components/schemas/RequestCreatePayload'
+            examples:
+              usingServiceId:
+                value:
+                  serviceId: SERVICE-999
+                  initiator: requester@mapua.edu.ph
+                  parameters:
+                    studentId: 20250001
+                    firstName: Juan
+                    lastName: Dela Cruz
+                    email: juan.delacruz@mapua.edu.ph
+              usingType:
+                value:
+                  type: comprehensive-student-document
+                  initiator: requester@mapua.edu.ph
+                  parameters:
+                    studentId: 20250001
+                    firstName: Juan
+                    lastName: Dela Cruz
+                    email: juan.delacruz@mapua.edu.ph
       responses:
         '201':
           description: Request created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServiceRequest'
+                $ref: '#/components/schemas/CreateRequestResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/ServerError'
 
   /api/requests/{requestId}:
     get:
       tags: [Requests]
       summary: Get Request Details
       operationId: getRequestDetails
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       responses:
         '200':
           description: Request details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServiceRequest'
+                $ref: '#/components/schemas/RequestDetailsResponse'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -207,29 +310,37 @@ paths:
       tags: [Requests]
       summary: Cancel Request
       operationId: cancelRequest
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       responses:
         '200':
           description: Request cancelled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                    example: REQ-20260606-042
+                  status:
+                    type: string
+                    example: cancelled
+                  message:
+                    type: string
+                    example: Request cancelled successfully
         '404':
           $ref: '#/components/responses/NotFound'
 
   /api/requests/{requestId}/resume:
     post:
       tags: [Requests]
-      summary: Resume Paused Request
+      summary: Resume Request
       operationId: resumeRequest
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       requestBody:
         required: false
         content:
@@ -242,66 +353,84 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServiceRequest'
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                  message:
+                    type: string
+                  status:
+                    type: string
+                    example: processing
         '404':
           $ref: '#/components/responses/NotFound'
 
   /api/requests/{requestId}/history:
     get:
       tags: [Requests]
-      summary: Get Request Audit History
+      summary: Get Request History
       operationId: getRequestHistory
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       responses:
         '200':
-          description: Request history timeline
+          description: Request history
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    timestamp:
-                      type: string
-                      format: date-time
-                    status:
-                      type: string
-                    action:
-                      type: string
-                    actor:
-                      type: string
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  totalEntries:
+                    type: integer
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/auth/login:
-    post:
-      tags: [Auth]
-      summary: Login
-      operationId: login
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - email
-                - password
-              properties:
-                email:
-                  type: string
-                  format: email
-                password:
-                  type: string
+  /api/approvals/admin/tokens/{requestId}:
+    get:
+      tags: [Approvals]
+      summary: Get Approval Tokens (Approvals Admin)
+      operationId: getApprovalTokensByRequestInApprovalsRoute
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestIdParam'
       responses:
         '200':
-          description: Login successful
+          description: Tokens for request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                  count:
+                    type: integer
+                  tokens:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApprovalTokenInfo'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/approvals/{token}:
+    get:
+      tags: [Approvals]
+      summary: Check Approval Token Status
+      operationId: checkApprovalTokenStatus
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TokenParam'
+      responses:
+        '200':
+          description: Token status
           content:
             application/json:
               schema:
@@ -309,80 +438,31 @@ paths:
                 properties:
                   token:
                     type: string
-                  user:
-                    type: object
-                    properties:
-                      id:
-                        type: string
-                      email:
-                        type: string
-                      role:
-                        type: string
-                        enum: [admin, approver, requester]
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /api/auth/verify:
-    post:
-      tags: [Auth]
-      summary: Verify JWT Token
-      operationId: verifyToken
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                token:
-                  type: string
-      responses:
-        '200':
-          description: Token is valid
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  valid:
+                  requestId:
+                    type: string
+                  approverId:
+                    type: string
+                  used:
                     type: boolean
-                  user:
-                    type: object
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
-  /api/approvals/{token}:
-    get:
-      tags: [Approvals]
-      summary: Check Approval Token Status
-      operationId: checkApprovalTokenStatus
-      parameters:
-        - name: token
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Token information
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApprovalToken'
+                  expired:
+                    type: boolean
+                  expiresAt:
+                    type: string
+                    format: date-time
+                  createdAt:
+                    type: string
+                    format: date-time
         '404':
           $ref: '#/components/responses/NotFound'
 
   /api/approvals/{token}/approve:
     post:
       tags: [Approvals]
-      summary: Approve Request
+      summary: Approve Request by Token
       operationId: approveRequest
+      security: []
       parameters:
-        - name: token
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/TokenParam'
       requestBody:
         required: false
         content:
@@ -392,74 +472,96 @@ paths:
               properties:
                 comment:
                   type: string
+                  example: Approved by registrar.
       responses:
         '200':
-          description: Request approved
+          description: Approval processed
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  requestId:
+                    type: string
                   status:
                     type: string
+                    example: approved
                   message:
                     type: string
+                  approvalComplete:
+                    type: boolean
+                  rule:
+                    type: string
+                  nextStatus:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Approval stage already finalized
 
   /api/approvals/{token}/deny:
     post:
       tags: [Approvals]
-      summary: Deny Request
+      summary: Deny Request by Token
       operationId: denyRequest
+      security: []
       parameters:
-        - name: token
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/TokenParam'
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               type: object
+              required: [reason]
               properties:
-                comment:
+                reason:
                   type: string
+                  example: Missing required supporting document.
       responses:
         '200':
-          description: Request denied
+          description: Request cancelled after denial
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  requestId:
+                    type: string
                   status:
                     type: string
+                    example: cancelled
                   message:
                     type: string
+                  reason:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          description: Approval stage already finalized
 
   /api/approvals/{token}/request:
     get:
       tags: [Approvals]
-      summary: Get Request Associated with Approval Token
+      summary: Get Request Details for Approval Token
       operationId: getApprovalTokenRequest
+      security: []
       parameters:
-        - name: token
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/TokenParam'
       responses:
         '200':
-          description: Associated request details
+          description: Request details for approval UI
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServiceRequest'
+                type: object
+                additionalProperties: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -468,30 +570,60 @@ paths:
       tags: [Payments]
       summary: Mark Payment Complete
       operationId: completePayment
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               type: object
+              required: [transactionId, amount]
               properties:
                 transactionId:
                   type: string
+                  example: MAYA-TXN-20260606-001
                 amount:
                   type: number
+                  example: 350.00
+                method:
+                  type: string
+                  example: maya
+                reference:
+                  type: string
+                  example: PAY-REF-5566
+                metadata:
+                  type: object
+            examples:
+              maya:
+                value:
+                  transactionId: MAYA-TXN-20260606-001
+                  amount: 350.00
+                  method: maya
+                  reference: PAY-REF-5566
       responses:
         '200':
           description: Payment marked complete
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServiceRequest'
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                  status:
+                    type: string
+                    example: completed
+                  message:
+                    type: string
+                  transactionId:
+                    type: string
+                  nextStatus:
+                    type: string
+                    example: processing
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -500,105 +632,28 @@ paths:
       tags: [Payments]
       summary: Mark Payment Failed
       operationId: failPayment
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
               type: object
+              required: [reason]
               properties:
                 reason:
                   type: string
-      responses:
-        '200':
-          description: Payment marked failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /api/payments/maya:
-    post:
-      tags: [Payments]
-      summary: Maya Payment Webhook
-      operationId: mayaPaymentWebhook
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                requestId:
+                  example: Payment gateway timeout.
+                errorCode:
                   type: string
-                status:
-                  type: string
-                transactionId:
-                  type: string
-      responses:
-        '200':
-          description: Webhook processed
-        '400':
-          $ref: '#/components/responses/BadRequest'
-
-  /api/feedback/{requestId}/submit:
-    post:
-      tags: [Feedback]
-      summary: Submit Feedback
-      operationId: submitFeedback
-      parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                rating:
-                  type: integer
-                  minimum: 1
-                  maximum: 5
-                comment:
-                  type: string
-                parameters:
+                  example: PG_TIMEOUT
+                metadata:
                   type: object
       responses:
         '200':
-          description: Feedback submitted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /api/feedback/{requestId}:
-    get:
-      tags: [Feedback]
-      summary: Get Feedback
-      operationId: getFeedback
-      parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Feedback data
+          description: Payment marked failed
           content:
             application/json:
               schema:
@@ -606,24 +661,191 @@ paths:
                 properties:
                   requestId:
                     type: string
-                  rating:
-                    type: integer
-                  comment:
+                  status:
                     type: string
+                    example: failed
+                  message:
+                    type: string
+                  reason:
+                    type: string
+                  nextStatus:
+                    type: string
+                    example: pending_payment
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/delivery/{requestId}/details:
+  /api/payments/maya:
     post:
-      tags: [Delivery]
-      summary: Submit Delivery Details
-      operationId: submitDeliveryDetails
+      tags: [Payments]
+      summary: Maya Webhook (payments mount)
+      operationId: mayaPaymentWebhookFromPaymentsMount
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MayaWebhookPayload'
+            examples:
+              success:
+                value:
+                  requestReferenceNumber: REQ-20260606-042
+                  transactionId: MAYA-TXN-20260606-001
+                  status: SUCCESS
+                  amount: 350
+                  currency: PHP
+              failed:
+                value:
+                  requestReferenceNumber: REQ-20260606-042
+                  transactionId: MAYA-TXN-20260606-001
+                  status: FAILURE
+                  amount: 350
+                  currency: PHP
+      responses:
+        '200':
+          description: Webhook processed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/webhooks/maya:
+    post:
+      tags: [Payments]
+      summary: Maya Webhook (webhooks mount)
+      operationId: mayaPaymentWebhookFromWebhooksMount
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MayaWebhookPayload'
+      responses:
+        '200':
+          description: Webhook processed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/webhooks/{requestId}/complete:
+    post:
+      tags: [Payments]
+      summary: Mark Payment Complete (webhooks mount alias)
+      operationId: completePaymentFromWebhooksMount
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transactionId, amount]
+              properties:
+                transactionId:
+                  type: string
+                  example: MAYA-TXN-20260606-001
+                amount:
+                  type: number
+                  example: 350.00
+                method:
+                  type: string
+                  example: maya
+                reference:
+                  type: string
+                  example: PAY-REF-5566
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Payment marked complete
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/webhooks/{requestId}/failed:
+    post:
+      tags: [Payments]
+      summary: Mark Payment Failed (webhooks mount alias)
+      operationId: failPaymentFromWebhooksMount
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  example: Payment gateway timeout.
+                errorCode:
+                  type: string
+                  example: PG_TIMEOUT
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Payment marked failed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/feedback/token/{token}:
+    get:
+      tags: [Feedback]
+      summary: Get Feedback Status by Token
+      operationId: getFeedbackByToken
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TokenParam'
+      responses:
+        '200':
+          description: Feedback status and data by token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                  token:
+                    type: string
+                  status:
+                    type: string
+                  feedbackLink:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+                  feedback:
+                    type: object
+                    additionalProperties: true
+                  tokenStatus:
+                    $ref: '#/components/schemas/FeedbackTokenStatus'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          description: Feedback token has expired
+
+  /api/feedback/token/{token}/submit:
+    post:
+      tags: [Feedback]
+      summary: Submit Feedback by Token
+      operationId: submitFeedbackByToken
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/TokenParam'
       requestBody:
         required: true
         content:
@@ -631,18 +853,123 @@ paths:
             schema:
               type: object
               properties:
-                deliveryMethod:
-                  type: string
-                  enum: [email, physical_mail, pickup]
-                deliveryDetails:
+                ratings:
                   type: object
+                  additionalProperties:
+                    type: number
+                    minimum: 1
+                    maximum: 5
+                comments:
+                  type: string
+            examples:
+              basic:
+                value:
+                  ratings:
+                    overall: 5
+                    speed: 4
+                  comments: Great service.
       responses:
         '200':
-          description: Delivery details saved
+          description: Feedback submitted by token
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServiceRequest'
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                  requestId:
+                    type: string
+                  token:
+                    type: string
+                  feedbackReceivedAt:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Feedback token has already been used
+        '410':
+          description: Feedback token has expired
+
+  /api/delivery/{requestId}/details:
+    post:
+      tags: [Delivery]
+      summary: Submit Delivery Method and Details (Canonical)
+      operationId: submitDeliveryDetails
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/DeliveryDetailsPayload'
+                - $ref: '#/components/schemas/DeliveryMethodAliasPayload'
+            examples:
+              email:
+                value:
+                  deliveryMethod: email
+                  deliveryDetails:
+                    email:
+                      recipient: student@mapua.edu.ph
+                      subject: Your document is ready
+                      templateId: delivery-email-document
+              physical_mail:
+                value:
+                  deliveryMethod: physical_mail
+                  deliveryDetails:
+                    physical_mail:
+                      address: 123 Example St, Manila, 1000
+                      carrier: LBC
+                      requiresSignature: true
+                      estimatedDays: 5
+              pickup:
+                value:
+                  deliveryMethod: pickup
+                  deliveryDetails:
+                    pickup:
+                      location: Registrar Office
+                      hoursOfOperation: Mon-Fri 8:00 AM - 5:00 PM
+              legacyAliasShape:
+                value:
+                  method: pickup
+                  details:
+                    pickup:
+                      location: Registrar Office
+      responses:
+        '200':
+          description: Delivery details saved. If delivery envelope is pending_external, orchestrator is auto-resumed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Delivery details saved (email) and processing started.
+                  requestId:
+                    type: string
+                    example: REQ-20260606-042
+                  deliveryMethod:
+                    $ref: '#/components/schemas/DeliveryMethod'
+                  deliveryDetails:
+                    type: object
+                    additionalProperties: true
+                  autoResumed:
+                    type: boolean
+                    description: True when route promoted delivery to in_progress and resumed orchestrator.
+                    example: true
         '400':
           $ref: '#/components/responses/BadRequest'
         '404':
@@ -653,50 +980,83 @@ paths:
       tags: [Delivery]
       summary: Get Delivery Method
       operationId: getDeliveryMethod
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       responses:
         '200':
-          description: Current delivery method
+          description: Current delivery method and status
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  method:
+                  requestId:
+                    type: string
+                  deliveryMethod:
+                    type: string
+                    nullable: true
+                    example: PHYSICAL_MAIL
+                  status:
                     type: string
                   details:
+                    type: object
+                  availableMethods:
                     type: object
 
     post:
       tags: [Delivery]
-      summary: Update Delivery Method
-      operationId: updateDeliveryMethod
+      summary: Select Delivery Method (Legacy Alias)
+      description: Backward-compatible alias route. Canonical route is POST /api/delivery/{requestId}/details.
+      operationId: updateDeliveryMethodAlias
+      deprecated: true
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                method:
-                  type: string
-                  enum: [email, physical_mail, pickup]
-                details:
-                  type: object
+              $ref: '#/components/schemas/DeliveryMethodAliasPayload'
+            examples:
+              pickup:
+                value:
+                  method: pickup
+                  details:
+                    pickup:
+                      location: Registrar Office
+                      contact: 02-123-4567
+              physical_mail:
+                value:
+                  method: physical_mail
+                  details:
+                    physical_mail:
+                      mailingAddress: 123 Example St, Manila
       responses:
         '200':
-          description: Delivery method updated
+          description: Alias accepted and delegated to canonical /details flow
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                  requestId:
+                    type: string
+                  deliveryMethod:
+                    $ref: '#/components/schemas/DeliveryMethod'
+                  deliveryDetails:
+                    type: object
+                    additionalProperties: true
+                  autoResumed:
+                    type: boolean
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -705,12 +1065,9 @@ paths:
       tags: [Delivery]
       summary: Get Delivery Status
       operationId: getDeliveryStatus
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       responses:
         '200':
           description: Delivery information
@@ -721,62 +1078,89 @@ paths:
                 properties:
                   requestId:
                     type: string
-                  method:
-                    type: string
                   status:
+                    type: string
+                  method:
                     type: string
                   details:
                     type: object
+                  deliveryAttempts:
+                    type: integer
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/delivery-status/{requestId}:
-    get:
-      tags: [Delivery]
-      summary: Get Current Delivery Status
-      operationId: getCurrentDeliveryStatus
-      parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Current delivery status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                  lastUpdated:
-                    type: string
-                    format: date-time
-
     post:
       tags: [Delivery]
-      summary: Update Delivery Status
+      summary: Update Delivery Status (Method-Aware Guardrails)
       operationId: updateDeliveryStatus
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              description: |
+                Send code_number/code_name for the selected delivery method.
+                Legacy status field is still accepted for backward compatibility.
+              anyOf:
+                - required: [code_number]
+                - required: [code_name]
+                - required: [status]
               properties:
-                status:
+                code_number:
+                  type: integer
+                  description: Preferred numeric status code. Must belong to the request's selected delivery method.
+                  example: 1
+                code_name:
                   type: string
-                details:
-                  type: object
+                  description: Preferred status name. Must belong to the request's selected delivery method.
+                  example: email_sent
+                status:
+                  $ref: '#/components/schemas/DeliveryStatusInput'
+                notes:
+                  type: string
+                  example: Package handed to courier.
+                trackingId:
+                  type: string
+                  example: TRACK-ABC-123
+                location:
+                  type: string
+                  example: Manila Sorting Center
+                timestamp:
+                  type: string
+                  format: date-time
+            examples:
+              emailPendingByCode:
+                value:
+                  code_number: 0
+                  notes: Email queued for sending
+              emailSentByName:
+                value:
+                  code_name: email_sent
+                  notes: Email delivered to recipient inbox
+              physicalMailInTransit:
+                value:
+                  code_number: 2
+                  notes: Parcel dispatched by courier
+                  trackingId: TRACK-ABC-123
+                  location: Manila Sorting Center
+              pickupReadyByName:
+                value:
+                  code_name: ready_for_pickup
+                  notes: Document ready at registrar office.
+              pickupCompleted:
+                value:
+                  code_number: 2
+                  notes: Student collected document at counter
       responses:
         '200':
           description: Status updated
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -785,44 +1169,12 @@ paths:
       tags: [Delivery]
       summary: Get Delivery Status History
       operationId: getDeliveryStatusHistory
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       responses:
         '200':
-          description: Delivery status timeline
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    status:
-                      type: string
-                    timestamp:
-                      type: string
-                      format: date-time
-                    details:
-                      type: object
-
-  /api/processing/{requestId}:
-    get:
-      tags: [Processing]
-      summary: Get Processing Status
-      operationId: getProcessingStatus
-      parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Processing envelope status
+          description: Delivery status history
           content:
             application/json:
               schema:
@@ -830,29 +1182,145 @@ paths:
                 properties:
                   requestId:
                     type: string
-                  status:
+                  deliveryMethod:
                     type: string
-                  tasks:
+                  currentStatus:
+                    type: string
+                  currentStatusCode:
+                    type: integer
+                  code_name:
+                    type: string
+                    example: email_sent
+                  code_number:
+                    type: integer
+                    example: 1
+                  totalStatusUpdates:
+                    type: integer
+                  history:
                     type: array
                     items:
                       type: object
+                      properties:
+                        sequence:
+                          type: integer
+                        code_number:
+                          type: integer
+                        code_name:
+                          type: string
+                        statusCode:
+                          type: integer
+                        status:
+                          type: string
+                        timestamp:
+                          type: string
+                          format: date-time
+                        location:
+                          type: string
+                        notes:
+                          type: string
+                        trackingId:
+                          type: string
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/delivery-status/{requestId}/current:
+    get:
+      tags: [Delivery]
+      summary: Get Current Delivery Status
+      operationId: getCurrentDeliveryStatus
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestIdParam'
+      responses:
+        '200':
+          description: Current delivery status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  requestId:
+                    type: string
+                  deliveryMethod:
+                    type: string
+                  envelopeStatus:
+                    type: string
+                  currentStatus:
+                    type: string
+                  currentStatusCode:
+                    type: integer
+                  code_name:
+                    type: string
+                    example: ready_for_pickup
+                  code_number:
+                    type: integer
+                    example: 1
+                  lastStatusUpdate:
+                    type: string
+                    format: date-time
+                  lastUpdateDetails:
+                    type: object
+                    properties:
+                      code_number:
+                        type: integer
+                      code_name:
+                        type: string
+                      statusCode:
+                        type: integer
+                      status:
+                        type: string
+                      timestamp:
+                        type: string
+                        format: date-time
+                      location:
+                        type: string
+                      notes:
+                        type: string
+                      trackingId:
+                        type: string
+                      sequence:
+                        type: integer
+                    nullable: true
+                  deliveryAttempts:
+                    type: integer
+                  lastAttemptAt:
+                    type: string
+                    format: date-time
+                  deliveredAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/processing/{requestId}:
+    get:
+      tags: [Processing]
+      summary: Get Processing Status
+      operationId: getProcessingStatus
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestIdParam'
+      responses:
+        '200':
+          description: Processing envelope status
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/processing/{requestId}/tasks/{taskName}:
     get:
       tags: [Processing]
       summary: Get Specific Task Status
       operationId: getTaskStatus
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: taskName
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: '#/components/parameters/TaskNameParam'
       responses:
         '200':
           description: Task details
@@ -860,25 +1328,18 @@ paths:
             application/json:
               schema:
                 type: object
-                properties:
-                  name:
-                    type: string
-                  status:
-                    type: string
-                  result:
-                    type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/processing/{requestId}/summary:
     get:
       tags: [Processing]
       summary: Get Processing Summary
       operationId: getProcessingSummary
+      security: []
       parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/RequestIdParam'
       responses:
         '200':
           description: Processing summary
@@ -886,37 +1347,36 @@ paths:
             application/json:
               schema:
                 type: object
-                properties:
-                  totalTasks:
-                    type: integer
-                  completedTasks:
-                    type: integer
-                  failedTasks:
-                    type: integer
-                  status:
-                    type: string
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/admin/services:
     get:
       tags: [Admin]
       summary: Get All Services (Admin)
       operationId: getAllServicesAdmin
+      security: []
       responses:
         '200':
           description: All service definitions
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ServiceDefinition'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                type: object
+                properties:
+                  services:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ServiceDefinitionDetails'
+                  total:
+                    type: integer
 
     post:
       tags: [Admin]
       summary: Create Service (Admin)
       operationId: createServiceAdmin
+      security: []
       requestBody:
         required: true
         content:
@@ -926,26 +1386,19 @@ paths:
       responses:
         '201':
           description: Service created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceDefinition'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
 
   /api/admin/services/{serviceId}:
     put:
       tags: [Admin]
       summary: Update Service (Admin)
       operationId: updateServiceAdmin
+      security: []
       parameters:
-        - name: serviceId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/ServiceIdParam'
       requestBody:
         required: true
         content:
@@ -955,84 +1408,52 @@ paths:
       responses:
         '200':
           description: Service updated
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceDefinition'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/ServerError'
 
   /api/admin/audit-logs:
     get:
       tags: [Admin]
       summary: Get Audit Logs
       operationId: getAuditLogs
+      security: []
       parameters:
-        - name: limit
-          in: query
-          schema:
-            type: integer
-            default: 100
-        - name: offset
-          in: query
-          schema:
-            type: integer
-            default: 0
+        - $ref: '#/components/parameters/LimitQueryParam'
+        - $ref: '#/components/parameters/OffsetQueryParam'
       responses:
         '200':
-          description: Audit log entries
+          description: Audit logs
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    timestamp:
-                      type: string
-                      format: date-time
-                    action:
-                      type: string
-                    actor:
-                      type: string
-                    details:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
                       type: object
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
 
   /api/admin/email-templates:
     get:
       tags: [Admin]
       summary: List Email Templates
       operationId: listEmailTemplates
+      security: []
       parameters:
-        - name: templateScope
-          in: query
-          schema:
-            type: string
-            enum: [generic, envelope, service]
-        - name: eventKey
-          in: query
-          schema:
-            type: string
-        - name: envelopeType
-          in: query
-          schema:
-            type: string
-        - name: phase
-          in: query
-          schema:
-            type: string
-        - name: serviceType
-          in: query
-          schema:
-            type: string
-        - name: isActive
-          in: query
-          schema:
-            type: boolean
+        - $ref: '#/components/parameters/TemplateScopeQueryParam'
+        - $ref: '#/components/parameters/EventKeyQueryParam'
+        - $ref: '#/components/parameters/EnvelopeTypeQueryParam'
+        - $ref: '#/components/parameters/PhaseQueryParam'
+        - $ref: '#/components/parameters/ServiceTypeQueryParam'
+        - $ref: '#/components/parameters/IsActiveQueryParam'
       responses:
         '200':
           description: All email templates
@@ -1047,49 +1468,34 @@ paths:
                       $ref: '#/components/schemas/EmailTemplate'
                   total:
                     type: integer
-        '403':
-          $ref: '#/components/responses/Forbidden'
 
     post:
       tags: [Admin]
       summary: Create Email Template
       operationId: createEmailTemplate
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EmailTemplate'
+              $ref: '#/components/schemas/EmailTemplateCreate'
       responses:
         '201':
           description: Template created
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
-                  template:
-                    $ref: '#/components/schemas/EmailTemplate'
         '400':
           $ref: '#/components/responses/BadRequest'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/ServerError'
 
   /api/admin/email-templates/{templateId}:
     get:
       tags: [Admin]
       summary: Get Email Template
       operationId: getEmailTemplate
+      security: []
       parameters:
-        - name: templateId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/TemplateIdParam'
       responses:
         '200':
           description: Template details
@@ -1099,68 +1505,66 @@ paths:
                 $ref: '#/components/schemas/EmailTemplate'
         '404':
           $ref: '#/components/responses/NotFound'
-        '403':
-          $ref: '#/components/responses/Forbidden'
 
     put:
       tags: [Admin]
       summary: Update Email Template
       operationId: updateEmailTemplate
+      security: []
       parameters:
-        - name: templateId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/TemplateIdParam'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EmailTemplate'
+              $ref: '#/components/schemas/EmailTemplateUpdate'
       responses:
         '200':
           description: Template updated
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                  message:
-                    type: string
-                  template:
-                    $ref: '#/components/schemas/EmailTemplate'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
-        '403':
-          $ref: '#/components/responses/Forbidden'
 
     delete:
       tags: [Admin]
       summary: Delete Email Template
       operationId: deleteEmailTemplate
+      security: []
       parameters:
-        - name: templateId
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/TemplateIdParam'
       responses:
         '200':
           description: Template deleted
         '404':
           $ref: '#/components/responses/NotFound'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/approval-tokens/{requestId}:
+    get:
+      tags: [Admin]
+      summary: Get Approval Token Metadata
+      operationId: getApprovalTokensForRequest
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/RequestIdParam'
+      responses:
+        '200':
+          description: Approval token metadata for approvers
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '404':
+          $ref: '#/components/responses/NotFound'
 
   /api/admin/schema:
     get:
       tags: [Admin]
       summary: Get Latest Service Definition Schema
       operationId: getLatestSchema
-      description: Returns the current schema version used for service validation (for Phase 2 UI)
+      security: []
       responses:
         '200':
           description: Latest schema from MongoDB
@@ -1174,31 +1578,43 @@ paths:
       tags: [Admin]
       summary: List All Schema Versions
       operationId: listSchemaVersions
+      security: []
       responses:
         '200':
           description: All schema versions
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    version:
-                      type: string
-                    name:
-                      type: string
-                    description:
-                      type: string
-                    updatedAt:
-                      type: string
-                      format: date-time
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  count:
+                    type: integer
+                  versions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        version:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        createdAt:
+                          type: string
+                          format: date-time
+                        updatedAt:
+                          type: string
+                          format: date-time
 
   /api/admin/schema/versions/latest:
     get:
       tags: [Admin]
       summary: Get Latest Schema Version
       operationId: getLatestSchemaVersion
+      security: []
       responses:
         '200':
           description: Latest schema version document
@@ -1214,19 +1630,22 @@ paths:
       tags: [Admin]
       summary: Get Specific Schema Version
       operationId: getSchemaVersion
+      security: []
       parameters:
-        - name: version
-          in: path
-          required: true
-          schema:
-            type: string
+        - $ref: '#/components/parameters/VersionParam'
       responses:
         '200':
           description: Requested schema version
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SchemaResponse'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  schema:
+                    type: object
+                    additionalProperties: true
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -1235,7 +1654,7 @@ paths:
       tags: [Admin]
       summary: Reload Schema Validator
       operationId: reloadSchema
-      description: Reinitialize the schema validator with latest from MongoDB (no server restart needed)
+      security: []
       responses:
         '200':
           description: Schema reloaded successfully
@@ -1250,185 +1669,603 @@ paths:
                     type: string
                   version:
                     type: string
+                  name:
+                    type: string
+                  lastUpdated:
+                    type: string
+                    format: date-time
         '500':
           $ref: '#/components/responses/ServerError'
 
-  /api/admin/approval-tokens/{requestId}:
-    get:
+  /api/admin/schema/upload:
+    post:
       tags: [Admin]
-      summary: Get Approval Tokens for Request
-      operationId: getApprovalTokensForRequest
-      parameters:
-        - name: requestId
-          in: path
-          required: true
-          schema:
-            type: string
+      summary: Upload and Activate Schema Version
+      operationId: uploadSchemaVersion
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                version:
+                  type: string
+                  example: 1.0.3
+                name:
+                  type: string
+                  example: Service Definition Schema v1.0.3
+                description:
+                  type: string
+                schema:
+                  type: object
+                  additionalProperties: true
+            examples:
+              uploadLocalSchema:
+                value: {}
+              uploadCustomSchema:
+                value:
+                  version: 1.0.3
+                  name: Service Definition Schema v1.0.3
+                  description: Upload custom schema object and activate it.
+                  schema:
+                    type: object
+                    required: [name, type, description, envelopes]
+                    properties:
+                      id:
+                        type: string
       responses:
-        '200':
-          description: List of approval tokens
+        '201':
+          description: Schema uploaded and validator activated
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ApprovalToken'
-        '403':
-          $ref: '#/components/responses/Forbidden'
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  version:
+                    type: string
+                  name:
+                    type: string
+                  source:
+                    type: string
+                    enum: [request-body, local-file]
+                  lastUpdated:
+                    type: string
+                    format: date-time
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/mock/students/verify:
+    post:
+      tags: [Mock]
+      summary: Mock Verify Student
+      operationId: mockVerifyStudent
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                studentId:
+                  type: string
+                  example: 20250001
+                firstName:
+                  type: string
+                  example: Juan
+                lastName:
+                  type: string
+                  example: Dela Cruz
+      responses:
+        '200':
+          description: Mock verification success
+
+  /api/mock/documents/generate-record:
+    post:
+      tags: [Mock]
+      summary: Mock Generate Academic Record
+      operationId: mockGenerateRecord
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                studentId:
+                  type: string
+                documentType:
+                  type: string
+                  example: Certificate of Enrollment
+                numberOfCopies:
+                  type: integer
+                  example: 1
+      responses:
+        '201':
+          description: Mock record generated
+
+  /api/mock/documents/generate-transcript:
+    post:
+      tags: [Mock]
+      summary: Mock Generate Transcript
+      operationId: mockGenerateTranscript
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                studentId:
+                  type: string
+                numberOfCopies:
+                  type: integer
+                  example: 2
+      responses:
+        '201':
+          description: Mock transcript generated
+
+  /api/mock/documents/prepare-delivery:
+    post:
+      tags: [Mock]
+      summary: Mock Prepare Delivery Package
+      operationId: mockPrepareDelivery
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                studentId:
+                  type: string
+                documentTypes:
+                  type: array
+                  items:
+                    type: string
+                deliveryMethod:
+                  $ref: '#/components/schemas/DeliveryMethod'
+                numberOfCopies:
+                  type: integer
+      responses:
+        '201':
+          description: Mock delivery package prepared
 
 components:
+  parameters:
+    ServiceIdParam:
+      name: serviceId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: SERVICE-999
+      description: Service identifier.
+
+    RequestIdParam:
+      name: requestId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: REQ-20260606-042
+      description: Request identifier.
+
+    TokenParam:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+      example: 2d2f5e0a-5a8f-4b7d-a365-6dd77c9f17d8
+      description: Approval or feedback token.
+
+    TaskNameParam:
+      name: taskName
+      in: path
+      required: true
+      schema:
+        type: string
+      example: Verify Student Records
+      description: Processing task name.
+
+    TemplateIdParam:
+      name: templateId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: SERV-1-approval
+      description: Email template ID.
+
+    VersionParam:
+      name: version
+      in: path
+      required: true
+      schema:
+        type: string
+      example: 1.0.0
+      description: Schema version.
+
+    StatusQueryParam:
+      name: status
+      in: query
+      required: false
+      schema:
+        type: string
+      example: pending_payment
+      description: Filter by request overall status.
+
+    TypeQueryParam:
+      name: type
+      in: query
+      required: false
+      schema:
+        type: string
+      example: comprehensive-student-document
+      description: Filter by request type.
+
+    LimitQueryParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 20
+        minimum: 1
+        maximum: 1000
+      example: 20
+
+    OffsetQueryParam:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 0
+        minimum: 0
+      example: 0
+
+    TemplateScopeQueryParam:
+      name: templateScope
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [generic, envelope, service]
+      example: envelope
+      description: Allowed values are constrained.
+
+    EventKeyQueryParam:
+      name: eventKey
+      in: query
+      required: false
+      schema:
+        type: string
+      example: request-approved
+
+    EnvelopeTypeQueryParam:
+      name: envelopeType
+      in: query
+      required: false
+      schema:
+        type: string
+      example: approval
+
+    PhaseQueryParam:
+      name: phase
+      in: query
+      required: false
+      schema:
+        type: string
+      example: phase2
+
+    ServiceTypeQueryParam:
+      name: serviceType
+      in: query
+      required: false
+      schema:
+        type: string
+      example: comprehensive-student-document
+
+    IsActiveQueryParam:
+      name: isActive
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: ['true', 'false']
+      example: 'true'
+      description: Route compares stringified boolean values.
+
   schemas:
-    ServiceDefinition:
+    LoginRequest:
       type: object
-      required:
-        - name
-        - type
-        - description
+      required: [email, password]
       properties:
-        id:
+        email:
           type: string
-          pattern: '^SERV-[0-9]+-[0-9]{8}$'
-          description: Auto-generated service ID
-        name:
+          format: email
+        password:
           type: string
-          description: Service display name
-        type:
-          type: string
-          description: Service type identifier (lowercase with hyphens)
-        description:
-          type: string
-          description: Service description
-        initiator:
-          type: string
-          description: Role that can initiate service (admin metadata)
-        serviceCode:
-          type: string
-          description: Internal service code
-        envelopes:
-          type: object
-          properties:
-            request:
-              type: object
-              description: REQUEST envelope (always required)
-            approval:
-              type: object
-              description: APPROVAL envelope (optional)
-            payment:
-              type: object
-              description: PAYMENT envelope (optional)
-            processing:
-              type: object
-              description: PROCESSING envelope (optional)
-            delivery:
-              type: object
-              description: DELIVERY envelope (optional)
-            feedback:
-              type: object
-              description: FEEDBACK envelope (optional)
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
 
-    ServiceRequest:
-      type: object
-      required:
-        - id
-        - serviceId
-        - status
-      properties:
-        id:
-          type: string
-          example: REQ-2025-001
-        serviceId:
-          type: string
-        status:
-          type: string
-          enum: [pending, in_progress, completed, rejected, paused]
-        parameters:
-          type: object
-          description: User-submitted parameters
-        envelopes:
-          type: object
-          description: Status of each envelope in the pipeline
-        initiator:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-
-    ServiceSubmitPayload:
-      type: object
-      required:
-        - serviceId
-        - parameters
-      properties:
-        serviceId:
-          type: string
-          description: Service to submit request for
-        parameters:
-          type: object
-          description: Service-specific parameters
-        initiator:
-          type: string
-          description: Who is submitting the request
-
-    RequestCreatePayload:
-      type: object
-      description: Payload for POST /api/requests. Supports either service type or service ID as identifier.
-      required:
-        - initiator
-        - parameters
-      properties:
-        type:
-          type: string
-          description: Service type identifier (e.g., comprehensive-student-document)
-        serviceId:
-          type: string
-          description: Service ID identifier (e.g., SERVICE-999)
-        initiator:
-          type: string
-          description: Actor creating the request
-        parameters:
-          type: object
-          description: Service-specific request parameters
-      anyOf:
-        - required: [type]
-        - required: [serviceId]
-
-    CreateServicePayload:
-      type: object
-      required:
-        - name
-        - type
-        - description
-      properties:
-        name:
-          type: string
-        type:
-          type: string
-        description:
-          type: string
-        initiator:
-          type: string
-        envelopes:
-          type: object
-
-    ApprovalToken:
+    LoginResponse:
       type: object
       properties:
         token:
           type: string
+        user:
+          type: object
+          properties:
+            email:
+              type: string
+              format: email
+            name:
+              type: string
+            role:
+              type: string
+              enum: [admin, approver, requester]
+              example: requester
+        expiresIn:
+          type: string
+          example: 24h
+
+    ServiceSummary:
+      type: object
+      properties:
+        serviceId:
+          type: string
+          example: SERVICE-999
+        id:
+          type: string
+          example: SERV-1-04152026
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+        yaml:
+          type: string
+
+    ServiceDefinitionDetails:
+      type: object
+      properties:
+        serviceId:
+          type: string
+        id:
+          type: string
+        name:
+          type: string
+        service_id:
+          type: string
+        service_name:
+          type: string
+        type:
+          type: string
+        description:
+          type: string
+        envelopes:
+          type: object
+          additionalProperties: true
+        requestParameters:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    RequestCreatePayload:
+      type: object
+      required: [initiator, parameters]
+      properties:
+        type:
+          type: string
+          description: Service type identifier.
+          example: comprehensive-student-document
+        serviceId:
+          type: string
+          description: Service ID identifier.
+          example: SERVICE-999
+        initiator:
+          type: string
+          description: Actor creating the request.
+          example: requester@mapua.edu.ph
+        parameters:
+          type: object
+          additionalProperties: true
+      anyOf:
+        - required: [type]
+        - required: [serviceId]
+
+    CreateRequestResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
         requestId:
+          type: string
+          example: REQ-20260606-042
+        type:
+          type: string
+        serviceId:
           type: string
         status:
           type: string
-          enum: [pending, approved, denied]
+          example: queued
+        envelopes:
+          type: object
+          additionalProperties: true
+        message:
+          type: string
+
+    RequestListResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        count:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        requests:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              type:
+                type: string
+              initiator:
+                type: string
+              status:
+                type: string
+              createdAt:
+                type: string
+                format: date-time
+              lastUpdated:
+                type: string
+                format: date-time
+
+    RequestDetailsResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        initiator:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        lastUpdated:
+          type: string
+          format: date-time
+        envelopes:
+          type: object
+          additionalProperties: true
+        history:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    DeliveryMethod:
+      type: string
+      enum: [email, physical_mail, pickup]
+      example: physical_mail
+      description: Allowed values are constrained by route validation.
+
+    DeliveryDetailsPayload:
+      type: object
+      required: [deliveryMethod, deliveryDetails]
+      properties:
+        deliveryMethod:
+          $ref: '#/components/schemas/DeliveryMethod'
+        deliveryDetails:
+          type: object
+          description: |
+            Method-specific details. Route accepts either nested format
+            (e.g., {"email": {...}}) or direct object for the selected method.
+          properties:
+            email:
+              type: object
+              properties:
+                recipient:
+                  type: string
+                  example: student@mapua.edu.ph
+                subject:
+                  type: string
+                  example: Your document is ready
+                templateId:
+                  type: string
+                  example: delivery-email-document
+                attachmentUrls:
+                  type: array
+                  items:
+                    type: string
+                    format: uri
+            physical_mail:
+              type: object
+              properties:
+                address:
+                  type: string
+                  example: 123 Example St, Manila, 1000
+                carrier:
+                  type: string
+                  example: LBC
+                trackingId:
+                  type: string
+                requiresSignature:
+                  type: boolean
+                estimatedDays:
+                  type: integer
+            pickup:
+              type: object
+              properties:
+                location:
+                  type: string
+                  example: Registrar Office
+                hoursOfOperation:
+                  type: string
+                  example: Mon-Fri 8:00 AM - 5:00 PM
+                pickupDeadlineAt:
+                  type: string
+                  format: date-time
+          additionalProperties: true
+
+    DeliveryMethodAliasPayload:
+      type: object
+      required: [method]
+      properties:
+        method:
+          $ref: '#/components/schemas/DeliveryMethod'
+        details:
+          type: object
+          additionalProperties: true
+      description: Legacy payload shape used by POST /api/delivery/{requestId}/method.
+
+    DeliveryStatusInput:
+      description: |-
+        Legacy-compatible status values in delivery-status route.
+        Preferred fields are code_number / code_name (method-aware guardrails).
+        This schema remains for backward compatibility.
+      oneOf:
+        - type: integer
+          enum: [0, 1, 2, 3]
+          example: 1
+        - type: string
+          enum: [email_pending, email_sent, preparing, ready_to_deliver, out_for_delivery, delivered, ready_for_pickup, picked_up, processing, in_transit, received, pickup_complete]
+          example: email_sent
+
+    ApprovalTokenInfo:
+      type: object
+      properties:
+        token:
+          type: string
+        approverId:
+          type: string
+        requestId:
+          type: string
+        used:
+          type: boolean
         expiresAt:
           type: string
           format: date-time
@@ -1436,8 +2273,113 @@ components:
           type: string
           format: date-time
 
+    FeedbackTokenStatus:
+      type: object
+      properties:
+        token:
+          type: string
+        requestId:
+          type: string
+        isUsed:
+          type: boolean
+        isExpired:
+          type: boolean
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        submittedFeedback:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+    MayaWebhookPayload:
+      type: object
+      properties:
+        checkoutId:
+          type: string
+        requestReferenceNumber:
+          type: string
+          example: REQ-20260606-042
+        customField:
+          type: object
+          properties:
+            requestId:
+              type: string
+              example: REQ-20260606-042
+        transactionId:
+          type: string
+          example: MAYA-TXN-20260606-001
+        status:
+          type: string
+          enum: [SUCCESS, COMPLETED, FAILURE, FAILED, PENDING]
+          example: SUCCESS
+        amount:
+          type: number
+          example: 350
+        currency:
+          type: string
+          example: PHP
+        timestamp:
+          type: string
+          format: date-time
+
+    CreateServicePayload:
+      type: object
+      required: [name, yaml, type, initiator]
+      properties:
+        name:
+          type: string
+          example: Transcript Request
+        yaml:
+          type: string
+          description: Full service definition YAML text.
+        type:
+          type: string
+          example: request-tor
+        initiator:
+          type: string
+          example: student
+
     EmailTemplate:
       type: object
+      properties:
+        id:
+          type: string
+          example: SERV-1-approval
+        name:
+          type: string
+          example: Approval Request Template
+        subject:
+          type: string
+          example: Approval needed for {{requestId}}
+        htmlBody:
+          type: string
+        description:
+          type: string
+        templateScope:
+          type: string
+          enum: [generic, envelope, service]
+        eventKey:
+          type: string
+        serviceType:
+          type: string
+        isActive:
+          type: boolean
+        envelopeType:
+          type: string
+        phase:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    EmailTemplateCreate:
+      type: object
+      required: [id, name, subject, htmlBody]
       properties:
         id:
           type: string
@@ -1462,29 +2404,43 @@ components:
           type: string
         phase:
           type: string
-        variables:
-          type: array
-          items:
-            type: string
-        createdAt:
+
+    EmailTemplateUpdate:
+      type: object
+      required: [name, subject, htmlBody]
+      properties:
+        name:
           type: string
-          format: date-time
-        updatedAt:
+        subject:
           type: string
-          format: date-time
+        htmlBody:
+          type: string
+        description:
+          type: string
+        templateScope:
+          type: string
+          enum: [generic, envelope, service]
+        eventKey:
+          type: string
+        serviceType:
+          type: string
+        isActive:
+          type: boolean
+        envelopeType:
+          type: string
+        phase:
+          type: string
 
     SchemaResponse:
       type: object
       properties:
         schema:
           type: object
-          description: JSON Schema object for service definitions
+          additionalProperties: true
         version:
           type: string
-          description: Schema version (e.g., 1.0.1)
         name:
           type: string
-          description: Schema name
         description:
           type: string
         lastUpdated:
@@ -1493,16 +2449,13 @@ components:
 
     Error:
       type: object
-      required:
-        - code
-        - message
+      required: [error]
       properties:
-        code:
+        error:
           type: string
-        message:
-          type: string
+          example: Request not found
         details:
-          type: object
+          type: string
 
   responses:
     BadRequest:
@@ -1514,13 +2467,6 @@ components:
 
     Unauthorized:
       description: Unauthorized - Missing or invalid authentication
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
-
-    Forbidden:
-      description: Forbidden - Insufficient permissions
       content:
         application/json:
           schema:
@@ -1540,33 +2486,26 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
 
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-security:
-  - bearerAuth: []
-
 tags:
   - name: System
-    description: System health and info
-  - name: Services
-    description: Service management and submission
-  - name: Requests
-    description: Service request management
+    description: System health and API info
   - name: Auth
-    description: Authentication and authorization
+    description: Authentication and token verification
+  - name: Services
+    description: Service discovery and management
+  - name: Requests
+    description: Request creation, retrieval, and lifecycle actions
   - name: Approvals
-    description: Multi-level approval workflows
+    description: Approval-token driven actions
   - name: Payments
-    description: Payment processing
+    description: Payment completion/failure and Maya webhooks
   - name: Feedback
-    description: User feedback collection
+    description: Feedback submission and retrieval
   - name: Delivery
-    description: Document delivery management
+    description: Delivery method and delivery status tracking
   - name: Processing
-    description: Background processing tasks
+    description: Processing task status endpoints
   - name: Admin
     description: Administrative operations
+  - name: Mock
+    description: Mock external APIs for processing task testing

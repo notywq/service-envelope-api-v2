@@ -19,12 +19,14 @@ export class EmailTemplateLoader {
    * @param templateId - Template identifier (e.g., SERV-3-approval-start)
    * @param request - Service request containing parameters for substitution
    * @param envelopeType - Type of envelope (for logging)
+   * @param extraContext - Optional extra key/value pairs for additional {{variable}} substitution
    * @returns Object with subject and htmlBody, or null if template not found
    */
   async fetchAndRenderTemplate(
     templateId: string,
     request: ServiceRequest,
-    envelopeType: string
+    envelopeType: string,
+    extraContext?: Record<string, string>
   ): Promise<{ subject: string; htmlBody: string } | null> {
     try {
       // Log lookup attempt
@@ -46,9 +48,25 @@ export class EmailTemplateLoader {
         `[${envelopeType.toUpperCase()}-EMAIL-TEMPLATE] Template found: ${templateId}`
       );
 
+      const serviceDefinition = await this.stateManager.getServiceDefinitionByType(request.type);
+      const serviceContext = {
+        serviceType: serviceDefinition?.name || request.type,
+        serviceName: serviceDefinition?.name || request.type,
+        serviceDefinitionType: request.type,
+      };
+
       // Perform parameter substitution
-      const subject = this.substituteParameters(template.subject, request);
-      const htmlBody = this.substituteParameters(template.htmlBody, request);
+      let subject = this.substituteParameters(template.subject, request, serviceContext);
+      let htmlBody = this.substituteParameters(template.htmlBody, request, serviceContext);
+
+      // Apply any extra context variables (e.g., documentLinks from delivery processor)
+      if (extraContext) {
+        Object.entries(extraContext).forEach(([key, value]) => {
+          const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+          subject = subject.replace(placeholder, String(value ?? ''));
+          htmlBody = htmlBody.replace(placeholder, String(value ?? ''));
+        });
+      }
 
       this.logger.info(
         `[${envelopeType.toUpperCase()}-EMAIL-TEMPLATE] Parameters substituted and ready to send`
@@ -68,13 +86,18 @@ export class EmailTemplateLoader {
    * Replace all {{parameterName}} placeholders with actual values
    * Supports system variables and all request parameters
    */
-  private substituteParameters(text: string, request: ServiceRequest): string {
+  private substituteParameters(
+    text: string,
+    request: ServiceRequest,
+    extraBaseContext?: Record<string, string>
+  ): string {
     let result = text;
 
     // System variables
     const systemVariables: Record<string, string> = {
       requestId: request.id,
       currentTimestamp: new Date().toISOString(),
+      ...(extraBaseContext || {}),
     };
 
     // Replace system variables
@@ -102,6 +125,9 @@ export class EmailTemplateLoader {
     const values: Record<string, string> = {
       requestId: request.id,
       currentTimestamp: new Date().toISOString(),
+      serviceType: request.type,
+      serviceName: request.type,
+      serviceDefinitionType: request.type,
     };
 
     if (request.envelopes.request.parameters) {

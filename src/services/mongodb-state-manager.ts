@@ -413,6 +413,32 @@ export class MongoDBStateManager {
     }
   }
 
+  async verifyFeedbackToken(token: string, requestId?: string): Promise<boolean> {
+    try {
+      const doc = await FeedbackTokenModel.findOne({ token });
+      if (!doc) {
+        return false;
+      }
+
+      if (requestId && doc.requestId !== requestId) {
+        return false;
+      }
+
+      if (doc.used) {
+        return false;
+      }
+
+      if (doc.expiresAt && doc.expiresAt.getTime() < Date.now()) {
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to verify feedback token ${token}:`, error);
+      return false;
+    }
+  }
+
   async markFeedbackTokenAsUsed(token: string, feedback: any): Promise<void> {
     try {
       await FeedbackTokenModel.updateOne({ token }, { used: true, feedback });

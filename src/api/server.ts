@@ -35,6 +35,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
+function resolveCanonicalSchemaPath(): string {
+  const cwdSchemaPath = path.resolve(process.cwd(), 'src', 'schemas', 'service-definition.schema.json');
+  if (fs.existsSync(cwdSchemaPath)) {
+    return cwdSchemaPath;
+  }
+
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  return path.join(__dirname, '../schemas/service-definition.schema.json');
+}
+
 // Initialize logger
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
@@ -103,35 +114,32 @@ async function initializeApp(): Promise<Express> {
 
   // Load schema from MongoDB and initialize validator
   try {
-    // Try to load latest schema from MongoDB
-    let schemaDoc = await stateManager.getLatestSchemaVersion();
-    let schemaObject = null;
-    let loadSource = '';
-    
-    // If schema exists in MongoDB, extract the schema property from the document
-    if (schemaDoc && schemaDoc.schema) {
-      schemaObject = schemaDoc.schema;
-      loadSource = 'MongoDB';
-    } else {
-      // First-time setup: load from file and save to MongoDB
-      const __filename = fileURLToPath(import.meta.url);
-      const __dirname = path.dirname(__filename);
-      const schemaPath = path.join(__dirname, '../schemas/service-definition.schema.json');
-      const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
-      schemaObject = JSON.parse(schemaContent);
-      
+    const TARGET_SCHEMA_VERSION = '1.0.3';
+    const TARGET_SCHEMA_NAME = 'Service Definition Schema v1.0.3';
+
+    // Always load local canonical schema file and ensure target version exists in MongoDB.
+    const schemaPath = resolveCanonicalSchemaPath();
+    const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
+    const localSchemaObject = JSON.parse(schemaContent);
+
+    const targetVersionDoc = await stateManager.getSchemaVersion(TARGET_SCHEMA_VERSION);
+    if (!targetVersionDoc) {
       await stateManager.saveSchemaVersion(
-        '1.0.0',
-        'Service Definition Schema - May 29, 2026',
-        schemaObject,
-        'Canonical service definition schema with REQUEST (required), optional APPROVAL/PAYMENT/PROCESSING/DELIVERY/FEEDBACK, full validation support'
+        TARGET_SCHEMA_VERSION,
+        TARGET_SCHEMA_NAME,
+        localSchemaObject,
+        localSchemaObject.description || 'Canonical service definition schema'
       );
-      loadSource = 'File (saved to MongoDB)';
+      logger.info(`📋 [SCHEMA-VALIDATOR] Seeded schema v${TARGET_SCHEMA_VERSION} into MongoDB`);
     }
-    
-    // Initialize validator with schema from MongoDB (extract .schema property)
+
+    // Activate latest schema from MongoDB (or local fallback on first-time failure scenarios).
+    const latestSchemaDoc = await stateManager.getLatestSchemaVersion();
+    const schemaObject = latestSchemaDoc?.schema || localSchemaObject;
+    const versionLabel = latestSchemaDoc?.version || TARGET_SCHEMA_VERSION;
+    const loadSource = latestSchemaDoc?.schema ? 'MongoDB' : 'Local file fallback';
+
     initializeValidator(schemaObject);
-    const versionLabel = schemaDoc?.version || '1.0.0';
     logger.info(`📋 [SCHEMA-VALIDATOR] Schema v${versionLabel} - Loaded from ${loadSource}`);
   } catch (err) {
     logger.error(`📋 [SCHEMA-VALIDATOR] Failed to initialize validator:`, err);
