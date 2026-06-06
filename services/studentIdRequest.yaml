@@ -1,0 +1,86 @@
+id: SERV-STUDENT-ID-001
+name: Student ID Request
+type: studentIdRequest
+serviceCode: student-id-request
+description: Request and generate a Student ID document, deliver it via email, then collect feedback.
+initiator: Student
+
+envelopes:
+  request:
+    required: true
+    parameters:
+      firstName:
+        type: String
+        required: true
+        description: Student first name
+        minLength: 1
+        maxLength: 100
+      lastName:
+        type: String
+        required: true
+        description: Student last name
+        minLength: 1
+        maxLength: 100
+
+  approval:
+    required: true
+    approvalRules:
+      type: specific_approver
+      specificApprover: barondimaranan@gmail.com
+    expiryHours: 24
+
+  payment:
+    required: true
+    paymentProvider: maya
+    charges:
+      - item: Student ID Processing Fee
+        amount: 150
+        currency: PHP
+        quantity: 1
+    expiryDays: 7
+
+  processing:
+    required: true
+    stopOnFailure: true
+    tasks:
+      - type: api_call
+        name: Verify Student Records
+        description: Verify student record from mock SIS endpoint
+        method: POST
+        url: http://localhost:8000/api/mock/students/verify
+        timeout: 30000
+        retries: 2
+        successCodes: [200]
+        payload:
+          studentId: "{{firstName}}-{{lastName}}"
+          firstName: "{{firstName}}"
+          lastName: "{{lastName}}"
+
+      - type: api_call
+        name: Generate Student ID Document
+        description: Generate Student ID document from mock document endpoint
+        method: POST
+        url: http://localhost:8000/api/mock/documents/generate-record
+        timeout: 30000
+        retries: 2
+        successCodes: [201]
+        payload:
+          studentId: "{{firstName}}-{{lastName}}"
+          documentType: "Student ID"
+          numberOfCopies: 1
+
+  delivery:
+    required: true
+    deliveryMethods:
+      email:
+        enabled: true
+        emailTemplateId: delivery-email-document
+        resolveAttachmentsFrom:
+          - taskName: Generate Student ID Document
+            field: documentUrl
+            label: Student ID Document
+
+  feedback:
+    required: true
+    autoCloseAfterHours: 24
+    expiryDays: 7
