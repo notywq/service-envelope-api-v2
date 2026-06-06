@@ -2,27 +2,29 @@ openapi: 3.0.0
 info:
   title: Service Envelope API v2.0
   version: 2.0.2
-  description: REST API for the Service Envelope System. Updated for unified delivery selection flow where POST /api/delivery/{requestId}/details is the canonical method+details endpoint and may auto-resume orchestrator when delivery is pending external.
+  description: REST API for the Service Envelope System. Updated for unified
+    delivery selection flow where POST /api/delivery/{requestId}/details is the
+    canonical method+details endpoint and may auto-resume orchestrator when
+    delivery is pending external.
   contact:
     name: Service Envelope Team
   license:
     name: MIT
-
 servers:
   - url: http://localhost:8000
     description: Development
   - url: https://api.mapua.edu.ph
     description: Production
-
 paths:
   /health:
     get:
-      tags: [System]
+      tags:
+        - System
       summary: Health Check
       operationId: healthCheck
       security: []
       responses:
-        '200':
+        "200":
           description: Server is healthy
           content:
             application/json:
@@ -35,15 +37,25 @@ paths:
                   timestamp:
                     type: string
                     format: date-time
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    status: ok
+                    timestamp: 2026-06-07T00:00:00.000Z
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/health"
   /api:
     get:
-      tags: [System]
+      tags:
+        - System
       summary: API Information
       operationId: getApiInfo
       security: []
       responses:
-        '200':
+        "200":
           description: API metadata and key endpoints
           content:
             application/json:
@@ -60,10 +72,22 @@ paths:
                     type: array
                     items:
                       type: string
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    name: Service Envelope API
+                    version: 1.0.0
+                    endpoints:
+                      - sample
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api"
   /api/auth/login:
     post:
-      tags: [Auth]
+      tags:
+        - Auth
       summary: Login
       operationId: login
       security: []
@@ -72,7 +96,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginRequest'
+              $ref: "#/components/schemas/LoginRequest"
             examples:
               requester:
                 value:
@@ -83,20 +107,37 @@ paths:
                   email: approver@mapua.edu.ph
                   password: approver123
       responses:
-        '200':
+        "200":
           description: Login successful
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LoginResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
+                $ref: "#/components/schemas/LoginResponse"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    token: sample
+                    user:
+                      email: student@mapua.edu.ph
+                      name: sample
+                      role: requester
+                    expiresIn: 24h
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: |-
+            curl -X POST "http://localhost:8000/api/auth/login" \
+              -H "Content-Type: application/json" \
+              -d '{"sample":true}'
   /api/auth/verify:
     post:
-      tags: [Auth]
+      tags:
+        - Auth
       summary: Verify JWT Token
       operationId: verifyToken
       security: []
@@ -109,7 +150,7 @@ paths:
             example: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
           description: Bearer token. Route reads token from Authorization header.
       responses:
-        '200':
+        "200":
           description: Token is valid
           content:
             application/json:
@@ -121,17 +162,27 @@ paths:
                     example: true
                   user:
                     type: object
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    valid: true
+                    user: {}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X POST "http://localhost:8000/api/auth/verify"
   /api/services:
     get:
-      tags: [Services]
+      tags:
+        - Services
       summary: List All Services
       operationId: listAllServices
       security: []
       responses:
-        '200':
+        "200":
           description: All available services
           content:
             application/json:
@@ -144,18 +195,34 @@ paths:
                   services:
                     type: array
                     items:
-                      $ref: '#/components/schemas/ServiceSummary'
-        '500':
-          $ref: '#/components/responses/ServerError'
-
+                      $ref: "#/components/schemas/ServiceSummary"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    count: 4
+                    services:
+                      - serviceId: SERVICE-999
+                        id: SERV-1-04152026
+                        name: sample
+                        description: sample
+                        type: sample
+                        yaml: sample
+        "500":
+          $ref: "#/components/responses/ServerError"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/services"
   /api/services/ids:
     get:
-      tags: [Services]
+      tags:
+        - Services
       summary: Get Service IDs Quick Reference
       operationId: getServiceIds
       security: []
       responses:
-        '200':
+        "200":
           description: ID/name mapping and list
           content:
             application/json:
@@ -179,36 +246,70 @@ paths:
                           type: string
                         name:
                           type: string
-        '500':
-          $ref: '#/components/responses/ServerError'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    count: 1
+                    serviceMap:
+                      sampleKey: sampleValue
+                    services:
+                      - serviceId: sample
+                        id: sample
+                        name: sample
+        "500":
+          $ref: "#/components/responses/ServerError"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/services/ids"
   /api/services/{serviceId}:
     get:
-      tags: [Services]
+      tags:
+        - Services
       summary: Get Service Details
       operationId: getServiceDetails
       security: []
       parameters:
-        - $ref: '#/components/parameters/ServiceIdParam'
+        - $ref: "#/components/parameters/ServiceIdParam"
       responses:
-        '200':
+        "200":
           description: Service definition details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ServiceDefinitionDetails'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+                $ref: "#/components/schemas/ServiceDefinitionDetails"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    serviceId: sample
+                    id: sample
+                    name: sample
+                    service_id: sample
+                    service_name: sample
+                    type: sample
+                    description: sample
+                    envelopes:
+                      sampleKey: sampleValue
+                    requestParameters:
+                      - sampleKey: sampleValue
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/services/SERV-STUDENT-ID-001"
     delete:
-      tags: [Services]
+      tags:
+        - Services
       summary: Delete Service
       operationId: deleteService
       security: []
       parameters:
-        - $ref: '#/components/parameters/ServiceIdParam'
+        - $ref: "#/components/parameters/ServiceIdParam"
       responses:
-        '200':
+        "200":
           description: Service deleted
           content:
             application/json:
@@ -222,32 +323,62 @@ paths:
                     type: string
                   serviceId:
                     type: string
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/ServerError'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    success: true
+                    message: sample
+                    serviceId: sample
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X DELETE "http://localhost:8000/api/services/SERV-STUDENT-ID-001"
   /api/requests:
     get:
-      tags: [Requests]
+      tags:
+        - Requests
       summary: List All Requests
       operationId: listAllRequests
       security: []
       parameters:
-        - $ref: '#/components/parameters/StatusQueryParam'
-        - $ref: '#/components/parameters/TypeQueryParam'
-        - $ref: '#/components/parameters/LimitQueryParam'
-        - $ref: '#/components/parameters/OffsetQueryParam'
+        - $ref: "#/components/parameters/StatusQueryParam"
+        - $ref: "#/components/parameters/TypeQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
       responses:
-        '200':
+        "200":
           description: List of requests
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RequestListResponse'
-
+                $ref: "#/components/schemas/RequestListResponse"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    total: 1
+                    count: 1
+                    limit: 1
+                    offset: 1
+                    requests:
+                      - id: sample
+                        type: sample
+                        initiator: sample
+                        status: sample
+                        createdAt: 2026-06-07T00:00:00.000Z
+                        lastUpdated: 2026-06-07T00:00:00.000Z
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/requests"
     post:
-      tags: [Requests]
+      tags:
+        - Requests
       summary: Create Request
       operationId: createRequest
       security: []
@@ -256,7 +387,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RequestCreatePayload'
+              $ref: "#/components/schemas/RequestCreatePayload"
             examples:
               usingServiceId:
                 value:
@@ -277,44 +408,81 @@ paths:
                     lastName: Dela Cruz
                     email: juan.delacruz@mapua.edu.ph
       responses:
-        '201':
+        "201":
           description: Request created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CreateRequestResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/ServerError'
-
+                $ref: "#/components/schemas/CreateRequestResponse"
+              examples:
+                sample:
+                  summary: Sample 201 response
+                  value:
+                    success: true
+                    requestId: REQ-20260606-042
+                    type: sample
+                    serviceId: sample
+                    status: queued
+                    envelopes:
+                      sampleKey: sampleValue
+                    message: sample
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: |-
+            curl -X POST "http://localhost:8000/api/requests" \
+              -H "Content-Type: application/json" \
+              -d '{"sample":true}'
   /api/requests/{requestId}:
     get:
-      tags: [Requests]
+      tags:
+        - Requests
       summary: Get Request Details
       operationId: getRequestDetails
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Request details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/RequestDetailsResponse'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+                $ref: "#/components/schemas/RequestDetailsResponse"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    id: sample
+                    type: sample
+                    initiator: sample
+                    status: sample
+                    createdAt: 2026-06-07T00:00:00.000Z
+                    lastUpdated: 2026-06-07T00:00:00.000Z
+                    envelopes:
+                      sampleKey: sampleValue
+                    history:
+                      - sampleKey: sampleValue
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/requests/REQ-20260606-865"
     delete:
-      tags: [Requests]
+      tags:
+        - Requests
       summary: Cancel Request
       operationId: cancelRequest
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Request cancelled
           content:
             application/json:
@@ -330,25 +498,40 @@ paths:
                   message:
                     type: string
                     example: Request cancelled successfully
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: REQ-20260606-042
+                    status: cancelled
+                    message: Request cancelled successfully
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X DELETE "http://localhost:8000/api/requests/REQ-20260606-865"
   /api/requests/{requestId}/resume:
     post:
-      tags: [Requests]
+      tags:
+        - Requests
       summary: Resume Request
       operationId: resumeRequest
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
         required: false
         content:
           application/json:
             schema:
               type: object
+            examples:
+              sample:
+                summary: Sample request
+                value: {}
       responses:
-        '200':
+        "200":
           description: Request resumed
           content:
             application/json:
@@ -362,19 +545,34 @@ paths:
                   status:
                     type: string
                     example: processing
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    message: sample
+                    status: processing
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/requests/REQ-20260606-865/resume" \
+              -H "Content-Type: application/json" \
+              -d '{}'
   /api/requests/{requestId}/history:
     get:
-      tags: [Requests]
+      tags:
+        - Requests
       summary: Get Request History
       operationId: getRequestHistory
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Request history
           content:
             application/json:
@@ -390,19 +588,32 @@ paths:
                       additionalProperties: true
                   totalEntries:
                     type: integer
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    history:
+                      - sampleKey: sampleValue
+                    totalEntries: 1
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/requests/REQ-20260606-865/history"
   /api/approvals/admin/tokens/{requestId}:
     get:
-      tags: [Approvals]
+      tags:
+        - Approvals
       summary: Get Approval Tokens (Approvals Admin)
       operationId: getApprovalTokensByRequestInApprovalsRoute
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Tokens for request
           content:
             application/json:
@@ -416,20 +627,38 @@ paths:
                   tokens:
                     type: array
                     items:
-                      $ref: '#/components/schemas/ApprovalTokenInfo'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+                      $ref: "#/components/schemas/ApprovalTokenInfo"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    count: 1
+                    tokens:
+                      - token: sample
+                        approverId: sample
+                        requestId: sample
+                        used: true
+                        expiresAt: 2026-06-07T00:00:00.000Z
+                        createdAt: 2026-06-07T00:00:00.000Z
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/approvals/admin/tokens/REQ-20260606-865"
   /api/approvals/{token}:
     get:
-      tags: [Approvals]
+      tags:
+        - Approvals
       summary: Check Approval Token Status
       operationId: checkApprovalTokenStatus
       security: []
       parameters:
-        - $ref: '#/components/parameters/TokenParam'
+        - $ref: "#/components/parameters/TokenParam"
       responses:
-        '200':
+        "200":
           description: Token status
           content:
             application/json:
@@ -452,17 +681,33 @@ paths:
                   createdAt:
                     type: string
                     format: date-time
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    token: sample
+                    requestId: sample
+                    approverId: sample
+                    used: true
+                    expired: true
+                    expiresAt: 2026-06-07T00:00:00.000Z
+                    createdAt: 2026-06-07T00:00:00.000Z
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/approvals/94c2fea5-7de6-427c-9da8-ad3948673177"
   /api/approvals/{token}/approve:
     post:
-      tags: [Approvals]
+      tags:
+        - Approvals
       summary: Approve Request by Token
       operationId: approveRequest
       security: []
       parameters:
-        - $ref: '#/components/parameters/TokenParam'
+        - $ref: "#/components/parameters/TokenParam"
       requestBody:
         required: false
         content:
@@ -473,8 +718,13 @@ paths:
                 comment:
                   type: string
                   example: Approved by registrar.
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  comment: Approved by registrar.
       responses:
-        '200':
+        "200":
           description: Approval processed
           content:
             application/json:
@@ -494,34 +744,57 @@ paths:
                     type: string
                   nextStatus:
                     type: string
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    status: approved
+                    message: sample
+                    approvalComplete: true
+                    rule: sample
+                    nextStatus: sample
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: Approval stage already finalized
-
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: |-
+            curl -X POST "http://localhost:8000/api/approvals/94c2fea5-7de6-427c-9da8-ad3948673177/approve" \
+              -H "Content-Type: application/json" \
+              -d '{"comment":"Approved by registrar."}'
   /api/approvals/{token}/deny:
     post:
-      tags: [Approvals]
+      tags:
+        - Approvals
       summary: Deny Request by Token
       operationId: denyRequest
       security: []
       parameters:
-        - $ref: '#/components/parameters/TokenParam'
+        - $ref: "#/components/parameters/TokenParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [reason]
+              required:
+                - reason
               properties:
                 reason:
                   type: string
                   example: Missing required supporting document.
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  reason: Missing required supporting document.
       responses:
-        '200':
+        "200":
           description: Request cancelled after denial
           content:
             application/json:
@@ -537,56 +810,83 @@ paths:
                     type: string
                   reason:
                     type: string
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    status: cancelled
+                    message: sample
+                    reason: sample
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: Approval stage already finalized
-
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: |-
+            curl -X POST "http://localhost:8000/api/approvals/94c2fea5-7de6-427c-9da8-ad3948673177/deny" \
+              -H "Content-Type: application/json" \
+              -d '{"reason":"Missing required supporting document."}'
   /api/approvals/{token}/request:
     get:
-      tags: [Approvals]
+      tags:
+        - Approvals
       summary: Get Request Details for Approval Token
       operationId: getApprovalTokenRequest
       security: []
       parameters:
-        - $ref: '#/components/parameters/TokenParam'
+        - $ref: "#/components/parameters/TokenParam"
       responses:
-        '200':
+        "200":
           description: Request details for approval UI
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    sampleKey: sampleValue
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/approvals/94c2fea5-7de6-427c-9da8-ad3948673177/request"
   /api/payments/{requestId}/complete:
     post:
-      tags: [Payments]
+      tags:
+        - Payments
       summary: Mark Payment Complete
       operationId: completePayment
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [transactionId, amount]
+              required:
+                - transactionId
+                - amount
               properties:
                 transactionId:
                   type: string
                   example: MAYA-TXN-20260606-001
                 amount:
                   type: number
-                  example: 350.00
+                  example: 350
                 method:
                   type: string
                   example: maya
@@ -599,11 +899,11 @@ paths:
               maya:
                 value:
                   transactionId: MAYA-TXN-20260606-001
-                  amount: 350.00
+                  amount: 350
                   method: maya
                   reference: PAY-REF-5566
       responses:
-        '200':
+        "200":
           description: Payment marked complete
           content:
             application/json:
@@ -622,26 +922,44 @@ paths:
                   nextStatus:
                     type: string
                     example: processing
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    status: completed
+                    message: sample
+                    transactionId: sample
+                    nextStatus: processing
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/payments/REQ-20260606-865/complete" \
+              -H "Content-Type: application/json" \
+              -d '{"sample":true}'
   /api/payments/{requestId}/failed:
     post:
-      tags: [Payments]
+      tags:
+        - Payments
       summary: Mark Payment Failed
       operationId: failPayment
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [reason]
+              required:
+                - reason
               properties:
                 reason:
                   type: string
@@ -651,8 +969,15 @@ paths:
                   example: PG_TIMEOUT
                 metadata:
                   type: object
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  reason: Payment gateway timeout.
+                  errorCode: PG_TIMEOUT
+                  metadata: {}
       responses:
-        '200':
+        "200":
           description: Payment marked failed
           content:
             application/json:
@@ -671,14 +996,31 @@ paths:
                   nextStatus:
                     type: string
                     example: pending_payment
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    status: failed
+                    message: sample
+                    reason: sample
+                    nextStatus: pending_payment
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/payments/REQ-20260606-865/failed" \
+              -H "Content-Type: application/json" \
+              -d '{"reason":"Payment gateway timeout.","errorCode":"PG_TIMEOUT","metadata":{}}'
   /api/payments/maya:
     post:
-      tags: [Payments]
+      tags:
+        - Payments
       summary: Maya Webhook (payments mount)
       operationId: mayaPaymentWebhookFromPaymentsMount
       security: []
@@ -687,7 +1029,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MayaWebhookPayload'
+              $ref: "#/components/schemas/MayaWebhookPayload"
             examples:
               success:
                 value:
@@ -704,16 +1046,23 @@ paths:
                   amount: 350
                   currency: PHP
       responses:
-        '200':
+        "200":
           description: Webhook processed
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: |-
+            curl -X POST "http://localhost:8000/api/payments/maya" \
+              -H "Content-Type: application/json" \
+              -d '{"sample":true}'
   /api/webhooks/maya:
     post:
-      tags: [Payments]
+      tags:
+        - Payments
       summary: Maya Webhook (webhooks mount)
       operationId: mayaPaymentWebhookFromWebhooksMount
       security: []
@@ -722,37 +1071,59 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MayaWebhookPayload'
+              $ref: "#/components/schemas/MayaWebhookPayload"
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  checkoutId: sample
+                  requestReferenceNumber: REQ-20260606-042
+                  customField:
+                    requestId: REQ-20260606-042
+                  transactionId: MAYA-TXN-20260606-001
+                  status: SUCCESS
+                  amount: 350
+                  currency: PHP
+                  timestamp: 2026-06-07T00:00:00.000Z
       responses:
-        '200':
+        "200":
           description: Webhook processed
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST "http://localhost:8000/api/webhooks/maya" \
+              -H "Content-Type: application/json" \
+              -d '{"checkoutId":"sample","requestReferenceNumber":"REQ-20260606-042","customField":{"requestId":"REQ-20260606-042"},"transactionId":"MAYA-TXN-20260606-001","status":"SUCCESS","amount":350,"currency":"PHP","timestamp":"2026-06-07T00:00:00.000Z"}'
   /api/webhooks/{requestId}/complete:
     post:
-      tags: [Payments]
+      tags:
+        - Payments
       summary: Mark Payment Complete (webhooks mount alias)
       operationId: completePaymentFromWebhooksMount
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [transactionId, amount]
+              required:
+                - transactionId
+                - amount
               properties:
                 transactionId:
                   type: string
                   example: MAYA-TXN-20260606-001
                 amount:
                   type: number
-                  example: 350.00
+                  example: 350
                 method:
                   type: string
                   example: maya
@@ -761,29 +1132,45 @@ paths:
                   example: PAY-REF-5566
                 metadata:
                   type: object
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  transactionId: MAYA-TXN-20260606-001
+                  amount: 350
+                  method: maya
       responses:
-        '200':
+        "200":
           description: Payment marked complete
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/webhooks/REQ-20260606-865/complete" \
+              -H "Content-Type: application/json" \
+              -d '{"transactionId":"MAYA-TXN-20260606-001","amount":350,"method":"maya"}'
   /api/webhooks/{requestId}/failed:
     post:
-      tags: [Payments]
+      tags:
+        - Payments
       summary: Mark Payment Failed (webhooks mount alias)
       operationId: failPaymentFromWebhooksMount
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [reason]
+              required:
+                - reason
               properties:
                 reason:
                   type: string
@@ -793,24 +1180,39 @@ paths:
                   example: PG_TIMEOUT
                 metadata:
                   type: object
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  reason: Payment gateway timeout.
+                  errorCode: PG_TIMEOUT
+                  metadata: {}
       responses:
-        '200':
+        "200":
           description: Payment marked failed
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/webhooks/REQ-20260606-865/failed" \
+              -H "Content-Type: application/json" \
+              -d '{"reason":"Payment gateway timeout.","errorCode":"PG_TIMEOUT","metadata":{}}'
   /api/feedback/token/{token}:
     get:
-      tags: [Feedback]
+      tags:
+        - Feedback
       summary: Get Feedback Status by Token
       operationId: getFeedbackByToken
       security: []
       parameters:
-        - $ref: '#/components/parameters/TokenParam'
+        - $ref: "#/components/parameters/TokenParam"
       responses:
-        '200':
+        "200":
           description: Feedback status and data by token
           content:
             application/json:
@@ -832,20 +1234,44 @@ paths:
                     type: object
                     additionalProperties: true
                   tokenStatus:
-                    $ref: '#/components/schemas/FeedbackTokenStatus'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '410':
+                    $ref: "#/components/schemas/FeedbackTokenStatus"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    token: sample
+                    status: sample
+                    feedbackLink: sample
+                    expiresAt: 2026-06-07T00:00:00.000Z
+                    feedback:
+                      sampleKey: sampleValue
+                    tokenStatus:
+                      token: sample
+                      requestId: sample
+                      isUsed: true
+                      isExpired: true
+                      expiresAt: 2026-06-07T00:00:00.000Z
+                      submittedFeedback:
+                        sampleKey: sampleValue
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "410":
           description: Feedback token has expired
-
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/feedback/token/94c2fea5-7de6-427c-9da8-ad3948673177"
   /api/feedback/token/{token}/submit:
     post:
-      tags: [Feedback]
+      tags:
+        - Feedback
       summary: Submit Feedback by Token
       operationId: submitFeedbackByToken
       security: []
       parameters:
-        - $ref: '#/components/parameters/TokenParam'
+        - $ref: "#/components/parameters/TokenParam"
       requestBody:
         required: true
         content:
@@ -869,7 +1295,7 @@ paths:
                     speed: 4
                   comments: Great service.
       responses:
-        '200':
+        "200":
           description: Feedback submitted by token
           content:
             application/json:
@@ -888,31 +1314,47 @@ paths:
                   feedbackReceivedAt:
                     type: string
                     format: date-time
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    status: success
+                    message: sample
+                    requestId: sample
+                    token: sample
+                    feedbackReceivedAt: 2026-06-07T00:00:00.000Z
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
           description: Feedback token has already been used
-        '410':
+        "410":
           description: Feedback token has expired
-
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: |-
+            curl -X POST "http://localhost:8000/api/feedback/token/94c2fea5-7de6-427c-9da8-ad3948673177/submit" \
+              -H "Content-Type: application/json" \
+              -d '{"sample":true}'
   /api/delivery/{requestId}/details:
     post:
-      tags: [Delivery]
+      tags:
+        - Delivery
       summary: Submit Delivery Method and Details (Canonical)
       operationId: submitDeliveryDetails
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               oneOf:
-                - $ref: '#/components/schemas/DeliveryDetailsPayload'
-                - $ref: '#/components/schemas/DeliveryMethodAliasPayload'
+                - $ref: "#/components/schemas/DeliveryDetailsPayload"
+                - $ref: "#/components/schemas/DeliveryMethodAliasPayload"
             examples:
               email:
                 value:
@@ -945,8 +1387,9 @@ paths:
                     pickup:
                       location: Registrar Office
       responses:
-        '200':
-          description: Delivery details saved. If delivery envelope is pending_external, orchestrator is auto-resumed.
+        "200":
+          description: Delivery details saved. If delivery envelope is pending_external,
+            orchestrator is auto-resumed.
           content:
             application/json:
               schema:
@@ -962,29 +1405,49 @@ paths:
                     type: string
                     example: REQ-20260606-042
                   deliveryMethod:
-                    $ref: '#/components/schemas/DeliveryMethod'
+                    $ref: "#/components/schemas/DeliveryMethod"
                   deliveryDetails:
                     type: object
                     additionalProperties: true
                   autoResumed:
                     type: boolean
-                    description: True when route promoted delivery to in_progress and resumed orchestrator.
+                    description: True when route promoted delivery to in_progress and resumed
+                      orchestrator.
                     example: true
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    status: success
+                    message: Delivery details saved (email) and processing started.
+                    requestId: REQ-20260606-042
+                    deliveryMethod: physical_mail
+                    deliveryDetails:
+                      sampleKey: sampleValue
+                    autoResumed: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/delivery/REQ-20260606-865/details" \
+              -H "Content-Type: application/json" \
+              -d '{"sample":true}'
   /api/delivery/{requestId}/method:
     get:
-      tags: [Delivery]
+      tags:
+        - Delivery
       summary: Get Delivery Method
       operationId: getDeliveryMethod
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Current delivery method and status
           content:
             application/json:
@@ -1003,22 +1466,36 @@ paths:
                     type: object
                   availableMethods:
                     type: object
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    deliveryMethod: PHYSICAL_MAIL
+                    status: sample
+                    details: {}
+                    availableMethods: {}
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/delivery/REQ-20260606-865/method"
     post:
-      tags: [Delivery]
+      tags:
+        - Delivery
       summary: Select Delivery Method (Legacy Alias)
-      description: Backward-compatible alias route. Canonical route is POST /api/delivery/{requestId}/details.
+      description: Backward-compatible alias route. Canonical route is POST
+        /api/delivery/{requestId}/details.
       operationId: updateDeliveryMethodAlias
       deprecated: true
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/DeliveryMethodAliasPayload'
+              $ref: "#/components/schemas/DeliveryMethodAliasPayload"
             examples:
               pickup:
                 value:
@@ -1034,7 +1511,7 @@ paths:
                     physical_mail:
                       mailingAddress: 123 Example St, Manila
       responses:
-        '200':
+        "200":
           description: Alias accepted and delegated to canonical /details flow
           content:
             application/json:
@@ -1049,27 +1526,46 @@ paths:
                   requestId:
                     type: string
                   deliveryMethod:
-                    $ref: '#/components/schemas/DeliveryMethod'
+                    $ref: "#/components/schemas/DeliveryMethod"
                   deliveryDetails:
                     type: object
                     additionalProperties: true
                   autoResumed:
                     type: boolean
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    status: success
+                    message: sample
+                    requestId: sample
+                    deliveryMethod: physical_mail
+                    deliveryDetails:
+                      sampleKey: sampleValue
+                    autoResumed: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/delivery/REQ-20260606-865/method" \
+              -H "Content-Type: application/json" \
+              -d '{"sample":true}'
   /api/delivery/{requestId}:
     get:
-      tags: [Delivery]
+      tags:
+        - Delivery
       summary: Get Delivery Status
       operationId: getDeliveryStatus
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Delivery information
           content:
             application/json:
@@ -1086,41 +1582,61 @@ paths:
                     type: object
                   deliveryAttempts:
                     type: integer
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    status: sample
+                    method: sample
+                    details: {}
+                    deliveryAttempts: 1
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/delivery/REQ-20260606-865"
   /api/delivery-status/{requestId}:
     post:
-      tags: [Delivery]
+      tags:
+        - Delivery
       summary: Update Delivery Status (Method-Aware Guardrails)
       operationId: updateDeliveryStatus
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              description: |
+              description: >
                 Send code_number/code_name for the selected delivery method.
-                Legacy status field is still accepted for backward compatibility.
+
+                Legacy status field is still accepted for backward
+                compatibility.
               anyOf:
-                - required: [code_number]
-                - required: [code_name]
-                - required: [status]
+                - required:
+                    - code_number
+                - required:
+                    - code_name
+                - required:
+                    - status
               properties:
                 code_number:
                   type: integer
-                  description: Preferred numeric status code. Must belong to the request's selected delivery method.
+                  description: Preferred numeric status code. Must belong to the request's
+                    selected delivery method.
                   example: 1
                 code_name:
                   type: string
-                  description: Preferred status name. Must belong to the request's selected delivery method.
+                  description: Preferred status name. Must belong to the request's selected
+                    delivery method.
                   example: email_sent
                 status:
-                  $ref: '#/components/schemas/DeliveryStatusInput'
+                  $ref: "#/components/schemas/DeliveryStatusInput"
                 notes:
                   type: string
                   example: Package handed to courier.
@@ -1157,23 +1673,31 @@ paths:
                   code_number: 2
                   notes: Student collected document at counter
       responses:
-        '200':
+        "200":
           description: Status updated
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/delivery-status/REQ-20260606-865" \
+              -H "Content-Type: application/json" \
+              -d '{"sample":true}'
   /api/delivery-status/{requestId}/history:
     get:
-      tags: [Delivery]
+      tags:
+        - Delivery
       summary: Get Delivery Status History
       operationId: getDeliveryStatusHistory
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Delivery status history
           content:
             application/json:
@@ -1220,19 +1744,45 @@ paths:
                           type: string
                         trackingId:
                           type: string
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    deliveryMethod: sample
+                    currentStatus: sample
+                    currentStatusCode: 1
+                    code_name: email_sent
+                    code_number: 1
+                    totalStatusUpdates: 1
+                    history:
+                      - sequence: 1
+                        code_number: 1
+                        code_name: sample
+                        statusCode: 1
+                        status: sample
+                        timestamp: 2026-06-07T00:00:00.000Z
+                        location: sample
+                        notes: sample
+                        trackingId: sample
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/delivery-status/REQ-20260606-865/history"
   /api/delivery-status/{requestId}/current:
     get:
-      tags: [Delivery]
+      tags:
+        - Delivery
       summary: Get Current Delivery Status
       operationId: getCurrentDeliveryStatus
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Current delivery status
           content:
             application/json:
@@ -1290,75 +1840,135 @@ paths:
                     type: string
                     format: date-time
                     nullable: true
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    requestId: sample
+                    deliveryMethod: sample
+                    envelopeStatus: sample
+                    currentStatus: sample
+                    currentStatusCode: 1
+                    code_name: ready_for_pickup
+                    code_number: 1
+                    lastStatusUpdate: 2026-06-07T00:00:00.000Z
+                    lastUpdateDetails:
+                      code_number: 1
+                      code_name: sample
+                      statusCode: 1
+                      status: sample
+                      timestamp: 2026-06-07T00:00:00.000Z
+                      location: sample
+                      notes: sample
+                      trackingId: sample
+                      sequence: 1
+                    deliveryAttempts: 1
+                    lastAttemptAt: 2026-06-07T00:00:00.000Z
+                    deliveredAt: 2026-06-07T00:00:00.000Z
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/delivery-status/REQ-20260606-865/current"
   /api/processing/{requestId}:
     get:
-      tags: [Processing]
+      tags:
+        - Processing
       summary: Get Processing Status
       operationId: getProcessingStatus
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Processing envelope status
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    sampleKey: sampleValue
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/processing/REQ-20260606-865"
   /api/processing/{requestId}/tasks/{taskName}:
     get:
-      tags: [Processing]
+      tags:
+        - Processing
       summary: Get Specific Task Status
       operationId: getTaskStatus
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
-        - $ref: '#/components/parameters/TaskNameParam'
+        - $ref: "#/components/parameters/RequestIdParam"
+        - $ref: "#/components/parameters/TaskNameParam"
       responses:
-        '200':
+        "200":
           description: Task details
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    sampleKey: sampleValue
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/processing/REQ-20260606-865/tasks/Generate
+            Student ID Document"
   /api/processing/{requestId}/summary:
     get:
-      tags: [Processing]
+      tags:
+        - Processing
       summary: Get Processing Summary
       operationId: getProcessingSummary
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Processing summary
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    sampleKey: sampleValue
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/processing/REQ-20260606-865/summary"
   /api/admin/services:
     get:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Get All Services (Admin)
       operationId: getAllServicesAdmin
       security: []
       responses:
-        '200':
+        "200":
           description: All service definitions
           content:
             application/json:
@@ -1368,12 +1978,33 @@ paths:
                   services:
                     type: array
                     items:
-                      $ref: '#/components/schemas/ServiceDefinitionDetails'
+                      $ref: "#/components/schemas/ServiceDefinitionDetails"
                   total:
                     type: integer
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    services:
+                      - serviceId: sample
+                        id: sample
+                        name: sample
+                        service_id: sample
+                        service_name: sample
+                        type: sample
+                        description: sample
+                        envelopes:
+                          sampleKey: sampleValue
+                        requestParameters:
+                          - sampleKey: sampleValue
+                    total: 1
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/admin/services"
     post:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Create Service (Admin)
       operationId: createServiceAdmin
       security: []
@@ -1382,48 +2013,79 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateServicePayload'
+              $ref: "#/components/schemas/CreateServicePayload"
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  name: Transcript Request
+                  yaml: sample
+                  type: request-tor
+                  initiator: student
       responses:
-        '201':
+        "201":
           description: Service created
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/ServerError'
-
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST "http://localhost:8000/api/admin/services" \
+              -H "Content-Type: application/json" \
+              -d '{"name":"Transcript Request","yaml":"sample","type":"request-tor","initiator":"student"}'
   /api/admin/services/{serviceId}:
     put:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Update Service (Admin)
       operationId: updateServiceAdmin
       security: []
       parameters:
-        - $ref: '#/components/parameters/ServiceIdParam'
+        - $ref: "#/components/parameters/ServiceIdParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CreateServicePayload'
+              $ref: "#/components/schemas/CreateServicePayload"
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  name: Transcript Request
+                  yaml: sample
+                  type: request-tor
+                  initiator: student
       responses:
-        '200':
+        "200":
           description: Service updated
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/ServerError'
-
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X PUT
+            "http://localhost:8000/api/admin/services/SERV-STUDENT-ID-001" \
+              -H "Content-Type: application/json" \
+              -d '{"name":"Transcript Request","yaml":"sample","type":"request-tor","initiator":"student"}'
   /api/admin/audit-logs:
     get:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Get Audit Logs
       operationId: getAuditLogs
       security: []
       parameters:
-        - $ref: '#/components/parameters/LimitQueryParam'
-        - $ref: '#/components/parameters/OffsetQueryParam'
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
       responses:
-        '200':
+        "200":
           description: Audit logs
           content:
             application/json:
@@ -1440,22 +2102,35 @@ paths:
                     type: integer
                   offset:
                     type: integer
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    logs:
+                      - {}
+                    total: 1
+                    limit: 1
+                    offset: 1
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/admin/audit-logs"
   /api/admin/email-templates:
     get:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: List Email Templates
       operationId: listEmailTemplates
       security: []
       parameters:
-        - $ref: '#/components/parameters/TemplateScopeQueryParam'
-        - $ref: '#/components/parameters/EventKeyQueryParam'
-        - $ref: '#/components/parameters/EnvelopeTypeQueryParam'
-        - $ref: '#/components/parameters/PhaseQueryParam'
-        - $ref: '#/components/parameters/ServiceTypeQueryParam'
-        - $ref: '#/components/parameters/IsActiveQueryParam'
+        - $ref: "#/components/parameters/TemplateScopeQueryParam"
+        - $ref: "#/components/parameters/EventKeyQueryParam"
+        - $ref: "#/components/parameters/EnvelopeTypeQueryParam"
+        - $ref: "#/components/parameters/PhaseQueryParam"
+        - $ref: "#/components/parameters/ServiceTypeQueryParam"
+        - $ref: "#/components/parameters/IsActiveQueryParam"
       responses:
-        '200':
+        "200":
           description: All email templates
           content:
             application/json:
@@ -1465,12 +2140,35 @@ paths:
                   templates:
                     type: array
                     items:
-                      $ref: '#/components/schemas/EmailTemplate'
+                      $ref: "#/components/schemas/EmailTemplate"
                   total:
                     type: integer
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    templates:
+                      - id: SERV-1-approval
+                        name: Approval Request Template
+                        subject: Approval needed for {{requestId}}
+                        htmlBody: sample
+                        description: sample
+                        templateScope: generic
+                        eventKey: sample
+                        serviceType: sample
+                        isActive: true
+                        envelopeType: sample
+                        phase: sample
+                        createdAt: 2026-06-07T00:00:00.000Z
+                        updatedAt: 2026-06-07T00:00:00.000Z
+                    total: 1
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/admin/email-templates"
     post:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Create Email Template
       operationId: createEmailTemplate
       security: []
@@ -1479,108 +2177,188 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EmailTemplateCreate'
+              $ref: "#/components/schemas/EmailTemplateCreate"
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  id: sample
+                  name: sample
+                  subject: sample
+                  htmlBody: sample
       responses:
-        '201':
+        "201":
           description: Template created
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/ServerError'
-
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST "http://localhost:8000/api/admin/email-templates" \
+              -H "Content-Type: application/json" \
+              -d '{"id":"sample","name":"sample","subject":"sample","htmlBody":"sample"}'
   /api/admin/email-templates/{templateId}:
     get:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Get Email Template
       operationId: getEmailTemplate
       security: []
       parameters:
-        - $ref: '#/components/parameters/TemplateIdParam'
+        - $ref: "#/components/parameters/TemplateIdParam"
       responses:
-        '200':
+        "200":
           description: Template details
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EmailTemplate'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+                $ref: "#/components/schemas/EmailTemplate"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    id: SERV-1-approval
+                    name: Approval Request Template
+                    subject: Approval needed for {{requestId}}
+                    htmlBody: sample
+                    description: sample
+                    templateScope: generic
+                    eventKey: sample
+                    serviceType: sample
+                    isActive: true
+                    envelopeType: sample
+                    phase: sample
+                    createdAt: 2026-06-07T00:00:00.000Z
+                    updatedAt: 2026-06-07T00:00:00.000Z
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/admin/email-templates/delivery-email-document"
     put:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Update Email Template
       operationId: updateEmailTemplate
       security: []
       parameters:
-        - $ref: '#/components/parameters/TemplateIdParam'
+        - $ref: "#/components/parameters/TemplateIdParam"
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/EmailTemplateUpdate'
+              $ref: "#/components/schemas/EmailTemplateUpdate"
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  name: sample
+                  subject: sample
+                  htmlBody: sample
       responses:
-        '200':
+        "200":
           description: Template updated
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: |-
+            curl -X PUT "http://localhost:8000/api/admin/email-templates/delivery-email-document" \
+              -H "Content-Type: application/json" \
+              -d '{"name":"sample","subject":"sample","htmlBody":"sample"}'
     delete:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Delete Email Template
       operationId: deleteEmailTemplate
       security: []
       parameters:
-        - $ref: '#/components/parameters/TemplateIdParam'
+        - $ref: "#/components/parameters/TemplateIdParam"
       responses:
-        '200':
+        "200":
           description: Template deleted
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X DELETE
+            "http://localhost:8000/api/admin/email-templates/delivery-email-document"
   /api/admin/approval-tokens/{requestId}:
     get:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Get Approval Token Metadata
       operationId: getApprovalTokensForRequest
       security: []
       parameters:
-        - $ref: '#/components/parameters/RequestIdParam'
+        - $ref: "#/components/parameters/RequestIdParam"
       responses:
-        '200':
+        "200":
           description: Approval token metadata for approvers
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties: true
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    sampleKey: sampleValue
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET
+            "http://localhost:8000/api/admin/approval-tokens/REQ-20260606-865"
   /api/admin/schema:
     get:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Get Latest Service Definition Schema
       operationId: getLatestSchema
       security: []
       responses:
-        '200':
+        "200":
           description: Latest schema from MongoDB
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SchemaResponse'
-
+                $ref: "#/components/schemas/SchemaResponse"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    schema:
+                      sampleKey: sampleValue
+                    version: sample
+                    name: sample
+                    description: sample
+                    lastUpdated: 2026-06-07T00:00:00.000Z
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/admin/schema"
   /api/admin/schema/versions:
     get:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: List All Schema Versions
       operationId: listSchemaVersions
       security: []
       responses:
-        '200':
+        "200":
           description: All schema versions
           content:
             application/json:
@@ -1608,33 +2386,63 @@ paths:
                         updatedAt:
                           type: string
                           format: date-time
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    success: true
+                    count: 1
+                    versions:
+                      - version: sample
+                        name: sample
+                        description: sample
+                        createdAt: 2026-06-07T00:00:00.000Z
+                        updatedAt: 2026-06-07T00:00:00.000Z
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/admin/schema/versions"
   /api/admin/schema/versions/latest:
     get:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Get Latest Schema Version
       operationId: getLatestSchemaVersion
       security: []
       responses:
-        '200':
+        "200":
           description: Latest schema version document
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SchemaResponse'
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+                $ref: "#/components/schemas/SchemaResponse"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    schema:
+                      sampleKey: sampleValue
+                    version: sample
+                    name: sample
+                    description: sample
+                    lastUpdated: 2026-06-07T00:00:00.000Z
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/admin/schema/versions/latest"
   /api/admin/schema/versions/{version}:
     get:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Get Specific Schema Version
       operationId: getSchemaVersion
       security: []
       parameters:
-        - $ref: '#/components/parameters/VersionParam'
+        - $ref: "#/components/parameters/VersionParam"
       responses:
-        '200':
+        "200":
           description: Requested schema version
           content:
             application/json:
@@ -1646,17 +2454,28 @@ paths:
                   schema:
                     type: object
                     additionalProperties: true
-        '404':
-          $ref: '#/components/responses/NotFound'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    success: true
+                    schema:
+                      sampleKey: sampleValue
+        "404":
+          $ref: "#/components/responses/NotFound"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X GET "http://localhost:8000/api/admin/schema/versions/1.0.3"
   /api/admin/schema/reload:
     post:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Reload Schema Validator
       operationId: reloadSchema
       security: []
       responses:
-        '200':
+        "200":
           description: Schema reloaded successfully
           content:
             application/json:
@@ -1674,12 +2493,25 @@ paths:
                   lastUpdated:
                     type: string
                     format: date-time
-        '500':
-          $ref: '#/components/responses/ServerError'
-
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    success: true
+                    message: sample
+                    version: sample
+                    name: sample
+                    lastUpdated: 2026-06-07T00:00:00.000Z
+        "500":
+          $ref: "#/components/responses/ServerError"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: curl -X POST "http://localhost:8000/api/admin/schema/reload"
   /api/admin/schema/upload:
     post:
-      tags: [Admin]
+      tags:
+        - Admin
       summary: Upload and Activate Schema Version
       operationId: uploadSchemaVersion
       security: []
@@ -1711,12 +2543,16 @@ paths:
                   description: Upload custom schema object and activate it.
                   schema:
                     type: object
-                    required: [name, type, description, envelopes]
+                    required:
+                      - name
+                      - type
+                      - description
+                      - envelopes
                     properties:
                       id:
                         type: string
       responses:
-        '201':
+        "201":
           description: Schema uploaded and validator activated
           content:
             application/json:
@@ -1733,18 +2569,37 @@ paths:
                     type: string
                   source:
                     type: string
-                    enum: [request-body, local-file]
+                    enum:
+                      - request-body
+                      - local-file
                   lastUpdated:
                     type: string
                     format: date-time
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '500':
-          $ref: '#/components/responses/ServerError'
-
+              examples:
+                sample:
+                  summary: Sample 201 response
+                  value:
+                    success: true
+                    message: sample
+                    version: sample
+                    name: sample
+                    source: request-body
+                    lastUpdated: 2026-06-07T00:00:00.000Z
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/ServerError"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: |-
+            curl -X POST "http://localhost:8000/api/admin/schema/upload" \
+              -H "Content-Type: application/json" \
+              -d '{"sample":true}'
   /api/mock/students/verify:
     post:
-      tags: [Mock]
+      tags:
+        - Mock
       summary: Mock Verify Student
       operationId: mockVerifyStudent
       security: []
@@ -1764,13 +2619,27 @@ paths:
                 lastName:
                   type: string
                   example: Dela Cruz
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  studentId: 20250001
+                  firstName: Juan
+                  lastName: Dela Cruz
       responses:
-        '200':
+        "200":
           description: Mock verification success
-
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST "http://localhost:8000/api/mock/students/verify" \
+              -H "Content-Type: application/json" \
+              -d '{"studentId":20250001,"firstName":"Juan","lastName":"Dela Cruz"}'
   /api/mock/documents/generate-record:
     post:
-      tags: [Mock]
+      tags:
+        - Mock
       summary: Mock Generate Academic Record
       operationId: mockGenerateRecord
       security: []
@@ -1789,13 +2658,28 @@ paths:
                 numberOfCopies:
                   type: integer
                   example: 1
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  studentId: sample
+                  documentType: Certificate of Enrollment
+                  numberOfCopies: 1
       responses:
-        '201':
+        "201":
           description: Mock record generated
-
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/mock/documents/generate-record" \
+              -H "Content-Type: application/json" \
+              -d '{"studentId":"sample","documentType":"Certificate of Enrollment","numberOfCopies":1}'
   /api/mock/documents/generate-transcript:
     post:
-      tags: [Mock]
+      tags:
+        - Mock
       summary: Mock Generate Transcript
       operationId: mockGenerateTranscript
       security: []
@@ -1811,13 +2695,27 @@ paths:
                 numberOfCopies:
                   type: integer
                   example: 2
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  studentId: sample
+                  numberOfCopies: 2
       responses:
-        '201':
+        "201":
           description: Mock transcript generated
-
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/mock/documents/generate-transcript" \
+              -H "Content-Type: application/json" \
+              -d '{"studentId":"sample","numberOfCopies":2}'
   /api/mock/documents/prepare-delivery:
     post:
-      tags: [Mock]
+      tags:
+        - Mock
       summary: Mock Prepare Delivery Package
       operationId: mockPrepareDelivery
       security: []
@@ -1835,13 +2733,29 @@ paths:
                   items:
                     type: string
                 deliveryMethod:
-                  $ref: '#/components/schemas/DeliveryMethod'
+                  $ref: "#/components/schemas/DeliveryMethod"
                 numberOfCopies:
                   type: integer
+            examples:
+              sample:
+                summary: Sample request
+                value:
+                  studentId: sample
+                  documentTypes:
+                    - sample
+                  deliveryMethod: physical_mail
+                  numberOfCopies: 1
       responses:
-        '201':
+        "201":
           description: Mock delivery package prepared
-
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST
+            "http://localhost:8000/api/mock/documents/prepare-delivery" \
+              -H "Content-Type: application/json" \
+              -d '{"studentId":"sample","documentTypes":["sample"],"deliveryMethod":"physical_mail","numberOfCopies":1}'
 components:
   parameters:
     ServiceIdParam:
@@ -1852,7 +2766,6 @@ components:
         type: string
       example: SERVICE-999
       description: Service identifier.
-
     RequestIdParam:
       name: requestId
       in: path
@@ -1861,7 +2774,6 @@ components:
         type: string
       example: REQ-20260606-042
       description: Request identifier.
-
     TokenParam:
       name: token
       in: path
@@ -1870,7 +2782,6 @@ components:
         type: string
       example: 2d2f5e0a-5a8f-4b7d-a365-6dd77c9f17d8
       description: Approval or feedback token.
-
     TaskNameParam:
       name: taskName
       in: path
@@ -1879,7 +2790,6 @@ components:
         type: string
       example: Verify Student Records
       description: Processing task name.
-
     TemplateIdParam:
       name: templateId
       in: path
@@ -1888,7 +2798,6 @@ components:
         type: string
       example: SERV-1-approval
       description: Email template ID.
-
     VersionParam:
       name: version
       in: path
@@ -1897,7 +2806,6 @@ components:
         type: string
       example: 1.0.0
       description: Schema version.
-
     StatusQueryParam:
       name: status
       in: query
@@ -1906,7 +2814,6 @@ components:
         type: string
       example: pending_payment
       description: Filter by request overall status.
-
     TypeQueryParam:
       name: type
       in: query
@@ -1915,7 +2822,6 @@ components:
         type: string
       example: comprehensive-student-document
       description: Filter by request type.
-
     LimitQueryParam:
       name: limit
       in: query
@@ -1926,7 +2832,6 @@ components:
         minimum: 1
         maximum: 1000
       example: 20
-
     OffsetQueryParam:
       name: offset
       in: query
@@ -1936,17 +2841,18 @@ components:
         default: 0
         minimum: 0
       example: 0
-
     TemplateScopeQueryParam:
       name: templateScope
       in: query
       required: false
       schema:
         type: string
-        enum: [generic, envelope, service]
+        enum:
+          - generic
+          - envelope
+          - service
       example: envelope
       description: Allowed values are constrained.
-
     EventKeyQueryParam:
       name: eventKey
       in: query
@@ -1954,7 +2860,6 @@ components:
       schema:
         type: string
       example: request-approved
-
     EnvelopeTypeQueryParam:
       name: envelopeType
       in: query
@@ -1962,7 +2867,6 @@ components:
       schema:
         type: string
       example: approval
-
     PhaseQueryParam:
       name: phase
       in: query
@@ -1970,7 +2874,6 @@ components:
       schema:
         type: string
       example: phase2
-
     ServiceTypeQueryParam:
       name: serviceType
       in: query
@@ -1978,28 +2881,29 @@ components:
       schema:
         type: string
       example: comprehensive-student-document
-
     IsActiveQueryParam:
       name: isActive
       in: query
       required: false
       schema:
         type: string
-        enum: ['true', 'false']
-      example: 'true'
+        enum:
+          - "true"
+          - "false"
+      example: "true"
       description: Route compares stringified boolean values.
-
   schemas:
     LoginRequest:
       type: object
-      required: [email, password]
+      required:
+        - email
+        - password
       properties:
         email:
           type: string
           format: email
         password:
           type: string
-
     LoginResponse:
       type: object
       properties:
@@ -2015,12 +2919,14 @@ components:
               type: string
             role:
               type: string
-              enum: [admin, approver, requester]
+              enum:
+                - admin
+                - approver
+                - requester
               example: requester
         expiresIn:
           type: string
           example: 24h
-
     ServiceSummary:
       type: object
       properties:
@@ -2038,7 +2944,6 @@ components:
           type: string
         yaml:
           type: string
-
     ServiceDefinitionDetails:
       type: object
       properties:
@@ -2064,10 +2969,11 @@ components:
           items:
             type: object
             additionalProperties: true
-
     RequestCreatePayload:
       type: object
-      required: [initiator, parameters]
+      required:
+        - initiator
+        - parameters
       properties:
         type:
           type: string
@@ -2085,9 +2991,10 @@ components:
           type: object
           additionalProperties: true
       anyOf:
-        - required: [type]
-        - required: [serviceId]
-
+        - required:
+            - type
+        - required:
+            - serviceId
     CreateRequestResponse:
       type: object
       properties:
@@ -2109,7 +3016,6 @@ components:
           additionalProperties: true
         message:
           type: string
-
     RequestListResponse:
       type: object
       properties:
@@ -2140,7 +3046,6 @@ components:
               lastUpdated:
                 type: string
                 format: date-time
-
     RequestDetailsResponse:
       type: object
       properties:
@@ -2166,19 +3071,22 @@ components:
           items:
             type: object
             additionalProperties: true
-
     DeliveryMethod:
       type: string
-      enum: [email, physical_mail, pickup]
+      enum:
+        - email
+        - physical_mail
+        - pickup
       example: physical_mail
       description: Allowed values are constrained by route validation.
-
     DeliveryDetailsPayload:
       type: object
-      required: [deliveryMethod, deliveryDetails]
+      required:
+        - deliveryMethod
+        - deliveryDetails
       properties:
         deliveryMethod:
-          $ref: '#/components/schemas/DeliveryMethod'
+          $ref: "#/components/schemas/DeliveryMethod"
         deliveryDetails:
           type: object
           description: |
@@ -2230,18 +3138,17 @@ components:
                   type: string
                   format: date-time
           additionalProperties: true
-
     DeliveryMethodAliasPayload:
       type: object
-      required: [method]
+      required:
+        - method
       properties:
         method:
-          $ref: '#/components/schemas/DeliveryMethod'
+          $ref: "#/components/schemas/DeliveryMethod"
         details:
           type: object
           additionalProperties: true
       description: Legacy payload shape used by POST /api/delivery/{requestId}/method.
-
     DeliveryStatusInput:
       description: |-
         Legacy-compatible status values in delivery-status route.
@@ -2249,12 +3156,27 @@ components:
         This schema remains for backward compatibility.
       oneOf:
         - type: integer
-          enum: [0, 1, 2, 3]
+          enum:
+            - 0
+            - 1
+            - 2
+            - 3
           example: 1
         - type: string
-          enum: [email_pending, email_sent, preparing, ready_to_deliver, out_for_delivery, delivered, ready_for_pickup, picked_up, processing, in_transit, received, pickup_complete]
+          enum:
+            - email_pending
+            - email_sent
+            - preparing
+            - ready_to_deliver
+            - out_for_delivery
+            - delivered
+            - ready_for_pickup
+            - picked_up
+            - processing
+            - in_transit
+            - received
+            - pickup_complete
           example: email_sent
-
     ApprovalTokenInfo:
       type: object
       properties:
@@ -2272,7 +3194,6 @@ components:
         createdAt:
           type: string
           format: date-time
-
     FeedbackTokenStatus:
       type: object
       properties:
@@ -2292,7 +3213,6 @@ components:
           type: object
           nullable: true
           additionalProperties: true
-
     MayaWebhookPayload:
       type: object
       properties:
@@ -2312,7 +3232,12 @@ components:
           example: MAYA-TXN-20260606-001
         status:
           type: string
-          enum: [SUCCESS, COMPLETED, FAILURE, FAILED, PENDING]
+          enum:
+            - SUCCESS
+            - COMPLETED
+            - FAILURE
+            - FAILED
+            - PENDING
           example: SUCCESS
         amount:
           type: number
@@ -2323,10 +3248,13 @@ components:
         timestamp:
           type: string
           format: date-time
-
     CreateServicePayload:
       type: object
-      required: [name, yaml, type, initiator]
+      required:
+        - name
+        - yaml
+        - type
+        - initiator
       properties:
         name:
           type: string
@@ -2340,7 +3268,6 @@ components:
         initiator:
           type: string
           example: student
-
     EmailTemplate:
       type: object
       properties:
@@ -2359,7 +3286,10 @@ components:
           type: string
         templateScope:
           type: string
-          enum: [generic, envelope, service]
+          enum:
+            - generic
+            - envelope
+            - service
         eventKey:
           type: string
         serviceType:
@@ -2376,10 +3306,13 @@ components:
         updatedAt:
           type: string
           format: date-time
-
     EmailTemplateCreate:
       type: object
-      required: [id, name, subject, htmlBody]
+      required:
+        - id
+        - name
+        - subject
+        - htmlBody
       properties:
         id:
           type: string
@@ -2393,7 +3326,10 @@ components:
           type: string
         templateScope:
           type: string
-          enum: [generic, envelope, service]
+          enum:
+            - generic
+            - envelope
+            - service
         eventKey:
           type: string
         serviceType:
@@ -2404,10 +3340,12 @@ components:
           type: string
         phase:
           type: string
-
     EmailTemplateUpdate:
       type: object
-      required: [name, subject, htmlBody]
+      required:
+        - name
+        - subject
+        - htmlBody
       properties:
         name:
           type: string
@@ -2419,7 +3357,10 @@ components:
           type: string
         templateScope:
           type: string
-          enum: [generic, envelope, service]
+          enum:
+            - generic
+            - envelope
+            - service
         eventKey:
           type: string
         serviceType:
@@ -2430,7 +3371,6 @@ components:
           type: string
         phase:
           type: string
-
     SchemaResponse:
       type: object
       properties:
@@ -2446,46 +3386,65 @@ components:
         lastUpdated:
           type: string
           format: date-time
-
     Error:
       type: object
-      required: [error]
+      required:
+        - error
       properties:
         error:
           type: string
           example: Request not found
         details:
           type: string
-
   responses:
     BadRequest:
       description: Bad Request - Invalid parameters
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
-
+            $ref: "#/components/schemas/Error"
+          examples:
+            sample:
+              summary: Sample 400 response
+              value:
+                error: Request not found
+                details: sample
     Unauthorized:
       description: Unauthorized - Missing or invalid authentication
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
-
+            $ref: "#/components/schemas/Error"
+          examples:
+            sample:
+              summary: Sample 401 response
+              value:
+                error: Request not found
+                details: sample
     NotFound:
       description: Not Found - Resource does not exist
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
-
+            $ref: "#/components/schemas/Error"
+          examples:
+            sample:
+              summary: Sample 404 response
+              value:
+                error: Request not found
+                details: sample
     ServerError:
       description: Internal Server Error
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/Error'
-
+            $ref: "#/components/schemas/Error"
+          examples:
+            sample:
+              summary: Sample 500 response
+              value:
+                error: Request not found
+                details: sample
 tags:
   - name: System
     description: System health and API info
