@@ -239,6 +239,33 @@ export class MongoDBStateManager {
 
   async saveRequest(request: ServiceRequest): Promise<void> {
     try {
+      // Preserve user-selected delivery state from the latest persisted request when
+      // stale in-memory orchestration snapshots are saved later in the pipeline.
+      const existing = await ServiceRequestModel.findOne({ id: request.id });
+      if (existing) {
+        const existingObj = existing.toObject() as ServiceRequest;
+        const existingDelivery = existingObj?.envelopes?.delivery as any;
+        const incomingDelivery = request?.envelopes?.delivery as any;
+
+        if (existingDelivery && incomingDelivery) {
+          const incomingHasMethod = Boolean(incomingDelivery.method);
+          const existingHasMethod = Boolean(existingDelivery.method);
+
+          if (!incomingHasMethod && existingHasMethod) {
+            incomingDelivery.method = existingDelivery.method;
+            incomingDelivery.details = existingDelivery.details;
+            incomingDelivery.deliveryAttempts = incomingDelivery.deliveryAttempts ?? existingDelivery.deliveryAttempts;
+            incomingDelivery.deliveryHistory =
+              Array.isArray(incomingDelivery.deliveryHistory) && incomingDelivery.deliveryHistory.length > 0
+                ? incomingDelivery.deliveryHistory
+                : existingDelivery.deliveryHistory;
+            incomingDelivery.currentStatus = incomingDelivery.currentStatus ?? existingDelivery.currentStatus;
+            incomingDelivery.currentStatusCode = incomingDelivery.currentStatusCode ?? existingDelivery.currentStatusCode;
+            incomingDelivery.lastStatusUpdate = incomingDelivery.lastStatusUpdate ?? existingDelivery.lastStatusUpdate;
+          }
+        }
+      }
+
       await ServiceRequestModel.findOneAndUpdate(
         { id: request.id },
         request,

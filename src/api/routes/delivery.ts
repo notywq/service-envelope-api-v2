@@ -93,9 +93,11 @@ router.post('/:requestId/details', async (req: Request, res: Response) => {
 
     let autoResumed = false;
 
-    // If delivery envelope is waiting for a method, selecting details should also activate delivery
-    // and resume the orchestrator. This removes the frontend need to call /method separately.
-    if (request.envelopes.delivery.status === 'pending_external') {
+    // If delivery envelope is waiting for a method AND delivery is the active stage,
+    // selecting details should activate delivery and resume orchestration.
+    // Early submissions (before delivery turn) are stored only and processed later.
+    const isDeliveryTurn = request.overallStatus === 'pending_delivery';
+    if (request.envelopes.delivery.status === 'pending_external' && isDeliveryTurn) {
       request.envelopes.delivery.status = 'in_progress';
       request.envelopes.delivery.timestamp = new Date().toISOString();
       request.overallStatus = 'pending_delivery';
@@ -134,7 +136,7 @@ router.post('/:requestId/details', async (req: Request, res: Response) => {
       status: 'success',
       message: autoResumed
         ? `Delivery details saved (${deliveryMethod}) and processing started.`
-        : `Delivery details saved (${deliveryMethod})`,
+        : `Delivery details saved (${deliveryMethod}) for later processing.`,
       requestId,
       deliveryMethod,
       deliveryDetails: request.envelopes.delivery.details,
