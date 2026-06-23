@@ -1,0 +1,284 @@
+serviceId: "SERVICE-999"
+type: "comprehensive-student-document"
+name: "Comprehensive Student Document Service"
+description: "Request and process comprehensive student documents including academic records, certifications, and official documents"
+
+envelopes:
+  request:
+    required: true
+    parameters:
+      studentId:
+        type: String
+        required: true
+        description: "Student ID (e.g., 2020-00123)"
+        minLength: 8
+        maxLength: 15
+        pattern: "^[0-9]{4}-[0-9]{5}$"
+        default: ""
+
+      firstName:
+        type: String
+        required: true
+        description: "Student's first name"
+        minLength: 2
+        maxLength: 50
+        default: ""
+
+      lastName:
+        type: String
+        required: true
+        description: "Student's last name"
+        minLength: 2
+        maxLength: 50
+        default: ""
+
+      email:
+        type: String
+        required: true
+        description: "Student email address"
+        minLength: 5
+        maxLength: 100
+        pattern: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+        default: ""
+
+      documentTypes:
+        type: Checkboxes
+        required: true
+        description: "Select all required documents"
+        minSelected: 1
+        maxSelected: 5
+        options:
+          - label: "Academic Record"
+            value: "academic_record"
+          - label: "Official Transcript"
+            value: "official_transcript"
+          - label: "Enrollment Verification"
+            value: "enrollment_verification"
+          - label: "Certificate of Good Standing"
+            value: "certificate_good_standing"
+          - label: "Diploma Copy"
+            value: "diploma_copy"
+        default:
+          - "academic_record"
+          - "official_transcript"
+
+      purpose:
+        type: Dropdown
+        required: true
+        description: "Purpose for requesting documents"
+        searchable: true
+        clearable: false
+        options:
+          - label: "Employment"
+            value: "employment"
+          - label: "Graduate School Admission"
+            value: "graduate_admission"
+          - label: "Scholarship"
+            value: "scholarship"
+          - label: "Professional License"
+            value: "professional_license"
+          - label: "Personal Records"
+            value: "personal_records"
+          - label: "Other"
+            value: "other"
+        default: "employment"
+
+      numberOfCopies:
+        type: Number
+        required: true
+        description: "Number of physical copies needed"
+        min: 1
+        max: 10
+        step: 1
+        default: 1
+
+      deliveryMethod:
+        type: Radio
+        required: true
+        description: "How to receive the documents"
+        options:
+          - label: "Email"
+            value: "email"
+          - label: "Physical Mail"
+            value: "physical_mail"
+          - label: "Pick-up in Person"
+            value: "pickup"
+        default: "email"
+
+      isUrgent:
+        type: Boolean
+        required: false
+        description: "Rush processing (additional fee applies)"
+        default: false
+
+      remarks:
+        type: String
+        required: false
+        description: "Additional remarks or special requests"
+        maxLength: 500
+        default: ""
+
+  approval:
+    approvalRules:
+      type: all_must_approve
+      requiredApprovers:
+        - barondimaranan@gmail.com
+        - baron@fowlstudios.com
+    emailTemplateStartEnvelope: "SERV-999-approval-start"
+    emailTemplateEndEnvelope: "SERV-999-approval-end"
+    required: true
+
+  payment:
+    required: true
+    paymentProvider: maya
+    charges:
+      - item: "Document Processing Fee"
+        amount: 500
+        currency: PHP
+        quantity: 1
+      - item: "Certification Fee"
+        amount: 300
+        currency: PHP
+        quantity: 1
+    emailTemplateStartEnvelope: "SERV-999-payment-start"
+    emailTemplateEndEnvelope: "SERV-999-payment-end"
+
+  processing:
+    emailTemplateStartEnvelope: "SERV-999-processing-start"
+    emailTemplateEndEnvelope: "SERV-999-processing-end"
+    stopOnFailure: true
+    tasks:
+      - type: api_call
+        name: "send_to_boldesk"
+        method: POST
+        url: "https://support.mapua.edu.ph/api/v1/tickets"
+        headers:
+          x-api-key: "U+LTCxfQxKqiJgRa0gI7dsRz5lZ1+Gmyny480zddeLY="
+          Content-Type: "application/json"
+        timeout: 30000
+        retries: 1
+        successCodes: [200, 201]
+        payload:
+          brandId: 1
+          ticketFormId: 0
+          cf_campus_location: "Location of School Campus"
+          cf_department: "Department in School"
+          requesterEmailId: "{{email}}"
+          requesterName: "Requester {{firstName}} {{lastName}} of a Ticket"
+          priorityId: 2
+          subject: "Subject of the ticket"
+          description: "This ticket was created via API call of the Process Envelope"
+          skipEmailNotification: false
+          dontAppendOnBehalfOfRequesterMessage: false
+
+      - type: api_call
+        name: "Verify Student Records"
+        method: POST
+        url: "http://localhost:8000/api/mock/students/verify"
+        headers:
+          Authorization: "Bearer {{apiToken}}"
+          Content-Type: "application/json"
+        payload:
+          studentId: "{{studentId}}"
+          firstName: "{{firstName}}"
+          lastName: "{{lastName}}"
+        timeout: 30000
+        retries: 3
+        successCodes: [200, 201]
+
+      - type: api_call
+        name: "Generate Academic Record"
+        method: POST
+        url: "http://localhost:8000/api/mock/documents/generate-record"
+        headers:
+          Authorization: "Bearer {{apiToken}}"
+          Content-Type: "application/json"
+        payload:
+          studentId: "{{studentId}}"
+          documentType: "academic_record"
+          numberOfCopies: "{{numberOfCopies}}"
+        timeout: 45000
+        retries: 3
+        successCodes: [200, 201]
+
+      - type: api_call
+        name: "Generate Transcript"
+        method: POST
+        url: "http://localhost:8000/api/mock/documents/generate-transcript"
+        headers:
+          Authorization: "Bearer {{apiToken}}"
+          Content-Type: "application/json"
+        payload:
+          studentId: "{{studentId}}"
+          numberOfCopies: "{{numberOfCopies}}"
+        timeout: 45000
+        retries: 3
+        successCodes: [200, 201]
+
+      - type: api_call
+        name: "Prepare Delivery Package"
+        method: POST
+        url: "http://localhost:8000/api/mock/documents/prepare-delivery"
+        headers:
+          Authorization: "Bearer {{apiToken}}"
+          Content-Type: "application/json"
+        payload:
+          studentId: "{{studentId}}"
+          documentTypes: "{{documentTypes}}"
+          numberOfCopies: "{{numberOfCopies}}"
+        timeout: 60000
+        retries: 2
+        successCodes: [200, 201]
+
+  delivery:
+    emailTemplateStartEnvelope: "SERV-999-delivery-start"
+    emailTemplateEndEnvelope: "SERV-999-delivery-end"
+
+    # Delivery Status Codes for tracking delivery progress
+    # Use these codes to update delivery status via POST /api/delivery-status/:requestId
+    # 0 = Processing: Preparing document for delivery
+    # 1 = Ready to Deliver: Document ready, awaiting shipment
+    # 2 = Out for Delivery: In transit to recipient
+    # 3 = Delivered: Document delivered successfully
+
+    deliveryMethods:
+      email:
+        enabled: true
+        subject: "Your Student Documents - {{firstName}} {{lastName}}"
+        recipient: "{{email}}"
+        attachmentUrls:
+          - "https://documents.mapua.edu.ph/{{requestId}}/documents.pdf"
+        fields: {}
+      physical_mail:
+        enabled: true
+        carrier: "LBC"
+        estimatedDays: 5
+        costPercentage: 15
+        requiresApprovalBeforeShip: true
+        requiresSignature: false
+        trackingEnabled: true
+        fields:
+          mailingAddress:
+            type: String
+            required: true
+            label: "Mailing Address"
+            description: "Full mailing address for delivery"
+            maxLength: 300
+            placeholder: "Street Address, City, Province, Postal Code"
+      pickup:
+        enabled: true
+        location: "MAPUA Registrar's Office, Room 201, Ground Floor, MAPUA Campus"
+        hoursOfOperation: "Monday-Friday, 8:00 AM - 5:00 PM"
+        requiresIDVerification: true
+        pickupDeadlineDays: 30
+        notificationRequired: true
+        fields: {}
+
+  feedback:
+    required: true
+    autoCloseAfterHours: 24
+    expiryDays: 7
+    emailTemplateStartEnvelope: "SERV-999-feedback-start"
+    emailTemplateEndEnvelope: "SERV-999-feedback-end"
+    notificationRequired: true
+    reminderDaysBefore: 3

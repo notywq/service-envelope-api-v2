@@ -223,12 +223,14 @@ export class MongoDBStateManager {
     };
   }
 
-  async connect(mongoUri: string): Promise<void> {
+  async connect(mongoUri: string, label: string = 'MongoDB', logFailure: boolean = true): Promise<void> {
     try {
       await mongoose.connect(mongoUri);
-      this.logger.info('✅ Connected to MongoDB');
+      this.logger.info(`Connected to ${label}`);
     } catch (error) {
-      this.logger.error('❌ Failed to connect to MongoDB:', error);
+      if (logFailure) {
+        this.logger.error(`Failed to connect to ${label}:`, error);
+      }
       throw error;
     }
   }

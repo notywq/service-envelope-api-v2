@@ -46,6 +46,83 @@ function resolveCanonicalSchemaPath(): string {
   return path.join(__dirname, '../schemas/service-definition.schema.json');
 }
 
+function getMongoUriMode(uri: string): string {
+  if (uri.startsWith('mongodb+srv://')) {
+    return 'SRV';
+  }
+
+  if (uri.startsWith('mongodb://')) {
+    return 'direct URI';
+  }
+
+  return 'custom URI';
+}
+
+function describeMongoUri(uri: string): string {
+  const schemeMatch = uri.match(/^(mongodb(?:\+srv)?):\/\//);
+  const scheme = schemeMatch?.[1] || 'mongodb';
+  const withoutScheme = uri.replace(/^mongodb(?:\+srv)?:\/\//, '');
+  const withoutCredentials = withoutScheme.includes('@')
+    ? withoutScheme.slice(withoutScheme.indexOf('@') + 1)
+    : withoutScheme;
+  const hostSegment = withoutCredentials.split('/')[0];
+  const hostCount = hostSegment.split(',').filter(Boolean).length;
+  const pathStart = withoutCredentials.indexOf('/');
+  const pathOnly = pathStart >= 0 ? withoutCredentials.slice(pathStart).split('?')[0] : '';
+  const hostDescription = hostCount > 1 ? `${hostCount} hosts` : hostSegment;
+
+  return `${scheme}://${hostDescription}${pathOnly}`;
+}
+
+function getErrorText(error: unknown): string {
+  if (error instanceof Error) {
+    const causeText = 'cause' in error ? getErrorText(error.cause) : '';
+    return `${error.name} ${error.message} ${causeText}`.trim();
+  }
+
+  return String(error);
+}
+
+function isSrvLookupRefused(error: unknown): boolean {
+  const text = getErrorText(error).toLowerCase();
+
+  return text.includes('querysrv')
+    && text.includes('econnrefused')
+    && text.includes('_mongodb._tcp');
+}
+
+async function connectMongoWithFallback(stateManager: MongoDBStateManager): Promise<void> {
+  const defaultMongoUri = 'mongodb://localhost:27017/service-envelope';
+  const primaryMongoUri = process.env.MONGODB_SRV_URI || process.env.MONGODB_URI || defaultMongoUri;
+  const fallbackMongoUri = process.env.MONGODB_DIRECT_URI
+    || (process.env.MONGODB_SRV_URI && process.env.MONGODB_URI?.startsWith('mongodb://')
+      ? process.env.MONGODB_URI
+      : undefined);
+
+  logger.info(`[MongoDB] Primary connection: ${getMongoUriMode(primaryMongoUri)} (${describeMongoUri(primaryMongoUri)})`);
+
+  try {
+    await stateManager.connect(primaryMongoUri, `MongoDB primary ${getMongoUriMode(primaryMongoUri)}`, false);
+    return;
+  } catch (error) {
+    if (!primaryMongoUri.startsWith('mongodb+srv://') || !isSrvLookupRefused(error)) {
+      logger.error(`[MongoDB] Primary connection failed without eligible SRV fallback:`, error);
+      throw error;
+    }
+
+    if (!fallbackMongoUri) {
+      logger.error('[MongoDB] SRV lookup was refused, but MONGODB_DIRECT_URI is not configured.');
+      throw error;
+    }
+
+    logger.warn(`[MongoDB] SRV lookup refused: ${getErrorText(error)}`);
+    logger.warn(`[MongoDB] Switching to fallback connection: ${getMongoUriMode(fallbackMongoUri)} (${describeMongoUri(fallbackMongoUri)})`);
+
+    await stateManager.connect(fallbackMongoUri, `MongoDB fallback ${getMongoUriMode(fallbackMongoUri)}`);
+    logger.info('[MongoDB] Startup continued with MongoDB fallback connection.');
+  }
+}
+
 // Initialize logger
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
@@ -103,9 +180,8 @@ async function initializeApp(): Promise<Express> {
   // Initialize services
   logger.info('🔧 Initializing services...');
 
-  const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/service-envelope';
   const stateManager = new MongoDBStateManager(logger);
-  await stateManager.connect(mongoUri);
+  await connectMongoWithFallback(stateManager);
 
   // Email templates are managed via the Phase 2 UI and API endpoints
   // Count templates in MongoDB
