@@ -757,7 +757,8 @@ export class ServiceOrchestrator {
     );
 
     for (const name of [...new Set(candidates.filter((candidate): candidate is string => !!candidate))]) {
-      const template = await this.stateManager.getEmailTemplateByName(name);
+      const template = await this.stateManager.getEmailTemplate(name)
+        || await this.stateManager.getEmailTemplateByName(name);
       if (template) {
         let source = 'unknown';
         if (runtimeSet.has(name)) {
