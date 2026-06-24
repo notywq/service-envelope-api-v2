@@ -1,5 +1,5 @@
-# SERVICE DEFINITION RULES - Complete Technical Blueprint v2.0
-# ALIGNED WITH: Service Definition Schema v1.0.1 (May 29, 2026)
+# SERVICE DEFINITION RULES - Complete Technical Blueprint v2.1
+# ALIGNED WITH: Service Definition Schema v1.0.5 (June 24, 2026)
 #
 # PURPOSE: This is the DEFINITIVE REFERENCE for all Service Envelope YAML definitions.
 # Every service created with the Service Envelope system MUST follow these rules and patterns.
@@ -17,6 +17,17 @@
 #   - Find examples of every parameter type and constraint
 #   - Understand envelope flow and responsibilities
 #   - Reference validation rules before testing
+#
+# CURRENT RUNTIME ALIGNMENT (June 24, 2026):
+#   - Canonical schema version: 1.0.5, saved in MongoDB SchemaVersion collection.
+#   - Service definitions are stored and validated from MongoDB, not local YAML files.
+#   - API access is bearer-token protected when AUTH_REQUIRED is enabled.
+#   - OTP login users and roles are stored in MongoDB authusers collection.
+#   - Email templates are stored in MongoDB EmailTemplate collection.
+#   - Service YAML may specify email template overrides, but core generic fallback
+#     templates remain outside YAML so required process emails can still send.
+#   - Payment completion receipt email is editable via payment.emailTemplateEndEnvelope
+#     or generic payment-end fallback. There is no hardcoded payment receipt.
 
 # Service Definition Rules
 # Complete specification for creating Service Envelope YAML definitions
@@ -101,7 +112,7 @@ description: "Request and process comprehensive student documents including acad
 #   1. Phase 2 UI retrieves service definition: GET /api/services/{serviceId}
 #   2. UI renders form based on parameter schema
 #   3. UI validates input against constraints before submission
-#   4. User submits form: POST /api/services/{serviceId}/submit
+#   4. User submits form: POST /api/requests
 #   5. Backend validates again (defense in depth)
 #   6. Request stored with status: pending_approval (or next envelope)
 #
@@ -128,12 +139,20 @@ description: "Request and process comprehensive student documents including acad
 # - Benefits: Request can complete even if delivery details missing; on-demand processing
 #
 # DELIVERY SUBMISSION FLOW (NEW May 29):
-# 1. User submits request with parameters: POST /api/services/{serviceId}/submit
-#    Body: { type: "service-type", parameters: { studentId: "...", firstName: "...", ... } }
+# 1. User submits request with parameters: POST /api/requests
+#    Body: { type: "service-type", initiator: "email", parameters: { studentId: "...", firstName: "...", ... } }
 #    Returns: { id: "REQ-2025-001", status: "pending_approval" }
 # 2. Later, user submits delivery details: POST /api/delivery/{requestId}/details
 #    Body: { deliveryMethod: "physical_mail", deliveryDetails: { mailingAddress: "..." } }
 # 3. Delivery envelope uses both: method + details stored from separate API
+#
+# REQUESTER EMAIL RULE (June 24, 2026):
+# - New services SHOULD use canonical parameter name: email
+# - Backend also resolves legacy/common aliases: emailAddress, requesterEmail,
+#   requestorEmail, initiatorEmail, studentEmail, contactEmail, nested serviceData,
+#   and request.initiator.
+# - When a bearer token has role requester, POST /api/requests is allowed only
+#   when the submitted requester email matches the token email.
 
 ---
 
@@ -519,8 +538,9 @@ request:
 # VALIDATION REQUIREMENTS:
 #   - At least one requiredApprovers email must be provided
 #   - Email addresses must be valid format
-#   - emailTemplateStartEnvelope must exist in MongoDB
-#   - emailTemplateEndEnvelope must exist in MongoDB
+#   - emailTemplateStartEnvelope/emailTemplateEndEnvelope are service overrides
+#   - If an explicit template override is provided, it should exist in MongoDB
+#   - If omitted, backend falls back to service-scoped and global generic templates
 #
 # EXAMPLES:
 
@@ -568,6 +588,10 @@ approval:
   
   emailTemplateStartEnvelope: "SERV-999-approval-start"    # Email to approvers: "Please review and approve"
   emailTemplateEndEnvelope: "SERV-999-approval-end"        # Email to requestor: "Your request approved"
+  emailTemplateCancelEnvelope: "SERV-999-request-denied"   # Optional override for denied/cancelled approval
+  defaultEmailTemplateStartEnvelope: "approval-start"      # Optional explicit default before generic fallback
+  defaultEmailTemplateEndEnvelope: "approval-end"          # Optional explicit default before generic fallback
+  defaultEmailTemplateCancelEnvelope: "request-denied"     # Optional explicit default before generic fallback
 
 # Alternative: Optional approval (skip this envelope)
 # approval:
@@ -604,8 +628,10 @@ approval:
 #   - Each charge must have: item (string), amount (number > 0), currency (string)
 #   - amount must be > 0 if quantity > 0
 #   - paymentProvider must be recognized (maya, stripe, gcash)
-#   - emailTemplateStartEnvelope must exist in MongoDB
-#   - emailTemplateEndEnvelope must exist in MongoDB
+#   - emailTemplateStartEnvelope/emailTemplateEndEnvelope are service overrides
+#   - If an explicit template override is provided, it should exist in MongoDB
+#   - If omitted, backend falls back to service-scoped and global generic templates
+#   - payment.emailTemplateEndEnvelope is the editable payment receipt/confirmation email
 #
 # EXAMPLES:
 
@@ -639,8 +665,12 @@ payment:
       currency: PHP
       quantity: 0  # 0 means dynamic (add if deliveryMethod = physical_mail)
   
-  emailTemplateStartEnvelope: SERV-999-payment-start    # Email with payment link: "Please pay ₱X.XX"
-  emailTemplateEndEnvelope: SERV-999-payment-end        # Email confirmation: "Payment received"
+  emailTemplateStartEnvelope: SERV-999-payment-start    # Email with payment link: "Please pay amount"
+  emailTemplateEndEnvelope: SERV-999-payment-end        # Editable receipt/confirmation: "Payment received"
+  emailTemplateCancelEnvelope: SERV-999-request-cancelled
+  defaultEmailTemplateStartEnvelope: payment-start
+  defaultEmailTemplateEndEnvelope: payment-end
+  defaultEmailTemplateCancelEnvelope: request-cancelled
 
 # Alternative: No payment required (free service)
 # payment:
@@ -683,8 +713,9 @@ payment:
 #   - timeout >= 10000 (minimum 10 seconds recommended)
 #   - retries >= 0 (0 = no retries, run once)
 #   - successCodes must be array of valid HTTP status codes
-#   - emailTemplateStartEnvelope must exist in MongoDB
-#   - emailTemplateEndEnvelope must exist in MongoDB
+#   - emailTemplateStartEnvelope is optional; if provided it should exist in MongoDB
+#   - emailTemplateEndEnvelope is optional; if provided it should exist in MongoDB
+#   - If no template is provided, runtime falls back to core generic templates
 #
 # EXAMPLES:
 
@@ -850,8 +881,9 @@ processing:
 #   - Email must have: subject, recipient, attachmentUrls
 #   - Physical mail must have: carrier, estimatedDays
 #   - Pickup must have: location, hoursOfOperation
-#   - emailTemplateStartEnvelope must exist in MongoDB
-#   - emailTemplateEndEnvelope must exist in MongoDB
+#   - emailTemplateStartEnvelope is optional; if provided it should exist in MongoDB
+#   - emailTemplateEndEnvelope is optional; if provided it should exist in MongoDB
+#   - If no template is provided, runtime falls back to core generic templates
 #
 # EXAMPLES:
 
@@ -959,8 +991,9 @@ delivery:
 #   - autoCloseAfterHours: optional (0 or omit means no auto-close)
 #   - notificationRequired: optional (send reminder emails before expiry)
 #   - reminderDaysBefore: only valid if notificationRequired: true
-#   - emailTemplateStartEnvelope must exist in MongoDB
-#   - emailTemplateEndEnvelope must exist in MongoDB
+#   - emailTemplateStartEnvelope is optional; if provided it should exist in MongoDB
+#   - emailTemplateEndEnvelope is optional; if provided it should exist in MongoDB
+#   - If no template is provided, runtime falls back to core generic templates
 #
 # EXAMPLES:
 
@@ -1006,7 +1039,7 @@ feedback:
 # ============================================================================
 # 8. EMAIL TEMPLATE ID NAMING CONVENTION
 # ============================================================================
-# RULE: Email template IDs follow pattern: SERV-{serviceId}-{envelopeType}-{phase}
+# RULE: Service-specific email template IDs SHOULD follow pattern: SERV-{serviceId}-{envelopeType}-{phase}
 #
 # Pattern: SERV-3-approval-start means:
 #   SERV-      = Service template prefix
@@ -1015,10 +1048,40 @@ feedback:
 #   start/end  = Phase (start when envelope begins, end when envelope completes)
 #
 # HOW EMAIL TEMPLATES WORK:
-# - Each envelope can send 2 emails: emailTemplateStartEnvelope and emailTemplateEndEnvelope
-# - Templates are created/managed via Phase 2 UI (not in YAML)
+# - Templates are created/managed via Phase 2 UI/API (not embedded in YAML)
 # - Templates are stored in MongoDB EmailTemplate collection
-# - Backend looks up template by ID and sends to requestor/approvers
+# - Service YAML fields are OVERRIDES, not the only source of required emails
+# - Supported envelope-level fields:
+#   emailTemplateStartEnvelope
+#   emailTemplateEndEnvelope
+#   emailTemplateCancelEnvelope
+#   defaultEmailTemplateStartEnvelope
+#   defaultEmailTemplateEndEnvelope
+#   defaultEmailTemplateCancelEnvelope
+# - Backend resolves template candidates in this order:
+#   1. Service YAML override: emailTemplateStartEnvelope / emailTemplateEndEnvelope / emailTemplateCancelEnvelope
+#   2. Service YAML explicit default: defaultEmailTemplateStartEnvelope / defaultEmailTemplateEndEnvelope / defaultEmailTemplateCancelEnvelope
+#   3. Service-scoped generic: {serviceType}-{envelopeType}-{phase}
+#   4. Global generic: {envelopeType}-{phase}
+# - Cancellation/denial resolves:
+#   1. emailTemplateCancelEnvelope
+#   2. defaultEmailTemplateCancelEnvelope
+#   3. {serviceType}-request-denied or {serviceType}-request-cancelled
+#   4. request-denied or request-cancelled
+# - Delivery method-specific emails resolve:
+#   - deliveryMethods.email.emailTemplateId -> {serviceType}-delivery-email-document -> delivery-email-document
+#   - deliveryMethods.pickup.notificationTemplateId -> {serviceType}-delivery-pickup-ready -> delivery-pickup-ready
+#
+# CORE GLOBAL GENERIC TEMPLATES THAT SHOULD EXIST IN MONGODB:
+#   request-start, request-end
+#   approval-start, approval-end
+#   payment-start, payment-end
+#   processing-start, processing-end
+#   delivery-start, delivery-end
+#   feedback-start, feedback-end
+#   request-denied, request-cancelled
+#   delivery-email-document, delivery-pickup-ready
+#   otp-login (auth/OTP email, not service YAML)
 #
 # APPROVAL ENVELOPE EMAILS:
 #   SERV-999-approval-start    → Email to APPROVERS: "Please review and approve request"
@@ -1050,6 +1113,12 @@ feedback:
 #   {{paymentLink}}    → MAYA payment gateway link
 #   {{feedbackLink}}   → Feedback survey link
 #   {{totalAmount}}    → Total payment amount
+#   {{paymentTransactionId}} → Payment transaction ID from gateway response
+#   {{paymentAmount}}  → Payment amount from gateway response
+#   {{paymentCurrency}} → Payment currency
+#   {{paymentMethod}}  → Payment method
+#   {{paymentReference}} → Payment receipt/reference
+#   {{paymentTimestamp}} → Payment completion timestamp
 #   {{currentTimestamp}} → When email sent
 #   {{anyParam}}       → Any parameter from request
 
@@ -1108,8 +1177,8 @@ feedback:
 #     - All email addresses must be valid format
 #   ✓ If required: false:
 #     - Can be completely empty (no other fields needed)
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
-#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateStartEnvelope is optional; if provided it should exist in MongoDB
+#   ✓ emailTemplateEndEnvelope is optional; if provided it should exist in MongoDB
 #
 # PAYMENT ENVELOPE VALIDATION:
 #   ✓ If required: true:
@@ -1120,8 +1189,8 @@ feedback:
 #     - Can be completely empty (no other fields needed)
 #   ✓ amount must be > 0 (if quantity > 0)
 #   ✓ currency must be ISO 4217 code (PHP, USD, EUR, etc.)
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
-#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateStartEnvelope is optional; if provided it should exist in MongoDB
+#   ✓ emailTemplateEndEnvelope is optional; if provided it should exist in MongoDB
 #
 # PROCESSING ENVELOPE VALIDATION:
 #   ✓ If required: true:
@@ -1135,8 +1204,8 @@ feedback:
 #   ✓ If required: false:
 #     - Can be completely empty (no other fields needed)
 #   ✓ {{parameterName}} in url/headers/payload must match request parameters
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
-#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateStartEnvelope is optional; if provided it should exist in MongoDB
+#   ✓ emailTemplateEndEnvelope is optional; if provided it should exist in MongoDB
 #
 # DELIVERY ENVELOPE VALIDATION (NEW):
 #   ✓ If required: true:
@@ -1147,8 +1216,8 @@ feedback:
 #     - Pickup: must have location, hoursOfOperation
 #   ✓ If required: false:
 #     - Can be completely empty (no other fields needed) - NEW May 29
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
-#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateStartEnvelope is optional; if provided it should exist in MongoDB
+#   ✓ emailTemplateEndEnvelope is optional; if provided it should exist in MongoDB
 #
 # FEEDBACK ENVELOPE VALIDATION (NEW):
 #   ✓ If required: true:
@@ -1157,8 +1226,8 @@ feedback:
 #     - notificationRequired must be boolean (optional)
 #   ✓ If required: false:
 #     - Can be completely empty (no other fields needed) - NEW May 29
-#   ✓ emailTemplateStartEnvelope must exist in MongoDB (if envelope used)
-#   ✓ emailTemplateEndEnvelope must exist in MongoDB (if envelope used)
+#   ✓ emailTemplateStartEnvelope is optional; if provided it should exist in MongoDB
+#   ✓ emailTemplateEndEnvelope is optional; if provided it should exist in MongoDB
 #
 # OPTIONAL ENVELOPE RULE (NEW May 29, 2026):
 #   ✓ Any envelope with required: false can be empty (no other fields)
@@ -1267,40 +1336,44 @@ feedback:
 #
 # STAGE 1: REQUEST ENVELOPE (ALWAYS REQUIRED)
 #   INPUT: User submits form via Phase 2 UI
-#   ACTION: POST /api/services/{serviceId}/submit with parameters
+#   ACTION: POST /api/requests with type, initiator, and parameters
 #   VALIDATION:
 #     - Check parameter types and constraints
 #     - Verify all required parameters provided
+#     - Resolve requester email from initiator/parameters.email or supported aliases
 #     - Build request object with status: pending_approval
 #   STORAGE: Save to MongoDB requests collection
 #   OUTPUT: Returns request ID (e.g., REQ-2025-001)
 #   STATUS: Request.status = pending_approval (or pending_payment if no approval)
 #
 # STAGE 2: APPROVAL ENVELOPE (If required: true)
-#   EMAIL SENT: emailTemplateStartEnvelope to approvers
+#   EMAIL SENT: YAML override or generic approval-start fallback to approvers
 #   WAIT: Approvers use Phase 2 UI to approve/deny
 #   RULES: Apply approvalRules logic (all_must_approve, any_one, etc.)
 #   SUCCESS:
-#     - All approval conditions met → send emailTemplateEndEnvelope
+#     - All approval conditions met → send approval-end email via override/fallback
 #     - Status: pending_payment (or processing if no payment)
 #   FAILURE:
 #     - Approval denied → mark as denied, stop pipeline
 #     - Request.status = denied
+#     - Send cancellation/denial email using YAML override or generic approval-cancel fallback
 #
 # STAGE 3: PAYMENT ENVELOPE (If required: true)
-#   EMAIL SENT: emailTemplateStartEnvelope with {{paymentLink}} to requestor
+#   EMAIL SENT: YAML override or generic payment-start fallback with {{paymentLink}} to requestor
 #   WAIT: Requestor completes payment via MAYA gateway
 #   WEBHOOK: Payment provider sends callback with payment confirmation
 #   VERIFICATION: Backend verifies payment in MAYA records
 #   SUCCESS:
-#     - Payment confirmed → send emailTemplateEndEnvelope
+#     - Payment confirmed → send payment-end email via override/fallback
+#     - Send editable payment receipt/confirmation using payment.emailTemplateEndEnvelope
+#       or generic payment-end fallback
 #     - Status: processing
 #   FAILURE:
 #     - Payment failed/cancelled → request stays in pending_payment
 #     - Requestor can retry payment
 #
 # STAGE 4: PROCESSING ENVELOPE (If required: true)
-#   EMAIL SENT: emailTemplateStartEnvelope to requestor
+#   EMAIL SENT: YAML override or generic processing-start fallback to requestor
 #   EXECUTION: Run all tasks in sequence (one after another)
 #   SUBSTITUTION: Replace {{param}} in URLs, headers, payloads
 #   EACH TASK:
@@ -1310,14 +1383,15 @@ feedback:
 #     4. If fail + stopOnFailure: stop, mark failed
 #     5. If fail + stopOnFailure=false: skip, continue
 #   SUCCESS:
-#     - All tasks completed → send emailTemplateEndEnvelope
+#     - All tasks completed → send processing-end email via override/fallback
 #     - Status: pending_delivery
 #   FAILURE:
 #     - At least one task failed + stopOnFailure=true
 #     - Request.status = failed
+#     - Send cancellation/failure email using YAML override or generic processing-cancel fallback
 #
 # STAGE 5: DELIVERY ENVELOPE (If required: true)
-#   EMAIL SENT: emailTemplateStartEnvelope to requestor
+#   EMAIL SENT: YAML override or generic delivery-start fallback to requestor
 #   METHOD: Use delivery method from request parameters
 #   EXECUTION:
 #     a) EMAIL method:
@@ -1333,11 +1407,11 @@ feedback:
 #        - Wait for status update to 3 (collected)
 #   STATUS TRACKING: POST /api/delivery-status/{requestId} updates status
 #   COMPLETION: When status = 3 (delivered):
-#     - Send emailTemplateEndEnvelope
+#     - Send delivery-end email via override/fallback
 #     - Status: pending_feedback (or completed if no feedback)
 #
 # STAGE 6: FEEDBACK ENVELOPE (If required: true)
-#   EMAIL SENT: emailTemplateStartEnvelope with {{feedbackLink}} to requestor
+#   EMAIL SENT: YAML override or generic feedback-start fallback with {{feedbackLink}} to requestor
 #   WAIT: Requestor submits feedback via Phase 2 UI survey
 #   AUTO-CLOSE: If autoCloseAfterHours > 0:
 #     - After N hours: Mark request as completed (auto-close email sent)
@@ -1345,7 +1419,7 @@ feedback:
 #   EXPIRY: After {{expiryDays}} days:
 #     - Feedback link expires, cannot submit anymore
 #   SUCCESS:
-#     - If user submits feedback → send emailTemplateEndEnvelope
+#     - If user submits feedback → send feedback-end email via override/fallback
 #     - Status: completed
 #   AUTO-CLOSED:
 #     - Auto-close timer expired → Status: completed
@@ -1364,55 +1438,114 @@ feedback:
 # 12. PHASE 2 UI ENDPOINTS - API CONTRACTS FOR FRONTEND
 # ============================================================================
 #
-# Service Envelope CLI provides these endpoints for Phase 2 UI integration:
+# Service Envelope CLI provides these endpoints for frontend/API integration.
+# When AUTH_REQUIRED=true, every endpoint except health/docs and OTP send/verify/cancel
+# requires Authorization: Bearer <token>.
 #
-# 1. GET /api/services/{serviceId}
-#    PURPOSE: Retrieve service definition to render form
-#    RETURNS: Complete YAML parsed as JSON
-#    INCLUDES: parameters schema, all envelope configurations
-#    USAGE: Phase 2 UI generates form fields dynamically
+# AUTH + OTP:
+# 1. POST /api/OTP/send
+#    PURPOSE: Send email OTP to an active Mongo authusers account
+#    BODY: { email: "user@example.com" }
+#    EMAIL: Uses templated otp-login email, with runtime fallback if needed
 #
-# 2. POST /api/services/{serviceId}/submit (or POST /api/requests)
-#    PURPOSE: Submit new service request
-#    BODY: { type: "service-type", initiator: "user@email.com", parameters: {...} }
-#    RETURNS: { id: "REQ-2025-001", status: "pending_approval", ... }
-#    NOTE: Delivery details submitted SEPARATELY in next API
+# 2. POST /api/OTP/verify
+#    PURPOSE: Verify OTP and receive bearer token
+#    BODY: { email: "user@example.com", code: "123456" }
+#    RETURNS: { token, expiresAt, user: { email, role } }
 #
-# 3. POST /api/delivery/{requestId}/details (NEW - May 29)
-#    PURPOSE: Submit delivery details AFTER request created
-#    BODY: { deliveryMethod: "physical_mail", deliveryDetails: {...} }
-#    USAGE: Phase 2 UI collects address and submits separately
-#    BENEFIT: Failure isolation - delivery can fail without losing request
+# 3. POST /api/OTP/cancel
+#    PURPOSE: Cancel outstanding OTP challenges for an email
+#    BODY: { email: "user@example.com" }
 #
-# 4. GET /api/requests/{requestId}
-#    PURPOSE: Get request status and all envelope details
-#    RETURNS: Full request object with envelope statuses
-#    USAGE: Phase 2 UI shows progress, what's pending, etc.
+# 4. POST /api/OTP/flush
+#    PURPOSE: Remove stale OTP records
+#    ACCESS: admin, super_admin, orchestrator
 #
-# 5. POST /api/approvals/{requestId}
-#    PURPOSE: Approver submits decision (approve/deny)
-#    BODY: { decision: "approve" | "deny", notes: "..." }
+# 5. GET /api/auth/me
+#    PURPOSE: Return currently authenticated user and token claims
 #
-# 6. POST /api/payments/{requestId}/complete
-#    PURPOSE: Called after MAYA payment success
-#    BODY: { paymentId: "maya-txn-id", amount: 1500 }
+# 6. POST /api/auth/verify
+#    PURPOSE: Verify a bearer token explicitly
 #
-# 7. POST /api/delivery-status/{requestId}
-#    PURPOSE: Update delivery status (progress tracking)
-#    BODY: { statusCode: 0|1|2|3, notes: "..." }
-#    STATUS CODES: 0=processing, 1=ready, 2=in_transit, 3=delivered
+# 7. POST /api/auth/login
+#    PURPOSE: Disabled legacy password login. Returns 410; use OTP flow.
 #
-# 8. POST /api/requests/{requestId}/feedback
-#    PURPOSE: Submit feedback survey responses
-#    BODY: { ratings: {...}, comments: "..." }
+# ROLE MODEL:
+#   super_admin: full access, including auth-user CRUD and role assignment.
+#   admin: operational/admin APIs except auth-user CRUD and role assignment.
+#   orchestrator: internal operational access for envelope/email/API work.
+#   requester: can create requests and view/update only their own request flow.
+#   Permission denials are logged server-side as api_permission_denied.
 #
-# 9. GET /api/email-templates
-#    PURPOSE: List all email templates for customization
-#    RETURNS: Array of template metadata
+# AUTH USER ADMIN:
+# 8. GET /api/admin/auth-users
+#    PURPOSE: List active/allowed users and roles
+#    ACCESS: super_admin only
 #
-# 10. POST /api/admin/email-templates
+# 9. POST /api/admin/auth-users
+#    PURPOSE: Create an OTP-allowed user
+#    ACCESS: super_admin only
+#    BODY: { email, role: "requester"|"admin"|"orchestrator"|"super_admin", isActive: true }
+#
+# 10. PUT /api/admin/auth-users/{userId}
+#     PURPOSE: Edit user role/active status/OTP permission
+#     ACCESS: super_admin only
+#
+# 11. DELETE /api/admin/auth-users/{userId}
+#     PURPOSE: Deactivate/remove a user from API access
+#     ACCESS: super_admin only
+#
+# SERVICE + REQUEST FLOW:
+# 12. GET /api/services/{serviceId}
+#     PURPOSE: Retrieve service definition to render form
+#     RETURNS: Complete YAML parsed as JSON
+#     INCLUDES: parameters schema, all envelope configurations
+#
+# 13. POST /api/requests
+#     PURPOSE: Submit new service request
+#     BODY: { type: "service-type", initiator: "user@email.com", parameters: {...} }
+#     REQUESTER RULE: requester role may submit only for its own email identity
+#     RETURNS: { id: "REQ-2025-001", status: "pending_approval", ... }
+#
+# 14. GET /api/requests/{requestId}
+#     PURPOSE: Get request status and all envelope details
+#     REQUESTER RULE: requester role may read only its own request
+#
+# 15. POST /api/delivery/{requestId}/details
+#     PURPOSE: Submit delivery details AFTER request created
+#     BODY: { deliveryMethod: "physical_mail", deliveryDetails: {...} }
+#
+# 16. POST /api/approvals/{requestId}
+#     PURPOSE: Approver submits decision (approve/deny)
+#     BODY: { decision: "approve" | "deny", notes: "..." }
+#
+# 17. POST /api/payments/{requestId}/complete
+#     PURPOSE: Called after payment success
+#     BODY: { transactionId, amount, currency, method, reference, metadata }
+#     EMAIL: Sends editable payment-end receipt via YAML override or generic fallback
+#
+# 18. POST /api/delivery-status/{requestId}
+#     PURPOSE: Update delivery status (progress tracking)
+#     BODY: { statusCode: 0|1|2|3, notes: "..." }
+#     STATUS CODES: 0=processing, 1=ready, 2=in_transit, 3=delivered
+#
+# 19. POST /api/requests/{requestId}/feedback
+#     PURPOSE: Submit feedback survey responses
+#     BODY: { ratings: {...}, comments: "..." }
+#
+# EMAIL TEMPLATE ADMIN:
+# 20. GET /api/admin/email-templates
+#     PURPOSE: List all email templates for customization
+#
+# 21. POST /api/admin/email-templates
 #     PURPOSE: Create/update email template
 #     BODY: { templateId: "SERV-999-approval-start", html: "...", subject: "..." }
+#
+# 22. PUT /api/admin/email-templates/{templateId}
+#     PURPOSE: Update an existing email template
+#
+# 23. DELETE /api/admin/email-templates/{templateId}
+#     PURPOSE: Disable/remove an email template
 
 # ============================================================================
 # 13. BACKEND YAML VALIDATOR REQUIREMENTS
