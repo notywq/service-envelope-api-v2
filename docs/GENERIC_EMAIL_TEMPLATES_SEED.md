@@ -278,6 +278,26 @@ These are the names backend will fall back to when no service-specific template 
           <td style="padding:8px 0;font-weight:bold;color:#333;">Service Type:</td>
           <td style="padding:8px 0;color:#555;">{{serviceType}}</td>
         </tr>
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Transaction ID:</td>
+          <td style="padding:8px 0;color:#555;">{{paymentTransactionId}}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Amount Paid:</td>
+          <td style="padding:8px 0;color:#555;">{{paymentCurrency}} {{paymentAmount}}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Payment Method:</td>
+          <td style="padding:8px 0;color:#555;">{{paymentMethod}}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Reference:</td>
+          <td style="padding:8px 0;color:#555;">{{paymentReference}}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e0e0e0;">
+          <td style="padding:8px 0;font-weight:bold;color:#333;">Paid At:</td>
+          <td style="padding:8px 0;color:#555;">{{paymentTimestamp}}</td>
+        </tr>
         <tr>
           <td style="padding:8px 0;font-weight:bold;color:#333;">Payment Status:</td>
           <td style="padding:8px 0;color:#2e7d32;font-weight:bold;">CONFIRMED</td>
