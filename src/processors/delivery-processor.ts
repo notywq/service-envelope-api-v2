@@ -15,6 +15,7 @@ import { Logger } from 'winston';
 import { StateManager } from '../core/state-manager.js';
 import { EmailService } from '../services/email-service.js';
 import { EmailTemplateLoader } from '../utils/email-template-loader.js';
+import { resolveRequesterEmail } from '../utils/request-email.js';
 
 export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
   private templateLoader: EmailTemplateLoader;
@@ -272,16 +273,17 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
       }
 
       // 2. Load template via candidate fallback chain
-      //    runtime override → service-def emailTemplateId → service-specific generic → global generic
+      //    service-def emailTemplateId -> service-specific generic -> global generic
       const serviceDefinition = await this.stateManager.getServiceDefinitionByType(request.type);
       const serviceEmailTemplateId =
         serviceDefinition?.envelopes?.delivery?.deliveryMethods?.email?.emailTemplateId;
+      const serviceScopedGenericTemplateId = `${request.type}-delivery-email-document`;
+      const globalGenericTemplateId = 'delivery-email-document';
 
       const templateCandidates: string[] = [
-        emailDetails.templateId,
         serviceEmailTemplateId,
-        `${request.type}-delivery-email-document`,
-        'delivery-email-document',
+        serviceScopedGenericTemplateId,
+        globalGenericTemplateId,
       ].filter((c): c is string => Boolean(c));
 
       const extraContext = {
@@ -291,6 +293,7 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
 
       let subject = emailDetails.subject || 'Your Documents Are Ready';
       let htmlBody = `<p>Your documents are ready. ${extraContext.documentLinksText || 'Please contact us for access.'}</p>`;
+      let resolvedTemplate = false;
 
       for (const candidateId of templateCandidates) {
         const template = await this.templateLoader.fetchAndRenderTemplate(
@@ -300,13 +303,13 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
           extraContext
         );
         if (template) {
+          resolvedTemplate = true;
           subject = template.subject;
           htmlBody = template.htmlBody;
           const source = this.classifyTemplateSource(candidateId, {
             yamlConfigured: [serviceEmailTemplateId],
-            runtimeOverrides: [emailDetails.templateId],
-            serviceScopedGeneric: [`${request.type}-delivery-email-document`],
-            globalGeneric: ['delivery-email-document'],
+            serviceScopedGeneric: [serviceScopedGenericTemplateId],
+            globalGeneric: [globalGenericTemplateId],
           });
           this.logger.info(
             `[TEMPLATE-RESOLUTION] Request ${request.id} | Envelope delivery:document-email | Matched: ${candidateId} | Source: ${source} | TemplateId: ${candidateId} | TemplateScope: ${source.startsWith('generic-') ? 'generic' : source === 'yaml-service-definition' ? 'service' : 'n/a'}`
@@ -314,11 +317,18 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
           break;
         }
       }
+      if (!resolvedTemplate) {
+        this.logger.warn(
+          `[DELIVERY-EMAIL] Request ${request.id} | No delivery email template found from candidates: ${templateCandidates.join(', ')}; using built-in minimal fallback body`
+        );
+      }
 
       // 3. Determine recipient: runtime-submitted details → request parameters email
+      const configuredRecipient = emailDetails.recipient;
       const recipient =
-        emailDetails.recipient ||
-        (request.envelopes.request as any)?.parameters?.email;
+        configuredRecipient && !configuredRecipient.includes('{{')
+          ? configuredRecipient
+          : resolveRequesterEmail(request);
 
       if (!recipient) {
         this.logger.warn(`[DELIVERY-EMAIL] Request ${request.id} | No recipient email found`);
@@ -531,11 +541,13 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
         const serviceDefinition = await this.stateManager.getServiceDefinitionByType(request.type);
         const configuredTemplateId =
           serviceDefinition?.envelopes?.delivery?.deliveryMethods?.pickup?.notificationTemplateId;
+        const serviceScopedGenericTemplateId = `${request.type}-delivery-pickup-ready`;
+        const globalGenericTemplateId = 'delivery-pickup-ready';
 
         const templateCandidates = [
           configuredTemplateId,
-          `${request.type}-delivery-pickup-ready`,
-          'delivery-pickup-ready',
+          serviceScopedGenericTemplateId,
+          globalGenericTemplateId,
         ].filter((c): c is string => Boolean(c));
 
         let notifTemplate = null;
@@ -548,8 +560,8 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
           if (notifTemplate) {
             const source = this.classifyTemplateSource(candidateId, {
               yamlConfigured: [configuredTemplateId],
-              serviceScopedGeneric: [`${request.type}-delivery-pickup-ready`],
-              globalGeneric: ['delivery-pickup-ready'],
+              serviceScopedGeneric: [serviceScopedGenericTemplateId],
+              globalGeneric: [globalGenericTemplateId],
             });
             this.logger.info(
               `[TEMPLATE-RESOLUTION] Request ${request.id} | Envelope delivery:pickup-notification | Matched: ${candidateId} | Source: ${source} | TemplateId: ${candidateId} | TemplateScope: ${source.startsWith('generic-') ? 'generic' : source === 'yaml-service-definition' ? 'service' : 'n/a'}`
@@ -559,7 +571,7 @@ export class DeliveryProcessor extends EnvelopeProcessor<DeliveryEnvelope> {
         }
 
         if (notifTemplate) {
-          const requestorEmail = (request.envelopes.request as any)?.parameters?.email;
+          const requestorEmail = resolveRequesterEmail(request);
           if (requestorEmail) {
             await this.emailService.sendEmail({
               to: requestorEmail,

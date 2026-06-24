@@ -1,0 +1,334 @@
+import { Request, Response, NextFunction } from 'express';
+import jwt, { SignOptions } from 'jsonwebtoken';
+
+export type ApiRole = 'super_admin' | 'admin' | 'requester' | 'orchestrator' | 'approver' | 'service';
+
+export interface AuthenticatedUser {
+  email: string;
+  role: ApiRole;
+  name?: string;
+  tokenType: 'access';
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: AuthenticatedUser;
+    }
+  }
+}
+
+const DEV_JWT_SECRET = 'dev-only-service-envelope-jwt-secret-change-me';
+
+function splitCsv(value?: string): string[] {
+  return (value || '')
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+export function isAuthRequired(): boolean {
+  if (process.env.AUTH_REQUIRED === 'true') {
+    return true;
+  }
+  if (process.env.AUTH_REQUIRED === 'false') {
+    return false;
+  }
+  return process.env.NODE_ENV === 'production';
+}
+
+export function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (process.env.NODE_ENV === 'production' && (!secret || secret.length < 32 || secret === 'secret-key')) {
+    throw new Error('JWT_SECRET must be set to a strong value (32+ chars) in production');
+  }
+  return secret || DEV_JWT_SECRET;
+}
+
+export function getAccessTokenExpiresIn(): string {
+  return process.env.JWT_ACCESS_TOKEN_EXPIRES_IN || '1h';
+}
+
+function getJwtOptions(): SignOptions {
+  const options: SignOptions = {
+    expiresIn: getAccessTokenExpiresIn() as SignOptions['expiresIn'],
+  };
+
+  if (process.env.JWT_ISSUER) {
+    options.issuer = process.env.JWT_ISSUER;
+  }
+  if (process.env.JWT_AUDIENCE) {
+    options.audience = process.env.JWT_AUDIENCE;
+  }
+
+  return options;
+}
+
+function getVerifyOptions(): jwt.VerifyOptions {
+  const options: jwt.VerifyOptions = {};
+
+  if (process.env.JWT_ISSUER) {
+    options.issuer = process.env.JWT_ISSUER;
+  }
+  if (process.env.JWT_AUDIENCE) {
+    options.audience = process.env.JWT_AUDIENCE;
+  }
+
+  return options;
+}
+
+export function issueAccessToken(user: Omit<AuthenticatedUser, 'tokenType'>): string {
+  return jwt.sign(
+    {
+      sub: user.email,
+      email: user.email,
+      role: user.role,
+      name: user.name,
+      tokenType: 'access',
+    },
+    getJwtSecret(),
+    getJwtOptions()
+  );
+}
+
+export function verifyAccessToken(token: string): AuthenticatedUser {
+  const decoded = jwt.verify(token, getJwtSecret(), getVerifyOptions()) as jwt.JwtPayload;
+
+  if (decoded.tokenType !== 'access' || typeof decoded.email !== 'string') {
+    throw new Error('Invalid access token payload');
+  }
+
+  return {
+    email: decoded.email,
+    role: (decoded.role as ApiRole) || 'requester',
+    name: typeof decoded.name === 'string' ? decoded.name : undefined,
+    tokenType: 'access',
+  };
+}
+
+function roleSatisfies(userRole: ApiRole, requiredRole: ApiRole): boolean {
+  if (userRole === requiredRole) {
+    return true;
+  }
+
+  if (userRole === 'super_admin') {
+    return true;
+  }
+
+  if (requiredRole === 'orchestrator' && userRole === 'service') {
+    return true;
+  }
+
+  if (requiredRole === 'service' && userRole === 'orchestrator') {
+    return true;
+  }
+
+  return false;
+}
+
+function canAccessAuthenticatedApi(user: AuthenticatedUser, path: string, method: string): boolean {
+  const normalizedPath = path.toLowerCase();
+  const normalizedMethod = method.toUpperCase();
+
+  if (user.role === 'super_admin') {
+    return true;
+  }
+
+  if (user.role === 'admin') {
+    return true;
+  }
+
+  if (user.role === 'orchestrator' || user.role === 'service') {
+    return !normalizedPath.startsWith('/admin') && !normalizedPath.startsWith('/mock');
+  }
+
+  if (user.role === 'requester') {
+    if (normalizedPath.startsWith('/admin') || normalizedPath.startsWith('/mock')) {
+      return false;
+    }
+
+    if (normalizedPath.startsWith('/services') && normalizedMethod === 'GET') {
+      return true;
+    }
+
+    if (normalizedPath === '/requests' && normalizedMethod === 'POST') {
+      return true;
+    }
+
+    if (/^\/requests\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'GET') {
+      return true;
+    }
+
+    if (/^\/requests\/[^/]+\/history$/.test(normalizedPath) && normalizedMethod === 'GET') {
+      return true;
+    }
+
+    if (/^\/delivery\/[^/]+\/(details|method)$/.test(normalizedPath)) {
+      return ['GET', 'POST'].includes(normalizedMethod);
+    }
+
+    if (/^\/payments\/[^/]+\/(complete|failed)$/.test(normalizedPath) && normalizedMethod === 'POST') {
+      return true;
+    }
+
+    if (/^\/feedback\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'GET') {
+      return true;
+    }
+
+    return false;
+  }
+
+  return false;
+}
+
+function logPermissionDenied(req: Request, details: Record<string, unknown>) {
+  console.warn(JSON.stringify({
+    level: 'warn',
+    event: 'api_permission_denied',
+    method: req.method,
+    path: req.originalUrl || req.path,
+    ip: req.ip,
+    userAgent: req.headers['user-agent'] || '',
+    timestamp: new Date().toISOString(),
+    ...details,
+  }));
+}
+
+export function getBearerToken(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return null;
+  }
+
+  const [scheme, token] = authHeader.split(' ');
+  if (!scheme || scheme.toLowerCase() !== 'bearer' || !token) {
+    return null;
+  }
+
+  return token;
+}
+
+export function requireAuth(options: { roles?: ApiRole[] } = {}) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const token = getBearerToken(req);
+
+    if (!token) {
+      if (!isAuthRequired()) {
+        return next();
+      }
+      logPermissionDenied(req, {
+        reason: 'missing_bearer_token',
+        requiredRoles: options.roles || [],
+      });
+      return res.status(401).json({ error: 'Bearer token required' });
+    }
+
+    try {
+      const user = verifyAccessToken(token);
+      if (options.roles?.length && !options.roles.some(role => roleSatisfies(user.role, role))) {
+        logPermissionDenied(req, {
+          reason: 'insufficient_role',
+          email: user.email,
+          role: user.role,
+          requiredRoles: options.roles,
+        });
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+      req.user = user;
+      return next();
+    } catch {
+      logPermissionDenied(req, {
+        reason: 'invalid_or_expired_bearer_token',
+        requiredRoles: options.roles || [],
+      });
+      return res.status(401).json({ error: 'Invalid or expired bearer token' });
+    }
+  };
+}
+
+export function isPublicApiPath(path: string, method: string): boolean {
+  const normalizedPath = path.toLowerCase();
+  const normalizedMethod = method.toUpperCase();
+
+  if (normalizedPath === '/' && normalizedMethod === 'GET') {
+    return true;
+  }
+
+  if (
+    normalizedPath === '/auth/verify' ||
+    normalizedPath === '/auth/me' ||
+    normalizedPath === '/otp/flush'
+  ) {
+    return false;
+  }
+
+  if (normalizedPath.startsWith('/auth/') || normalizedPath.startsWith('/otp/')) {
+    return true;
+  }
+
+  if (/^\/approvals\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'GET') {
+    return true;
+  }
+
+  if (/^\/approvals\/[^/]+\/request$/.test(normalizedPath) && normalizedMethod === 'GET') {
+    return true;
+  }
+
+  if (/^\/approvals\/[^/]+\/(approve|deny)$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return true;
+  }
+
+  if (/^\/feedback\/token\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'GET') {
+    return true;
+  }
+
+  if (/^\/feedback\/token\/[^/]+\/submit$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return true;
+  }
+
+  return false;
+}
+
+export function requireApiAuth(req: Request, res: Response, next: NextFunction) {
+  if (isPublicApiPath(req.path, req.method)) {
+    return next();
+  }
+
+  const token = getBearerToken(req);
+
+  if (!token) {
+    if (!isAuthRequired()) {
+      return next();
+    }
+    logPermissionDenied(req, {
+      reason: 'missing_bearer_token',
+    });
+    return res.status(401).json({ error: 'Bearer token required' });
+  }
+
+  try {
+    const user = verifyAccessToken(token);
+    if (!canAccessAuthenticatedApi(user, req.path, req.method)) {
+      logPermissionDenied(req, {
+        reason: 'route_not_allowed_for_role',
+        email: user.email,
+        role: user.role,
+      });
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    req.user = user;
+    return next();
+  } catch {
+    logPermissionDenied(req, {
+      reason: 'invalid_or_expired_bearer_token',
+    });
+    return res.status(401).json({ error: 'Invalid or expired bearer token' });
+  }
+}
+
+export function validateAuthConfiguration(): void {
+  if (!isAuthRequired()) {
+    return;
+  }
+
+  getJwtSecret();
+}

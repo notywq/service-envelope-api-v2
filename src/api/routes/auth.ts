@@ -1,86 +1,32 @@
 /**
  * Authentication Routes
- * Handles user login and JWT token generation
+ * OTP verification issues bearer tokens. These routes inspect or validate tokens.
  */
 
 import { Router, Request, Response } from 'express';
-import jwt from 'jsonwebtoken';
-import { appContext } from '../server.js';
+import { getAccessTokenExpiresIn, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
-interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-// Mock user database - in production, use real database
-const MOCK_USERS = [
-  { email: 'admin@mapua.edu.ph', password: 'admin123', role: 'admin', name: 'Admin User' },
-  { email: 'approver@mapua.edu.ph', password: 'approver123', role: 'approver', name: 'Registrar' },
-  { email: 'requester@mapua.edu.ph', password: 'requester123', role: 'requester', name: 'Student' },
-];
-
-/**
- * POST /api/auth/login
- * Login with email and password, return JWT token
- */
-router.post('/login', (req: Request, res: Response) => {
-  try {
-    const { email, password } = req.body as LoginRequest;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password required' });
-    }
-
-    const user = MOCK_USERS.find(u => u.email === email && u.password === password);
-
-    if (!user) {
-      appContext.logger.warn(`⚠️  Failed login attempt for ${email}`);
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign(
-      { email: user.email, role: user.role, name: user.name },
-      process.env.JWT_SECRET || 'secret-key',
-      { expiresIn: '24h' }
-    );
-
-    appContext.logger.info(`✅ User logged in: ${user.email}`);
-
-    res.json({
-      token,
-      user: {
-        email: user.email,
-        name: user.name,
-        role: user.role,
-      },
-      expiresIn: '24h',
-    });
-  } catch (error) {
-    appContext.logger.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+router.post('/login', (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: 'Password login is disabled. Use POST /api/OTP/send and POST /api/OTP/verify.',
+  });
 });
 
-/**
- * POST /api/auth/verify
- * Verify JWT token is valid
- */
-router.post('/verify', (req: Request, res: Response) => {
-  try {
-    const authHeader = req.headers.authorization;
-    const token = authHeader?.split(' ')[1];
+router.post('/verify', requireAuth(), (req: Request, res: Response) => {
+  res.json({
+    valid: true,
+    user: req.user,
+    expiresIn: getAccessTokenExpiresIn(),
+  });
+});
 
-    if (!token) {
-      return res.status(401).json({ error: 'No token provided' });
-    }
-
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret-key');
-    res.json({ valid: true, user: decoded });
-  } catch (error) {
-    res.status(401).json({ error: 'Invalid token' });
-  }
+router.get('/me', requireAuth(), (req: Request, res: Response) => {
+  res.json({
+    user: req.user,
+    expiresIn: getAccessTokenExpiresIn(),
+  });
 });
 
 export default router;

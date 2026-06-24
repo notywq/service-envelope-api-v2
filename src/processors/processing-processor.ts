@@ -28,6 +28,13 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
     request: ServiceRequest,
     envelope: ProcessingEnvelope
   ): Observable<ProcessingEnvelope> {
+    if (!envelope.required) {
+      envelope.status = 'waived';
+      envelope.timestamp = new Date().toISOString();
+      this.logger.info(`[PROCESSING-WAIVED] Request ${request.id} | Processing not required`);
+      return of(envelope);
+    }
+
     // Check if this is the initial start (status = pending)
     if (envelope.status === 'pending') {
       // NOTE: Orchestrator handles email sending via sendEnvelopeEmailTemplate()
@@ -81,8 +88,12 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
     }
 
     return from(envelope.tasks).pipe(
-      concatMap((task, index) =>
-        from(this.apiExecutor.executeTask(task, request)).pipe(
+      concatMap((task, index) => {
+        if (envelope.stopOnFailure && envelope.status === 'failed') {
+          return of(task);
+        }
+
+        return from(this.apiExecutor.executeTask(task, request)).pipe(
           tap((updatedTask) => {
             const taskIndex = envelope.tasks.findIndex(t => t.name === updatedTask.name);
             if (taskIndex >= 0) {
@@ -108,11 +119,10 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
               );
               // Mark envelope as failed
               envelope.status = 'failed';
-              throw new Error(`Task "${updatedTask.name}" failed and stopOnFailure is enabled`);
             }
           })
-        )
-      ),
+        );
+      }),
       last(),
       map(() => {
         const allCompleted = envelope.tasks.every(t => t.status === 'completed');

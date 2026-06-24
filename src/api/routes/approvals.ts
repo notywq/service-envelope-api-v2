@@ -7,8 +7,88 @@
 import { Router, Request, Response } from 'express';
 import { appContext } from '../server.js';
 import { randomUUID } from 'crypto';
+import { resolveRequesterEmail } from '../../utils/request-email.js';
+import { requireAuth } from '../middleware/auth.js';
 
 const router = Router();
+
+function evaluateApprovalRulesAfterDecision(approval: any): {
+  complete: boolean;
+  failed: boolean;
+  message: string;
+} {
+  const approvers = approval?.approvers || [];
+  const rules = approval?.approvalRules || {};
+  const { type: ruleType, specificApprover, requiredApprovers = [], atLeastOneOf = [] } = rules;
+  const isApproved = (email: string) => approvers.some((a: any) => a.id === email && a.status === 'approved');
+  const isDenied = (email: string) => approvers.some((a: any) => a.id === email && a.status === 'denied');
+  const anyApproved = approvers.some((a: any) => a.status === 'approved');
+  const allDecided = approvers.length > 0 && approvers.every((a: any) => ['approved', 'denied'].includes(a.status));
+
+  switch (ruleType) {
+    case 'all_must_approve':
+      if (approvers.some((a: any) => a.status === 'denied')) {
+        return { complete: false, failed: true, message: 'A required approver denied the request' };
+      }
+      return {
+        complete: approvers.length > 0 && approvers.every((a: any) => a.status === 'approved'),
+        failed: false,
+        message: 'Awaiting all required approvers',
+      };
+
+    case 'any_one':
+      if (anyApproved) {
+        return { complete: true, failed: false, message: 'At least one approver approved' };
+      }
+      if (allDecided) {
+        return { complete: false, failed: true, message: 'All eligible approvers denied the request' };
+      }
+      return { complete: false, failed: false, message: 'Awaiting at least one approval' };
+
+    case 'specific_approver': {
+      const specific = approvers.find((a: any) => a.id === specificApprover);
+      if (specific?.status === 'denied') {
+        return { complete: false, failed: true, message: `Required approver ${specificApprover} denied the request` };
+      }
+      return {
+        complete: specific?.status === 'approved',
+        failed: false,
+        message: `Awaiting approval from ${specificApprover}`,
+      };
+    }
+
+    case 'complex': {
+      if (requiredApprovers.some((email: string) => isDenied(email))) {
+        return { complete: false, failed: true, message: 'A required approver denied the request' };
+      }
+
+      const allRequiredApproved = requiredApprovers.every((email: string) => isApproved(email));
+      const atLeastOneApproved = atLeastOneOf.length === 0 || atLeastOneOf.some((email: string) => isApproved(email));
+      if (allRequiredApproved && atLeastOneApproved) {
+        return { complete: true, failed: false, message: 'All required approval conditions were met' };
+      }
+
+      const atLeastOneImpossible =
+        atLeastOneOf.length > 0 &&
+        atLeastOneOf.every((email: string) => isDenied(email));
+      if (atLeastOneImpossible) {
+        return { complete: false, failed: true, message: 'All delegated approver options denied the request' };
+      }
+
+      return { complete: false, failed: false, message: 'Approval conditions are still pending' };
+    }
+
+    default:
+      if (approvers.some((a: any) => a.status === 'denied')) {
+        return { complete: false, failed: true, message: 'An approver denied the request' };
+      }
+      return {
+        complete: approvers.length > 0 && approvers.every((a: any) => a.status === 'approved'),
+        failed: false,
+        message: 'Awaiting approvals',
+      };
+  }
+}
 
 function isApprovalTokenExpired(expiresAt: any): boolean {
   if (!expiresAt) {
@@ -33,7 +113,7 @@ function substituteTemplateVariables(text: string, context: Record<string, any>)
 async function sendDenialNotificationEmail(request: any, reason: string, approverId: string): Promise<void> {
   try {
     const requestParams = request.envelopes?.request?.parameters || {};
-    const recipient = requestParams.email || request.initiator;
+    const recipient = resolveRequesterEmail(request);
     if (!recipient) {
       appContext.logger.warn(`[DENIAL-EMAIL] No requestor email for request ${request.id}`);
       return;
@@ -42,9 +122,11 @@ async function sendDenialNotificationEmail(request: any, reason: string, approve
     const serviceDefinition = await appContext.stateManager.getServiceDefinitionByType(request.type);
     const envs = serviceDefinition?.envelopes || serviceDefinition?.definition?.envelopes || {};
     const configuredCancelTemplate = envs?.approval?.emailTemplateCancelEnvelope;
+    const defaultCancelTemplate = envs?.approval?.defaultEmailTemplateCancelEnvelope;
 
     const candidateNames = [
       configuredCancelTemplate,
+      defaultCancelTemplate,
       `${request.type}-request-denied`,
       'request-denied',
       `${request.type}-request-cancelled`,
@@ -53,7 +135,8 @@ async function sendDenialNotificationEmail(request: any, reason: string, approve
 
     let template: any = null;
     for (const name of [...new Set(candidateNames)]) {
-      template = await appContext.stateManager.getEmailTemplateByName(name);
+      template = await appContext.stateManager.getEmailTemplate(name)
+        || await appContext.stateManager.getEmailTemplateByName(name);
       if (template) {
         appContext.logger.info(`[DENIAL-EMAIL] Using template: ${name}`);
         break;
@@ -65,7 +148,10 @@ async function sendDenialNotificationEmail(request: any, reason: string, approve
       return;
     }
 
+    const serviceData = requestParams.serviceData || {};
     const context = {
+      ...serviceData,
+      ...requestParams,
       requestId: request.id,
       serviceType: request.type,
       studentId: requestParams.studentId || '',
@@ -112,7 +198,7 @@ export async function generateApprovalToken(requestId: string, approverId: strin
  * GET /api/approvals/admin/tokens/:requestId
  * Admin endpoint to get all approval tokens for a request (for testing/debugging)
  */
-router.get('/admin/tokens/:requestId', async (req: Request, res: Response) => {
+router.get('/admin/tokens/:requestId', requireAuth({ roles: ['admin'] }), async (req: Request, res: Response) => {
   try {
     const { requestId } = req.params;
     
@@ -171,7 +257,7 @@ router.post('/:token/approve', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Request not found' });
     }
 
-    if (request.envelopes.approval.status === 'completed' || request.envelopes.approval.status === 'cancelled') {
+    if (['completed', 'cancelled', 'failed'].includes(request.envelopes.approval.status)) {
       return res.status(409).json({ error: 'Approval stage is already finalized for this request' });
     }
 
@@ -342,12 +428,20 @@ router.post('/:token/deny', async (req: Request, res: Response) => {
       approver.deniedAt = new Date().toISOString();
     }
 
-    // Set to cancelled instead of failed
-    request.envelopes.approval.status = 'cancelled';
-    request.overallStatus = 'cancelled';
+    const approvalOutcome = evaluateApprovalRulesAfterDecision(request.envelopes.approval);
+    request.envelopes.approval.status = approvalOutcome.failed
+      ? 'failed'
+      : approvalOutcome.complete
+        ? 'completed'
+        : 'pending_external';
+    request.overallStatus = approvalOutcome.failed
+      ? 'cancelled'
+      : approvalOutcome.complete
+        ? 'processing'
+        : 'pending_approval';
     request.lastUpdated = new Date().toISOString();
     request.history.push({
-      status: 'cancelled',
+      status: approvalOutcome.failed ? 'approval_failed' : 'denied',
       timestamp: new Date().toISOString(),
       envelope: 'approval',
       notes: `Denied by ${tokenData.approverId}. Reason: ${reason}`,
@@ -360,14 +454,20 @@ router.post('/:token/deny', async (req: Request, res: Response) => {
     await appContext.stateManager.saveRequest(request);
     appContext.logger.info(`❌ Request cancelled: ${tokenData.requestId} by ${tokenData.approverId}`);
 
-    // Send denial email to requestor via template resolver
-    await sendDenialNotificationEmail(request, reason, tokenData.approverId);
+    if (approvalOutcome.failed) {
+      // Send denial email to requestor via template resolver
+      await sendDenialNotificationEmail(request, reason, tokenData.approverId);
+    }
 
     res.json({
       requestId: tokenData.requestId,
-      status: 'cancelled',
-      message: 'Request has been cancelled and requestor has been notified',
+      status: request.overallStatus,
+      message: approvalOutcome.failed
+        ? 'Request has failed approval and requestor has been notified'
+        : approvalOutcome.message,
       reason,
+      approvalComplete: approvalOutcome.complete,
+      approvalFailed: approvalOutcome.failed,
     });
   } catch (error) {
     appContext.logger.error('Error denying request:', error);

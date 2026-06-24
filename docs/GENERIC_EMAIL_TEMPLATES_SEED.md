@@ -16,6 +16,31 @@ These are the names backend will fall back to when no service-specific template 
 
 ---
 
+### `otp-login`
+**eventKey:** `otp-login` | **envelopeType:** `auth` | **phase:** `otp`
+
+**subject:** `Your Service Envelope login code`
+
+```html
+<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;background:#ffffff;">
+  <div style="background-color:#003a70;padding:22px 28px;">
+    <h1 style="margin:0;color:#ffffff;font-size:20px;font-weight:bold;">Service Envelope</h1>
+  </div>
+  <div style="padding:28px;">
+    <h2 style="color:#003a70;margin-top:0;">Login code</h2>
+    <p style="color:#333;line-height:1.6;">Use this one-time code to finish signing in:</p>
+    <p style="font-size:30px;font-weight:bold;letter-spacing:6px;color:#111;margin:24px 0;">{{otpCode}}</p>
+    <p style="color:#333;line-height:1.6;">This code expires in {{expiryMinutes}} minutes.</p>
+    <p style="color:#777;font-size:13px;line-height:1.5;">If you did not request this code, you can ignore this email.</p>
+  </div>
+  <div style="background:#f5f5f5;padding:14px 28px;border-top:1px solid #e0e0e0;">
+    <p style="margin:0;font-size:11px;color:#999;text-align:center;">This is an automated Service Envelope security message.</p>
+  </div>
+</div>
+```
+
+---
+
 ### `request-start`
 **eventKey:** `request-start` | **envelopeType:** `request` | **phase:** `start`
 

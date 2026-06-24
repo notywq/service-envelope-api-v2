@@ -90,6 +90,79 @@ const FeedbackTokenModel = mongoose.model<FeedbackTokenDoc>(
   FeedbackTokenSchema
 );
 
+// Define OTP Challenge Schema
+const OtpChallengeSchema = new Schema({
+  email: { type: String, required: true, index: true },
+  purpose: { type: String, required: true, default: 'login', index: true },
+  codeHash: { type: String, required: true },
+  expiresAt: { type: Date, required: true, index: true },
+  createdAt: { type: Date, default: Date.now },
+  sentAt: { type: Date, default: Date.now },
+  consumedAt: { type: Date, default: null },
+  cancelledAt: { type: Date, default: null },
+  attempts: { type: Number, default: 0 },
+  maxAttempts: { type: Number, default: 5 },
+  ipAddress: String,
+  userAgent: String,
+}, { collection: 'otpchallenges' });
+
+OtpChallengeSchema.index({ email: 1, purpose: 1, createdAt: -1 });
+
+interface OtpChallengeDoc extends Document {
+  email: string;
+  purpose: string;
+  codeHash: string;
+  expiresAt: Date;
+  createdAt: Date;
+  sentAt: Date;
+  consumedAt?: Date | null;
+  cancelledAt?: Date | null;
+  attempts: number;
+  maxAttempts: number;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+const OtpChallengeModel = mongoose.model<OtpChallengeDoc>(
+  'OtpChallenge',
+  OtpChallengeSchema
+);
+
+// Define Auth User Schema
+const AuthUserSchema = new Schema({
+  email: { type: String, unique: true, required: true, index: true },
+  role: {
+    type: String,
+    enum: ['super_admin', 'admin', 'requester', 'orchestrator', 'approver', 'service'],
+    default: 'requester',
+    index: true,
+  },
+  name: String,
+  isActive: { type: Boolean, default: true, index: true },
+  allowedForOtp: { type: Boolean, default: true, index: true },
+  metadata: Schema.Types.Mixed,
+  lastLoginAt: { type: Date, default: null },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+}, { collection: 'authusers' });
+
+interface AuthUserDoc extends Document {
+  email: string;
+  role: 'super_admin' | 'admin' | 'requester' | 'orchestrator' | 'approver' | 'service';
+  name?: string;
+  isActive: boolean;
+  allowedForOtp: boolean;
+  metadata?: any;
+  lastLoginAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const AuthUserModel = mongoose.model<AuthUserDoc>(
+  'AuthUser',
+  AuthUserSchema
+);
+
 // Define Service Definition Schema
 const ServiceDefinitionSchema = new Schema({
   id: { type: String, unique: true, required: true, index: true },
@@ -416,6 +489,192 @@ export class MongoDBStateManager {
     } catch (error) {
       this.logger.error('Failed to delete expired tokens:', error);
       return 0;
+    }
+  }
+
+  // OTP Challenge Methods
+  async createOtpChallenge(challenge: {
+    email: string;
+    purpose?: string;
+    codeHash: string;
+    expiresAt: Date;
+    maxAttempts: number;
+    ipAddress?: string;
+    userAgent?: string;
+  }): Promise<any> {
+    try {
+      const doc = await OtpChallengeModel.create({
+        email: challenge.email,
+        purpose: challenge.purpose || 'login',
+        codeHash: challenge.codeHash,
+        expiresAt: challenge.expiresAt,
+        maxAttempts: challenge.maxAttempts,
+        ipAddress: challenge.ipAddress,
+        userAgent: challenge.userAgent,
+      });
+      this.logger.debug(`Saved OTP challenge for ${challenge.email}`);
+      return doc.toObject();
+    } catch (error) {
+      this.logger.error(`Failed to save OTP challenge for ${challenge.email}:`, error);
+      throw error;
+    }
+  }
+
+  async getActiveOtpChallenge(email: string, purpose: string = 'login'): Promise<any> {
+    try {
+      const doc = await OtpChallengeModel.findOne({
+        email,
+        purpose,
+        consumedAt: null,
+        cancelledAt: null,
+      }).sort({ createdAt: -1 });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get active OTP challenge for ${email}:`, error);
+      return null;
+    }
+  }
+
+  async incrementOtpChallengeAttempts(challengeId: string): Promise<void> {
+    try {
+      await OtpChallengeModel.updateOne({ _id: challengeId }, { $inc: { attempts: 1 } });
+    } catch (error) {
+      this.logger.error(`Failed to increment OTP attempts for ${challengeId}:`, error);
+      throw error;
+    }
+  }
+
+  async markOtpChallengeConsumed(challengeId: string): Promise<void> {
+    try {
+      await OtpChallengeModel.updateOne({ _id: challengeId }, { consumedAt: new Date() });
+    } catch (error) {
+      this.logger.error(`Failed to consume OTP challenge ${challengeId}:`, error);
+      throw error;
+    }
+  }
+
+  async cancelOtpChallenges(email: string, purpose: string = 'login'): Promise<number> {
+    try {
+      const result = await OtpChallengeModel.updateMany(
+        {
+          email,
+          purpose,
+          consumedAt: null,
+          cancelledAt: null,
+        },
+        { cancelledAt: new Date() }
+      );
+      return result.modifiedCount || 0;
+    } catch (error) {
+      this.logger.error(`Failed to cancel OTP challenges for ${email}:`, error);
+      throw error;
+    }
+  }
+
+  async flushStaleOtpChallenges(now: Date = new Date(), consumedRetentionHours: number = 24): Promise<number> {
+    try {
+      const consumedBefore = new Date(now.getTime() - consumedRetentionHours * 60 * 60 * 1000);
+      const result = await OtpChallengeModel.deleteMany({
+        $or: [
+          { expiresAt: { $lt: now } },
+          { consumedAt: { $ne: null, $lt: consumedBefore } },
+          { cancelledAt: { $ne: null, $lt: consumedBefore } },
+        ],
+      });
+      this.logger.debug(`Deleted ${result.deletedCount} stale OTP challenge(s)`);
+      return result.deletedCount || 0;
+    } catch (error) {
+      this.logger.error('Failed to flush stale OTP challenges:', error);
+      return 0;
+    }
+  }
+
+  // Auth User Methods
+  async upsertAuthUser(user: {
+    email: string;
+    role?: 'super_admin' | 'admin' | 'requester' | 'orchestrator' | 'approver' | 'service';
+    name?: string;
+    isActive?: boolean;
+    allowedForOtp?: boolean;
+    metadata?: any;
+  }): Promise<any> {
+    try {
+      const email = user.email.trim().toLowerCase();
+      const doc = await AuthUserModel.findOneAndUpdate(
+        { email },
+        {
+          $set: {
+            email,
+            role: user.role || 'requester',
+            name: user.name,
+            isActive: user.isActive !== false,
+            allowedForOtp: user.allowedForOtp !== false,
+            metadata: user.metadata || {},
+            updatedAt: new Date(),
+          },
+          $setOnInsert: {
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true, new: true }
+      );
+      return doc.toObject();
+    } catch (error) {
+      this.logger.error(`Failed to upsert auth user ${user.email}:`, error);
+      throw error;
+    }
+  }
+
+  async getAuthUserByEmail(email: string): Promise<any> {
+    try {
+      const doc = await AuthUserModel.findOne({ email: email.trim().toLowerCase() });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get auth user ${email}:`, error);
+      return null;
+    }
+  }
+
+  async listAuthUsers(): Promise<any[]> {
+    try {
+      const docs = await AuthUserModel.find({}).sort({ email: 1 });
+      return docs.map(doc => doc.toObject());
+    } catch (error) {
+      this.logger.error('Failed to list auth users:', error);
+      return [];
+    }
+  }
+
+  async countAuthUsers(): Promise<number> {
+    try {
+      return AuthUserModel.countDocuments();
+    } catch (error) {
+      this.logger.error('Failed to count auth users:', error);
+      return 0;
+    }
+  }
+
+  async deactivateAuthUser(email: string): Promise<boolean> {
+    try {
+      const result = await AuthUserModel.updateOne(
+        { email: email.trim().toLowerCase() },
+        { isActive: false, allowedForOtp: false, updatedAt: new Date() }
+      );
+      return (result.modifiedCount || 0) > 0;
+    } catch (error) {
+      this.logger.error(`Failed to deactivate auth user ${email}:`, error);
+      throw error;
+    }
+  }
+
+  async markAuthUserLogin(email: string): Promise<void> {
+    try {
+      await AuthUserModel.updateOne(
+        { email: email.trim().toLowerCase() },
+        { lastLoginAt: new Date(), updatedAt: new Date() }
+      );
+    } catch (error) {
+      this.logger.error(`Failed to update auth user login timestamp ${email}:`, error);
     }
   }
 

@@ -5,68 +5,8 @@
 
 import { Router, Request, Response } from 'express';
 import { appContext } from '../server.js';
-import { ServiceRequest } from '../../types/envelope.types.js';
 
 const router = Router();
-
-/**
- * Helper function to send payment confirmation email to requestor
- */
-async function sendPaymentConfirmationEmail(request: ServiceRequest, transactionId: string, amount: number, method: string) {
-  try {
-    const requestorEmail = request.envelopes.request.parameters?.initiatorEmail;
-    const requestorName = request.envelopes.request.parameters?.initiatorName || 'Student';
-    
-    if (!requestorEmail) {
-      appContext.logger.warn(`⚠️  No requestor email found for request ${request.id}`);
-      return;
-    }
-
-    appContext.logger.info(`📧 Preparing payment confirmation email for ${requestorEmail}`);
-
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px;">
-          <h2 style="color: #003a70;">✅ Payment Received - Receipt</h2>
-          
-          <p>Hello ${requestorName},</p>
-          <p>Thank you! We have successfully received your payment for your service request.</p>
-          
-          <div style="background-color: white; padding: 15px; border-left: 4px solid #28a745; margin: 20px 0;">
-            <p><strong>Receipt Details:</strong></p>
-            <p style="margin: 10px 0;"><strong>Request ID:</strong> ${request.id}</p>
-            <p style="margin: 10px 0;"><strong>Transaction ID:</strong> ${transactionId}</p>
-            <p style="margin: 10px 0;"><strong>Amount Paid:</strong> ₱${amount.toFixed(2)}</p>
-            <p style="margin: 10px 0;"><strong>Payment Method:</strong> ${method}</p>
-            <p style="margin: 10px 0;"><strong>Date/Time:</strong> ${new Date().toLocaleString()}</p>
-            <p style="margin: 10px 0;"><strong>Status:</strong> <span style="color: #28a745; font-weight: bold;">✅ CONFIRMED</span></p>
-          </div>
-
-          <p>Your request is now being processed. You will receive updates via email as it progresses through our system.</p>
-          
-          <p style="font-size: 13px; color: #666; margin-top: 20px;">
-            Please keep this receipt for your records. If you have any questions, please contact the registrar's office.
-          </p>
-          
-          <p style="font-size: 11px; color: #999; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 15px;">
-            This is an automated receipt. Please do not reply to this email.
-          </p>
-        </div>
-      </div>
-    `;
-
-    // Send email
-    await appContext.emailService.sendEmail({
-      to: requestorEmail,
-      subject: `💳 Payment Received - Receipt for Request ${request.id}`,
-      html,
-    });
-    appContext.logger.info(`✅ Payment confirmation email sent to ${requestorEmail}`);
-
-  } catch (error) {
-    appContext.logger.error(`Failed to send payment confirmation email: ${(error as Error).message}`);
-  }
-}
 
 /**
  * POST /api/payments/:requestId/complete
@@ -131,9 +71,8 @@ router.post('/:requestId/complete', async (req: Request, res: Response) => {
     await appContext.stateManager.saveRequest(request);
 
     appContext.logger.info(`✅ Payment marked complete for request ${requestId}`);
-    
-    // Send payment confirmation email to requestor
-    await sendPaymentConfirmationEmail(request, transactionId, amount, method || 'credit_card');
+    // Payment completion email is sent by the orchestrator via
+    // payment.emailTemplateEndEnvelope after auto-resume.
 
     // Acquire lock and auto-resume orchestrator
     const lock = await appContext.requestProcessingLock.acquire(requestId);

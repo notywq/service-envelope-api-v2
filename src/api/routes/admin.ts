@@ -5,6 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import { appContext } from '../server.js';
+import { requireAuth } from '../middleware/auth.js';
 import YAML from 'yaml';
 import { validateServiceDefinition, getServiceSchema, initializeValidator } from '../../utils/schema-validator.js';
 import * as fs from 'fs';
@@ -12,6 +13,27 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const router = Router();
+const AUTH_USER_ROLES = ['super_admin', 'admin', 'requester', 'orchestrator'] as const;
+type AuthUserRole = typeof AUTH_USER_ROLES[number];
+
+function normalizeAuthEmail(email: unknown): string | null {
+  if (typeof email !== 'string') {
+    return null;
+  }
+
+  const normalized = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function normalizeAuthRole(role: unknown): AuthUserRole {
+  return AUTH_USER_ROLES.includes(role as AuthUserRole)
+    ? role as AuthUserRole
+    : 'requester';
+}
 
 function resolveCanonicalSchemaPath(): string {
   const cwdSchemaPath = path.resolve(process.cwd(), 'src', 'schemas', 'service-definition.schema.json');
@@ -293,6 +315,107 @@ router.get('/audit-logs', async (req: Request, res: Response) => {
   } catch (error) {
     appContext.logger.error('Error fetching audit logs:', error);
     res.status(500).json({ error: 'Failed to fetch audit logs' });
+  }
+});
+
+/**
+ * GET /api/admin/auth-users
+ * List users allowed to authenticate with OTP.
+ */
+router.get('/auth-users', requireAuth({ roles: ['super_admin'] }), async (_req: Request, res: Response) => {
+  try {
+    const users = await (appContext.stateManager as any).listAuthUsers();
+    res.json({
+      users,
+      total: users.length,
+    });
+  } catch (error) {
+    appContext.logger.error('Error fetching auth users:', error);
+    res.status(500).json({ error: 'Failed to fetch auth users' });
+  }
+});
+
+/**
+ * POST /api/admin/auth-users
+ * Create or replace an OTP-enabled auth user.
+ */
+router.post('/auth-users', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
+  try {
+    const email = normalizeAuthEmail(req.body?.email);
+    if (!email) {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
+
+    const user = await (appContext.stateManager as any).upsertAuthUser({
+      email,
+      role: normalizeAuthRole(req.body?.role),
+      name: req.body?.name,
+      isActive: req.body?.isActive !== false,
+      allowedForOtp: req.body?.allowedForOtp !== false,
+      metadata: req.body?.metadata || {},
+    });
+
+    res.status(201).json({
+      success: true,
+      user,
+    });
+  } catch (error) {
+    appContext.logger.error('Error saving auth user:', error);
+    res.status(500).json({ error: 'Failed to save auth user' });
+  }
+});
+
+/**
+ * PUT /api/admin/auth-users/:email
+ * Update an OTP-enabled auth user.
+ */
+router.put('/auth-users/:email', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
+  try {
+    const email = normalizeAuthEmail(req.params.email);
+    if (!email) {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
+
+    const existing = await (appContext.stateManager as any).getAuthUserByEmail(email);
+    const user = await (appContext.stateManager as any).upsertAuthUser({
+      email,
+      role: req.body?.role ? normalizeAuthRole(req.body.role) : existing?.role || 'requester',
+      name: req.body?.name ?? existing?.name,
+      isActive: req.body?.isActive ?? existing?.isActive ?? true,
+      allowedForOtp: req.body?.allowedForOtp ?? existing?.allowedForOtp ?? true,
+      metadata: req.body?.metadata ?? existing?.metadata ?? {},
+    });
+
+    res.json({
+      success: true,
+      user,
+    });
+  } catch (error) {
+    appContext.logger.error('Error updating auth user:', error);
+    res.status(500).json({ error: 'Failed to update auth user' });
+  }
+});
+
+/**
+ * DELETE /api/admin/auth-users/:email
+ * Deactivate an OTP-enabled auth user without deleting audit history.
+ */
+router.delete('/auth-users/:email', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
+  try {
+    const email = normalizeAuthEmail(req.params.email);
+    if (!email) {
+      return res.status(400).json({ error: 'Valid email is required' });
+    }
+
+    const deactivated = await (appContext.stateManager as any).deactivateAuthUser(email);
+    res.json({
+      success: deactivated,
+      email,
+      status: deactivated ? 'deactivated' : 'not_found',
+    });
+  } catch (error) {
+    appContext.logger.error('Error deactivating auth user:', error);
+    res.status(500).json({ error: 'Failed to deactivate auth user' });
   }
 });
 
@@ -650,8 +773,8 @@ function validateOptionalEnvelopes(envelopes: any, logger: any): { valid: boolea
 router.post('/schema/upload', async (req: Request, res: Response) => {
   try {
     const {
-      version = '1.0.3',
-      name = 'Service Definition Schema v1.0.3',
+      version = '1.0.5',
+      name = 'Service Definition Schema v1.0.5',
       description,
       schema,
     } = req.body || {};

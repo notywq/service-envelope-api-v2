@@ -225,25 +225,38 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
    */
   private calculateApprovalStatus(envelope: ApprovalEnvelope): 'pending' | 'completed' | 'failed' {
     const approvedCount = envelope.approvers.filter(a => a.status === 'approved').length;
-    const rejectedCount = envelope.approvers.filter(a => a.status === 'denied').length;
-
-    if (rejectedCount > 0) {
-      return 'failed';
-    }
 
     switch (envelope.approvalRules.type) {
       case 'all_must_approve':
+        if (envelope.approvers.some(a => a.status === 'denied')) {
+          return 'failed';
+        }
         return approvedCount === envelope.approvers.length ? 'completed' : 'pending';
       case 'any_one':
+        if (approvedCount > 0) {
+          return 'completed';
+        }
+        if (envelope.approvers.length > 0 && envelope.approvers.every(a => a.status === 'denied')) {
+          return 'failed';
+        }
         return approvedCount > 0 ? 'completed' : 'pending';
       case 'specific_approver':
         const specificApprover = envelope.approvers.find(
           a => a.id === envelope.approvalRules.specificApprover
         );
+        if (specificApprover?.status === 'denied') {
+          return 'failed';
+        }
         return specificApprover?.status === 'approved' ? 'completed' : 'pending';
       case 'complex': {
         // Complex rule: all required approvers must approve AND at least one from atLeastOneOf must approve
         const { requiredApprovers = [], atLeastOneOf = [] } = envelope.approvalRules;
+
+        if (requiredApprovers.some(email =>
+          envelope.approvers.some(a => a.id === email && a.status === 'denied')
+        )) {
+          return 'failed';
+        }
         
         // Check all required approvers have approved
         const allRequiredApproved = requiredApprovers.every(email => 
@@ -254,6 +267,14 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
         const atLeastOneApproved = atLeastOneOf.length === 0 || atLeastOneOf.some(email =>
           envelope.approvers.some(a => a.id === email && a.status === 'approved')
         );
+
+        const atLeastOneImpossible = atLeastOneOf.length > 0 && atLeastOneOf.every(email =>
+          envelope.approvers.some(a => a.id === email && a.status === 'denied')
+        );
+
+        if (atLeastOneImpossible) {
+          return 'failed';
+        }
         
         return allRequiredApproved && atLeastOneApproved ? 'completed' : 'pending';
       }

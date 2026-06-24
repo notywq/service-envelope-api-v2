@@ -1,11 +1,10 @@
 openapi: 3.0.0
 info:
   title: Service Envelope API v2.0
-  version: 2.0.2
-  description: REST API for the Service Envelope System. Updated for unified
-    delivery selection flow where POST /api/delivery/{requestId}/details is the
-    canonical method+details endpoint and may auto-resume orchestrator when
-    delivery is pending external.
+  version: 2.1.0
+  description: REST API for the Service Envelope System. Includes OTP bearer
+    authentication, Mongo-backed auth users and roles, generic email template
+    fallbacks, schema v1.0.5 service validation, and unified delivery selection.
   contact:
     name: Service Envelope Team
   license:
@@ -88,67 +87,32 @@ paths:
     post:
       tags:
         - Auth
-      summary: Login
+      summary: Password Login Disabled
       operationId: login
       security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LoginRequest"
-            examples:
-              requester:
-                value:
-                  email: requester@mapua.edu.ph
-                  password: requester123
-              approver:
-                value:
-                  email: approver@mapua.edu.ph
-                  password: approver123
       responses:
-        "200":
-          description: Login successful
+        "410":
+          description: Password login is disabled. Use OTP login.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/LoginResponse"
+                $ref: "#/components/schemas/Error"
               examples:
                 sample:
-                  summary: Sample 200 response
                   value:
-                    token: sample
-                    user:
-                      email: student@mapua.edu.ph
-                      name: sample
-                      role: requester
-                    expiresIn: 24h
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
+                    error: Password login is disabled. Use POST /api/OTP/send and POST /api/OTP/verify.
       x-codeSamples:
         - lang: bash
           label: cURL
-          source: |-
-            curl -X POST "http://localhost:8000/api/auth/login" \
-              -H "Content-Type: application/json" \
-              -d '{"sample":true}'
+          source: curl -X POST "http://localhost:8000/api/auth/login"
   /api/auth/verify:
     post:
       tags:
         - Auth
-      summary: Verify JWT Token
+      summary: Verify Bearer Token
       operationId: verifyToken
-      security: []
-      parameters:
-        - name: Authorization
-          in: header
-          required: true
-          schema:
-            type: string
-            example: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-          description: Bearer token. Route reads token from Authorization header.
+      security:
+        - BearerAuth: []
       responses:
         "200":
           description: Token is valid
@@ -167,13 +131,150 @@ paths:
                   summary: Sample 200 response
                   value:
                     valid: true
-                    user: {}
+                    user:
+                      email: barondimaranan@gmail.com
+                      role: super_admin
+                      name: Baron Dimaranan
+                    expiresIn: 1h
         "401":
           $ref: "#/components/responses/Unauthorized"
       x-codeSamples:
         - lang: bash
           label: cURL
-          source: curl -X POST "http://localhost:8000/api/auth/verify"
+          source: 'curl -X POST "http://localhost:8000/api/auth/verify" -H "Authorization: Bearer $TOKEN"'
+  /api/auth/me:
+    get:
+      tags:
+        - Auth
+      summary: Get Current Bearer User
+      operationId: getCurrentAuthUser
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current authenticated user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    $ref: "#/components/schemas/AuthUserPublic"
+                  expiresIn:
+                    type: string
+                    example: 1h
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/OTP/send:
+    post:
+      tags:
+        - Auth
+      summary: Send OTP Login Code
+      operationId: sendOtp
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpSendRequest"
+      responses:
+        "202":
+          description: OTP send accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpSendResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "429":
+          description: OTP was sent recently
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: OTP email could not be sent
+  /api/OTP/verify:
+    post:
+      tags:
+        - Auth
+      summary: Verify OTP And Issue Bearer Token
+      operationId: verifyOtp
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpVerifyRequest"
+      responses:
+        "200":
+          description: OTP verified and bearer token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpVerifyResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "410":
+          description: OTP expired
+        "429":
+          description: Too many OTP attempts
+  /api/OTP/cancel:
+    post:
+      tags:
+        - Auth
+      summary: Cancel Active OTP Challenges
+      operationId: cancelOtp
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpCancelRequest"
+      responses:
+        "200":
+          description: Active OTP challenges cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpCancelResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /api/OTP/flush:
+    post:
+      tags:
+        - Auth
+      summary: Flush Stale OTP Challenges
+      operationId: flushOtp
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                consumedRetentionHours:
+                  type: number
+                  default: 24
+      responses:
+        "200":
+          description: Stale OTP records flushed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpFlushResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/services:
     get:
       tags:
@@ -1960,6 +2061,124 @@ paths:
           label: cURL
           source: curl -X GET
             "http://localhost:8000/api/processing/REQ-20260606-865/summary"
+  /api/admin/auth-users:
+    get:
+      tags:
+        - Admin
+      summary: List OTP Auth Users
+      operationId: listAuthUsers
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token.
+      responses:
+        "200":
+          description: Auth users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuthUserRecord"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - Admin
+      summary: Create Or Replace OTP Auth User
+      operationId: createAuthUser
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthUserUpsertRequest"
+      responses:
+        "201":
+          description: Auth user saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUserMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/admin/auth-users/{email}:
+    put:
+      tags:
+        - Admin
+      summary: Update OTP Auth User
+      operationId: updateAuthUser
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token.
+      parameters:
+        - $ref: "#/components/parameters/AuthEmailParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthUserUpdateRequest"
+      responses:
+        "200":
+          description: Auth user updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUserMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags:
+        - Admin
+      summary: Deactivate OTP Auth User
+      operationId: deactivateAuthUser
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token. Deactivates the user instead of deleting history.
+      parameters:
+        - $ref: "#/components/parameters/AuthEmailParam"
+      responses:
+        "200":
+          description: Auth user deactivated or not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  email:
+                    type: string
+                    format: email
+                  status:
+                    type: string
+                    enum:
+                      - deactivated
+                      - not_found
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/admin/services:
     get:
       tags:
@@ -2757,6 +2976,11 @@ paths:
               -H "Content-Type: application/json" \
               -d '{"studentId":"sample","documentTypes":["sample"],"deliveryMethod":"physical_mail","numberOfCopies":1}'
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
   parameters:
     ServiceIdParam:
       name: serviceId
@@ -2798,6 +3022,15 @@ components:
         type: string
       example: SERV-1-approval
       description: Email template ID.
+    AuthEmailParam:
+      name: email
+      in: path
+      required: true
+      schema:
+        type: string
+        format: email
+      example: barondimaranan@gmail.com
+      description: Auth user email address.
     VersionParam:
       name: version
       in: path
@@ -2893,40 +3126,167 @@ components:
       example: "true"
       description: Route compares stringified boolean values.
   schemas:
-    LoginRequest:
+    ApiRole:
+      type: string
+      enum:
+        - super_admin
+        - admin
+        - requester
+        - orchestrator
+      example: requester
+    AuthUserPublic:
       type: object
-      required:
-        - email
-        - password
       properties:
         email:
           type: string
           format: email
-        password:
+        role:
+          $ref: "#/components/schemas/ApiRole"
+        name:
           type: string
-    LoginResponse:
+    AuthUserRecord:
+      allOf:
+        - $ref: "#/components/schemas/AuthUserPublic"
+        - type: object
+          properties:
+            isActive:
+              type: boolean
+            allowedForOtp:
+              type: boolean
+            metadata:
+              type: object
+              additionalProperties: true
+            lastLoginAt:
+              type: string
+              format: date-time
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+    AuthUserUpsertRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/ApiRole"
+        isActive:
+          type: boolean
+          default: true
+        allowedForOtp:
+          type: boolean
+          default: true
+        metadata:
+          type: object
+          additionalProperties: true
+    AuthUserUpdateRequest:
       type: object
       properties:
-        token:
+        name:
           type: string
-        user:
+        role:
+          $ref: "#/components/schemas/ApiRole"
+        isActive:
+          type: boolean
+        allowedForOtp:
+          type: boolean
+        metadata:
           type: object
-          properties:
-            email:
-              type: string
-              format: email
-            name:
-              type: string
-            role:
-              type: string
-              enum:
-                - admin
-                - approver
-                - requester
-              example: requester
+          additionalProperties: true
+    AuthUserMutationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        user:
+          $ref: "#/components/schemas/AuthUserRecord"
+    OtpSendRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+        purpose:
+          type: string
+          default: login
+    OtpSendResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: sent
+        expiresInSeconds:
+          type: integer
+          example: 600
+        retryAfterSeconds:
+          type: integer
+          example: 60
+    OtpVerifyRequest:
+      type: object
+      required:
+        - email
+        - code
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          example: "123456"
+        purpose:
+          type: string
+          default: login
+    OtpVerifyResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          example: Bearer
         expiresIn:
           type: string
-          example: 24h
+          example: 1h
+        user:
+          $ref: "#/components/schemas/AuthUserPublic"
+    OtpCancelRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+        purpose:
+          type: string
+          default: login
+    OtpCancelResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: cancelled
+        cancelledCount:
+          type: integer
+    OtpFlushResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: flushed
+        deletedCount:
+          type: integer
     ServiceSummary:
       type: object
       properties:
@@ -3421,6 +3781,16 @@ components:
               value:
                 error: Request not found
                 details: sample
+    Forbidden:
+      description: Forbidden - Authenticated user does not have the required role or ownership
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            insufficientRole:
+              value:
+                error: Insufficient permissions
     NotFound:
       description: Not Found - Resource does not exist
       content:

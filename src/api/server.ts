@@ -22,6 +22,7 @@ import { RequestProcessingLock } from '../utils/request-processing-lock.js';
 import servicesRouter from './routes/services.js';
 import requestsRouter from './routes/requests.js';
 import authRouter from './routes/auth.js';
+import otpRouter from './routes/otp.js';
 import approvalsRouter from './routes/approvals.js';
 import paymentsRouter from './routes/payments.js';
 import feedbackRouter from './routes/feedback.js';
@@ -31,6 +32,7 @@ import processingRouter from './routes/processing.js';
 import adminRouter from './routes/admin.js';
 import mockServiceApisRouter from './routes/mock-service-apis.js';
 import { initializeValidator } from '../utils/schema-validator.js';
+import { requireApiAuth, requireAuth, validateAuthConfiguration } from './middleware/auth.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -92,8 +94,10 @@ function isSrvLookupRefused(error: unknown): boolean {
 }
 
 async function connectMongoWithFallback(stateManager: MongoDBStateManager): Promise<void> {
-  const defaultMongoUri = 'mongodb://localhost:27017/service-envelope';
-  const primaryMongoUri = process.env.MONGODB_SRV_URI || process.env.MONGODB_URI || defaultMongoUri;
+  const primaryMongoUri = process.env.MONGODB_SRV_URI || process.env.MONGODB_URI;
+  if (!primaryMongoUri) {
+    throw new Error('MongoDB connection is required. Set MONGODB_SRV_URI or MONGODB_URI.');
+  }
   const fallbackMongoUri = process.env.MONGODB_DIRECT_URI
     || (process.env.MONGODB_SRV_URI && process.env.MONGODB_URI?.startsWith('mongodb://')
       ? process.env.MONGODB_URI
@@ -180,6 +184,8 @@ async function initializeApp(): Promise<Express> {
   // Initialize services
   logger.info('🔧 Initializing services...');
 
+  validateAuthConfiguration();
+
   const stateManager = new MongoDBStateManager(logger);
   await connectMongoWithFallback(stateManager);
 
@@ -190,8 +196,8 @@ async function initializeApp(): Promise<Express> {
 
   // Load schema from MongoDB and initialize validator
   try {
-    const TARGET_SCHEMA_VERSION = '1.0.3';
-    const TARGET_SCHEMA_NAME = 'Service Definition Schema v1.0.3';
+    const TARGET_SCHEMA_VERSION = '1.0.5';
+    const TARGET_SCHEMA_NAME = 'Service Definition Schema v1.0.5';
 
     // Always load local canonical schema file and ensure target version exists in MongoDB.
     const schemaPath = resolveCanonicalSchemaPath();
@@ -282,9 +288,12 @@ async function initializeApp(): Promise<Express> {
 
   // Routes
   app.use('/api/auth', authRouter);
+  app.use('/api/OTP', otpRouter);
+  app.use('/api/otp', otpRouter);
+  app.use('/api', requireApiAuth);
   app.use('/api/services', servicesRouter);
   app.use('/api/requests', requestsRouter);
-  app.use('/api/admin', adminRouter);
+  app.use('/api/admin', requireAuth({ roles: ['admin'] }), adminRouter);
   app.use('/api/approvals', approvalsRouter);
   app.use('/api/payments', paymentsRouter);
   app.use('/api/feedback', feedbackRouter);
@@ -292,7 +301,7 @@ async function initializeApp(): Promise<Express> {
   app.use('/api/delivery-status', deliveryStatusRouter);
   app.use('/api/processing', processingRouter);
   app.use('/api/webhooks', paymentsRouter);
-  app.use('/api/mock', mockServiceApisRouter);  // Mock APIs for testing
+  app.use('/api/mock', requireAuth({ roles: ['admin'] }), mockServiceApisRouter);  // Mock APIs for testing
 
   // Health check
   app.get('/health', (req: Request, res: Response) => {
@@ -305,7 +314,12 @@ async function initializeApp(): Promise<Express> {
       name: 'Service Envelope API',
       version: '1.0.0',
       endpoints: [
-        'POST /api/auth/login',
+        'POST /api/OTP/send',
+        'POST /api/OTP/verify',
+        'POST /api/OTP/cancel',
+        'POST /api/OTP/flush',
+        'GET /api/auth/me',
+        'POST /api/auth/verify',
         'GET /api/services',
         'POST /api/requests',
         'GET /api/requests',

@@ -16,6 +16,7 @@ import { StateManager } from './state-manager.js';
 import { Logger } from 'winston';
 import { EnvelopeProcessor } from './envelope-processor.js';
 import { appContext } from '../api/server.js';
+import { resolveRequesterEmail } from '../utils/request-email.js';
 
 export class ServiceOrchestrator {
   constructor(
@@ -127,14 +128,15 @@ export class ServiceOrchestrator {
       const deliveryMethod = envelopeType === 'delivery'
         ? (request.envelopes.delivery as any)?.method
         : undefined;
-      const shouldSendDeliveryEndFromSkip =
-        envelopeType === 'delivery' &&
+      const shouldSendEndFromSkip =
         envelope.status === 'completed' &&
-        deliveryMethod &&
-        deliveryMethod !== 'email' &&
-        !envelopeForEmailCheck?.endEmailSentAt;
+        !envelopeForEmailCheck?.endEmailSentAt &&
+        (
+          envelopeType !== 'delivery' ||
+          (deliveryMethod && deliveryMethod !== 'email')
+        );
 
-      if (shouldSendDeliveryEndFromSkip) {
+      if (shouldSendEndFromSkip) {
         console.log(`📧 [DELIVERY] Sending END email from skip path (externally completed)`);
         this.sendEnvelopeEmailTemplate(request, envelopeType, 'end').catch(err => {
           console.log(`⚠️  [DELIVERY-END-EMAIL] Failed in skip path:`, err.message);
@@ -245,6 +247,7 @@ export class ServiceOrchestrator {
           // - email method: document email is sent by DeliveryProcessor on code 1 trigger
           // - physical_mail/pickup: send delivery START email when delivery begins
           const shouldSendStartEmail =
+            !['waived', 'skipped', 'failed', 'cancelled'].includes(updatedEnvelope.status) &&
             !envelopeForEmailCheck?.startEmailSentAt &&
             (
               envelopeType !== 'delivery' ||
@@ -380,8 +383,9 @@ export class ServiceOrchestrator {
   }
 
   /**
-   * Send email template for an envelope if configured
-   * Non-blocking operation - doesn't delay envelope processing
+   * Send email template for an envelope using service-defined templates first,
+   * then core generic fallback templates.
+   * Non-blocking operation - doesn't delay envelope processing.
    * Phase: 'start' = emailTemplateStartEnvelope, 'end' = emailTemplateEndEnvelope (Process Completes & Summary)
    */
   private async sendEnvelopeEmailTemplate<K extends keyof EnvelopeCollection>(
@@ -439,21 +443,22 @@ export class ServiceOrchestrator {
       const envelopeDefaultTemplateName = phase === 'start'
         ? envelopeConfig.defaultEmailTemplateStartEnvelope
         : envelopeConfig.defaultEmailTemplateEndEnvelope;
+      const serviceScopedGenericTemplateName = `${request.type}-${String(envelopeType)}-${phase}`;
+      const globalGenericTemplateName = `${String(envelopeType)}-${phase}`;
 
-      const genericEventKey = `${String(envelopeType)}-${phase}`;
       const templateCandidates = [
         configuredTemplateName,
         envelopeDefaultTemplateName,
-        `${request.type}-${genericEventKey}`,
-        genericEventKey,
+        serviceScopedGenericTemplateName,
+        globalGenericTemplateName,
       ];
 
       const candidateLogList = [...new Set(templateCandidates.filter((candidate): candidate is string => !!candidate))];
       console.log(`🔍 ${marker} Resolving template candidates: ${candidateLogList.join(', ')}`);
       const templateResolution = await this.resolveEmailTemplateByCandidates(templateCandidates, {
         yamlConfiguredCandidates: [configuredTemplateName, envelopeDefaultTemplateName],
-        serviceScopedGenericCandidates: [`${request.type}-${genericEventKey}`],
-        globalGenericCandidates: [genericEventKey],
+        serviceScopedGenericCandidates: [serviceScopedGenericTemplateName],
+        globalGenericCandidates: [globalGenericTemplateName],
       });
 
       if (!templateResolution) {
@@ -469,7 +474,7 @@ export class ServiceOrchestrator {
 
       // Determine recipients based on envelope type
       console.log(`👥 ${marker} Determining recipients for envelope type: ${envelopeType}`);
-      const recipients = this.getEmailRecipients(request, envelopeType);
+      const recipients = this.getEmailRecipients(request, envelopeType, phase);
       console.log(`📧 ${marker} Recipients:`, recipients);
 
       if (!recipients || recipients.length === 0) {
@@ -510,17 +515,18 @@ export class ServiceOrchestrator {
       console.log(`🔧 ${marker} Email context keys:`, Object.keys(emailContext).join(', '));
 
       // Send email to each recipient
+      let allEmailsSent = true;
       for (const recipient of recipients) {
         // For approval emails, build context specific to this approver
         let currentContext = emailContext;
         if (envelopeType === 'approval' && phase === 'start') {
           const approvalEnvelope = request.envelopes.approval as any;
-          const approver = approvalEnvelope?.approvers?.find((a: any) => a.email === recipient);
+          const approver = approvalEnvelope?.approvers?.find((a: any) => (a.email || a.id) === recipient);
           if (approver) {
             currentContext = {
               ...emailContext,
               approverName: approver.role || 'Approver',
-              approverEmail: approver.email,
+              approverEmail: approver.email || approver.id || recipient,
               approvalToken: approver.approvalToken || '',
               approvalLink: approver.approvalToken 
                 ? `${process.env.FRONTEND_BASE_URL || 'http://localhost:5173'}/approvals/${approver.approvalToken}`
@@ -546,20 +552,29 @@ export class ServiceOrchestrator {
         });
 
         if (!sendResult) {
+          allEmailsSent = false;
           console.log(`⚠️  ${marker} Email send returned false`);
           this.logger.warn(`⚠️  Email send failed for ${recipient}`);
         } else {
           console.log(`✅ ${marker} Sent to ${recipient}`);
         }
       }
-      // Persist the sent-at timestamp on the envelope so the guard works on resume
-      const envelopeToMark = request.envelopes[envelopeType] as any;
-      if (phase === 'start') {
-        envelopeToMark.startEmailSentAt = new Date().toISOString();
-      } else {
-        envelopeToMark.endEmailSentAt = new Date().toISOString();
+      if (!allEmailsSent) {
+        this.logger.warn(`${marker} Not marking email as sent because at least one recipient failed`);
+        return;
       }
-      await this.stateManager.saveRequest(request);
+      // Persist the sent-at timestamp on the envelope so the guard works on resume
+      const sentAt = new Date().toISOString();
+      const latestRequest = await this.stateManager.loadRequest(request.id) || request;
+      const envelopeToMark = latestRequest.envelopes[envelopeType] as any;
+      if (phase === 'start') {
+        envelopeToMark.startEmailSentAt = sentAt;
+        (request.envelopes[envelopeType] as any).startEmailSentAt = sentAt;
+      } else {
+        envelopeToMark.endEmailSentAt = sentAt;
+        (request.envelopes[envelopeType] as any).endEmailSentAt = sentAt;
+      }
+      await this.stateManager.saveRequest(latestRequest);
 
       console.log(`\n✅ ${marker} Email process completed`);
     } catch (error) {
@@ -574,15 +589,17 @@ export class ServiceOrchestrator {
    */
   private getEmailRecipients<K extends keyof EnvelopeCollection>(
     request: ServiceRequest,
-    envelopeType: K
+    envelopeType: K,
+    phase: 'start' | 'end' = 'start'
   ): string[] {
     console.log(`\n🔍 [GET-RECIPIENTS] Determining recipients for envelope: ${envelopeType}`);
     const recipients: string[] = [];
+    const requesterEmail = this.getRequesterEmail(request);
 
     switch (envelopeType) {
       case 'request':
         // Send to requester - email is in request.envelopes.request.parameters.email
-        const requestEmail = (request.envelopes.request as any)?.parameters?.email;
+        const requestEmail = requesterEmail;
         console.log(`📧 [REQUEST] email from parameters:`, requestEmail);
         if (requestEmail) {
           recipients.push(requestEmail);
@@ -590,6 +607,13 @@ export class ServiceOrchestrator {
         break;
 
       case 'approval':
+        if (phase === 'end') {
+          if (requesterEmail) {
+            recipients.push(requesterEmail);
+          }
+          break;
+        }
+
         // Send to all approvers
         const approval = request.envelopes.approval as any;
         console.log(`👥 [APPROVAL] Approvers object:`, approval?.approvers);
@@ -600,10 +624,11 @@ export class ServiceOrchestrator {
           console.log(`👥 [APPROVAL] Processing ${approval.approvers.length} approver(s)`);
           approval.approvers.forEach((approver: any, idx: number) => {
             console.log(`  [APPROVAL #${idx}] approver:`, approver);
+            const approverEmail = approver?.email || approver?.id;
             console.log(`  [APPROVAL #${idx}] email:`, approver?.email);
-            if (approver.email) {
+            if (approverEmail) {
               console.log(`  ✓ Adding approver email: ${approver.email}`);
-              recipients.push(approver.email);
+              recipients.push(approverEmail);
             }
           });
         } else {
@@ -613,7 +638,7 @@ export class ServiceOrchestrator {
 
       case 'payment':
         // Send to requester
-        const paymentEmail = (request.envelopes.request as any)?.parameters?.email;
+        const paymentEmail = requesterEmail;
         console.log(`💳 [PAYMENT] email from parameters:`, paymentEmail);
         if (paymentEmail) {
           recipients.push(paymentEmail);
@@ -622,7 +647,7 @@ export class ServiceOrchestrator {
 
       case 'processing':
         // Send to requester
-        const processingEmail = (request.envelopes.request as any)?.parameters?.email;
+        const processingEmail = requesterEmail;
         console.log(`⚙️  [PROCESSING] email from parameters:`, processingEmail);
         if (processingEmail) {
           recipients.push(processingEmail);
@@ -631,7 +656,7 @@ export class ServiceOrchestrator {
 
       case 'delivery':
         // Send to requester
-        const deliveryEmail = (request.envelopes.request as any)?.parameters?.email;
+        const deliveryEmail = requesterEmail;
         console.log(`🚚 [DELIVERY] email from parameters:`, deliveryEmail);
         if (deliveryEmail) {
           recipients.push(deliveryEmail);
@@ -640,7 +665,7 @@ export class ServiceOrchestrator {
 
       case 'feedback':
         // Send to requester
-        const feedbackEmail = (request.envelopes.request as any)?.parameters?.email;
+        const feedbackEmail = requesterEmail;
         console.log(`📋 [FEEDBACK] email from parameters:`, feedbackEmail);
         if (feedbackEmail) {
           recipients.push(feedbackEmail);
@@ -654,6 +679,10 @@ export class ServiceOrchestrator {
     return uniqueRecipients;
   }
 
+  private getRequesterEmail(request: ServiceRequest): string {
+    return resolveRequesterEmail(request);
+  }
+
   /**
    * Build context object for variable substitution with all available request data
    */
@@ -664,6 +693,10 @@ export class ServiceOrchestrator {
     const requestEnvelope = request.envelopes.request as any;
     const approvalEnvelope = request.envelopes.approval as any;
     const requestParams = requestEnvelope?.parameters || {};
+    const serviceData = requestParams?.serviceData || {};
+    const requesterEmail = this.getRequesterEmail(request);
+    const paymentEnvelope = request.envelopes.payment as any;
+    const paymentGatewayResponse = paymentEnvelope?.paymentGatewayResponse || {};
     const deliveryEnvelope = request.envelopes.delivery as any;
 
     const latestDeliveryUpdate =
@@ -682,13 +715,16 @@ export class ServiceOrchestrator {
     });
 
     return {
+      ...serviceData,
+      ...requestParams,
       // Request data
       requestId: request.id,
       serviceType: request.type,
       studentId: requestParams?.studentId || '',
       firstName: requestParams?.firstName || '',
       lastName: requestParams?.lastName || '',
-      email: requestParams?.email || '',
+      email: requesterEmail,
+      requesterEmail,
       currentTimestamp: new Date().toISOString(),
 
       // Approval — defaults to first approver; per-approver send loop overrides these
@@ -701,6 +737,13 @@ export class ServiceOrchestrator {
 
       // Payment — direct link to Phase 2 payment page
       paymentLink: `${process.env.FRONTEND_BASE_URL || 'http://localhost:5173'}/payment?requestId=${request.id}`,
+      transactionId: paymentEnvelope?.transactionId || paymentGatewayResponse.transactionId || '',
+      paymentTransactionId: paymentEnvelope?.transactionId || paymentGatewayResponse.transactionId || '',
+      paymentAmount: paymentGatewayResponse.amount ?? '',
+      paymentCurrency: paymentGatewayResponse.currency || 'PHP',
+      paymentMethod: paymentGatewayResponse.method || '',
+      paymentReference: paymentGatewayResponse.reference || '',
+      paymentTimestamp: paymentGatewayResponse.timestamp || paymentGatewayResponse.webhookTimestamp || '',
 
       // Feedback — link generated by FeedbackProcessor and stored on the envelope
       feedbackLink: (request.envelopes.feedback as any)?.feedbackLink || '',
@@ -713,7 +756,9 @@ export class ServiceOrchestrator {
       documentLinksText: deliveryEnvelope?.details?.email?.resolvedDocumentLinksText || '',
 
       // Generic fields
-      documentTypes: requestParams?.documentTypes?.join(', ') || '',
+      documentTypes: Array.isArray(requestParams?.documentTypes)
+        ? requestParams.documentTypes.join(', ')
+        : requestParams?.documentTypes || '',
       purpose: requestParams?.purpose || '',
       numberOfCopies: requestParams?.numberOfCopies || '',
       deliveryMethod: (request.envelopes.delivery as any)?.method || requestParams?.deliveryMethod || '',
@@ -841,7 +886,7 @@ export class ServiceOrchestrator {
   /**
    * Send cancellation email.
    * Template name is resolved from the triggering envelope's emailTemplateCancelEnvelope
-   * field in the service definition. Falls back to 'request-cancelled' if not configured.
+   * field first, then core generic cancellation/denial fallbacks.
    */
   private async sendCancellationEmail(
     request: ServiceRequest,
@@ -875,21 +920,33 @@ export class ServiceOrchestrator {
         // Keep fallback
       }
 
-      const primaryGenericKey = triggerEnvelopeType === 'approval' ? 'request-denied' : 'request-cancelled';
+      const primaryGenericKey = triggerEnvelopeType === 'approval'
+        ? 'request-denied'
+        : 'request-cancelled';
+      const serviceScopedPrimaryGenericTemplateName = `${request.type}-${primaryGenericKey}`;
+      const globalPrimaryGenericTemplateName = primaryGenericKey;
+      const serviceScopedFallbackGenericTemplateName = `${request.type}-request-cancelled`;
+      const globalFallbackGenericTemplateName = 'request-cancelled';
+      const serviceScopedGenericCandidates = [
+        serviceScopedPrimaryGenericTemplateName,
+        serviceScopedFallbackGenericTemplateName,
+      ];
+      const globalGenericCandidates = [
+        globalPrimaryGenericTemplateName,
+        globalFallbackGenericTemplateName,
+      ];
+
       const templateResolution = await this.resolveEmailTemplateByCandidates([
         configuredCancelTemplateName,
         defaultEnvelopeCancelTemplateName,
-        `${request.type}-${primaryGenericKey}`,
-        primaryGenericKey,
-        `${request.type}-request-cancelled`,
-        'request-cancelled',
+        serviceScopedPrimaryGenericTemplateName,
+        globalPrimaryGenericTemplateName,
+        serviceScopedFallbackGenericTemplateName,
+        globalFallbackGenericTemplateName,
       ], {
         yamlConfiguredCandidates: [configuredCancelTemplateName, defaultEnvelopeCancelTemplateName],
-        serviceScopedGenericCandidates: [
-          `${request.type}-${primaryGenericKey}`,
-          `${request.type}-request-cancelled`,
-        ],
-        globalGenericCandidates: [primaryGenericKey, 'request-cancelled'],
+        serviceScopedGenericCandidates,
+        globalGenericCandidates,
       });
 
       if (!templateResolution) {
@@ -903,16 +960,23 @@ export class ServiceOrchestrator {
 
       // Build email context with failure details
       const requestParams = request.envelopes.request?.parameters || {};
+      const serviceData = (requestParams as any)?.serviceData || {};
+      const requesterEmail = this.getRequesterEmail(request);
       const submittedDate = request.createdAt || new Date().toISOString();
       
       const emailContext = {
+        ...serviceData,
+        ...requestParams,
         requestId: request.id,
         studentId: requestParams?.studentId || '',
         firstName: requestParams?.firstName || '',
         lastName: requestParams?.lastName || '',
-        email: requestParams?.email || '',
+        email: requesterEmail,
+        requesterEmail,
         currentTimestamp: new Date().toISOString(),
-        documentTypes: requestParams?.documentTypes?.join(', ') || '',
+        documentTypes: Array.isArray(requestParams?.documentTypes)
+          ? requestParams.documentTypes.join(', ')
+          : requestParams?.documentTypes || '',
         purpose: requestParams?.purpose || '',
         numberOfCopies: requestParams?.numberOfCopies || '',
         failedTask: failedTask,
@@ -926,7 +990,7 @@ export class ServiceOrchestrator {
       const html = this.substituteVariables(template.htmlBody, emailContext);
 
       // Send to requester
-      const recipient = requestParams?.email;
+      const recipient = requesterEmail;
       if (!recipient) {
         this.logger.warn(`[CANCELLATION-EMAIL] No recipient email found`);
         return;

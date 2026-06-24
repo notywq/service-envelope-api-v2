@@ -7,6 +7,7 @@
 import { Logger } from 'winston';
 import { StateManager } from '../core/state-manager.js';
 import { ServiceRequest } from '../types/envelope.types.js';
+import { resolveRequesterEmail } from './request-email.js';
 
 export class EmailTemplateLoader {
   constructor(
@@ -108,7 +109,15 @@ export class EmailTemplateLoader {
 
     // Replace request parameters
     if (request.envelopes.request.parameters) {
-      Object.entries(request.envelopes.request.parameters).forEach(([key, value]) => {
+      const requestParams = request.envelopes.request.parameters as any;
+      const serviceData = requestParams.serviceData || {};
+      const normalizedParameters = {
+        ...serviceData,
+        ...requestParams,
+        email: resolveRequesterEmail(request),
+        requesterEmail: resolveRequesterEmail(request),
+      };
+      Object.entries(normalizedParameters).forEach(([key, value]) => {
         const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
         const stringValue = typeof value === 'string' ? value : (value ? String(value) : '');
         result = result.replace(placeholder, stringValue);
@@ -131,7 +140,15 @@ export class EmailTemplateLoader {
     };
 
     if (request.envelopes.request.parameters) {
-      Object.entries(request.envelopes.request.parameters).forEach(([key, value]) => {
+      const requestParams = request.envelopes.request.parameters as any;
+      const serviceData = requestParams.serviceData || {};
+      const normalizedParameters = {
+        ...serviceData,
+        ...requestParams,
+        email: resolveRequesterEmail(request),
+        requesterEmail: resolveRequesterEmail(request),
+      };
+      Object.entries(normalizedParameters).forEach(([key, value]) => {
         values[key] = typeof value === 'string' ? value : (value ? String(value) : '');
       });
     }

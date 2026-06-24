@@ -6,6 +6,40 @@
 import { Router, Request, Response } from 'express';
 import { appContext } from '../server.js';
 import { ParameterValidator } from '../../utils/parameter-validator.js';
+import { resolveRequesterEmail } from '../../utils/request-email.js';
+
+function normalizeEmail(email: unknown): string | null {
+  return typeof email === 'string' && email.trim()
+    ? email.trim().toLowerCase()
+    : null;
+}
+
+function isRequesterRole(req: Request): boolean {
+  return req.user?.role === 'requester';
+}
+
+function requestBelongsToAuthenticatedUser(req: Request, serviceRequest: any): boolean {
+  if (!isRequesterRole(req)) {
+    return true;
+  }
+
+  const userEmail = normalizeEmail(req.user?.email);
+  const requesterEmail = normalizeEmail(resolveRequesterEmail(serviceRequest));
+  return Boolean(userEmail && requesterEmail && userEmail === requesterEmail);
+}
+
+function logRequesterPermissionDenied(req: Request, reason: string, requestId?: string) {
+  appContext.logger.warn(JSON.stringify({
+    event: 'api_permission_denied',
+    reason,
+    method: req.method,
+    path: req.originalUrl || req.path,
+    email: req.user?.email,
+    role: req.user?.role,
+    requestId,
+    timestamp: new Date().toISOString(),
+  }));
+}
 
 /**
  * Build approver list from approval rules.
@@ -52,6 +86,25 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
+    if (isRequesterRole(req)) {
+      const requesterEmail = normalizeEmail(resolveRequesterEmail({
+        initiator,
+        envelopes: {
+          request: {
+            parameters,
+          },
+        },
+      } as any));
+      const userEmail = normalizeEmail(req.user?.email);
+
+      if (!userEmail || requesterEmail !== userEmail) {
+        logRequesterPermissionDenied(req, 'requester_submit_email_mismatch');
+        return res.status(403).json({
+          error: 'Requester accounts can only submit requests for their authenticated email',
+        });
+      }
+    }
+
     // Resolve service definition using either type or serviceId.
     // Canonical request.type remains the service definition type for backward compatibility.
     let serviceDefinition: any = null;
@@ -77,6 +130,10 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const resolvedType = serviceDefinition.type || type;
+    const envelopeDefinitions = serviceDefinition.definition?.envelopes || serviceDefinition.envelopes || {};
+    const isEnvelopeRequired = (envelopeName: string): boolean =>
+      Boolean(envelopeDefinitions?.[envelopeName]) &&
+      envelopeDefinitions[envelopeName].required !== false;
 
     // Validate parameters against service definition schema
     const validator = new ParameterValidator(appContext.logger);
@@ -129,31 +186,31 @@ router.post('/', async (req: Request, res: Response) => {
           status: 'pending',
           // Transform approval rules into Approver objects
           approvers: transformApprovalRulesToApprovers(
-            serviceDefinition.definition?.envelopes?.approval?.approvalRules || {}
+            envelopeDefinitions?.approval?.approvalRules || {}
           ),
-          approvalRules: serviceDefinition.definition?.envelopes?.approval?.approvalRules || {},
-          expiryHours: serviceDefinition.definition?.envelopes?.approval?.expiryHours,
+          approvalRules: envelopeDefinitions?.approval?.approvalRules || {},
+          expiryHours: envelopeDefinitions?.approval?.expiryHours,
           timestamp: now.toISOString(),
-          required: (serviceDefinition.definition?.envelopes?.approval?.required !== false) || (serviceDefinition.definition?.envelopes?.approval?.requiresApproval === true),
+          required: isEnvelopeRequired('approval') || envelopeDefinitions?.approval?.requiresApproval === true,
         },
         payment: {
           status: 'pending',
-          charges: serviceDefinition.definition?.envelopes?.payment?.charges || [],
+          charges: envelopeDefinitions?.payment?.charges || [],
           paymentMethod: 'credit_card',
           timestamp: now.toISOString(),
-          required: serviceDefinition.definition?.envelopes?.payment?.required !== false,
+          required: isEnvelopeRequired('payment'),
         },
         processing: {
           status: 'pending',
-          tasks: serviceDefinition.definition?.envelopes?.processing?.tasks || [],
-          stopOnFailure: serviceDefinition.definition?.envelopes?.processing?.stopOnFailure !== false,
+          tasks: envelopeDefinitions?.processing?.tasks || [],
+          stopOnFailure: envelopeDefinitions?.processing?.stopOnFailure !== false,
           timestamp: now.toISOString(),
-          required: serviceDefinition.definition?.envelopes?.processing?.required !== false,
+          required: isEnvelopeRequired('processing'),
         },
         delivery: {
           status: 'pending',  // Delivery details submitted separately
           // Store all available delivery methods from service definition
-          availableMethods: serviceDefinition.definition?.envelopes?.delivery?.deliveryMethods || {},
+          availableMethods: envelopeDefinitions?.delivery?.deliveryMethods || {},
           method: undefined,  // User provides via POST /api/delivery/{requestId}/details
           details: undefined,
           deliveryAttempts: 0,
@@ -162,15 +219,15 @@ router.post('/', async (req: Request, res: Response) => {
           currentStatusCode: undefined,
           lastStatusUpdate: undefined,
           timestamp: now.toISOString(),
-          required: serviceDefinition.definition?.envelopes?.delivery?.required !== false,
+          required: isEnvelopeRequired('delivery'),
         },
         feedback: {
           status: 'pending',
-          expiryDays: serviceDefinition.definition?.envelopes?.feedback?.expiryDays || 7,
-          autoCloseAfterHours: serviceDefinition.definition?.envelopes?.feedback?.autoCloseAfterHours ?? 24,
-          emailTemplateId: serviceDefinition.definition?.envelopes?.feedback?.emailTemplateId,
+          expiryDays: envelopeDefinitions?.feedback?.expiryDays || 7,
+          autoCloseAfterHours: envelopeDefinitions?.feedback?.autoCloseAfterHours ?? 24,
+          emailTemplateId: envelopeDefinitions?.feedback?.emailTemplateId,
           timestamp: now.toISOString(),
-          required: serviceDefinition.definition?.envelopes?.feedback?.required !== false,
+          required: isEnvelopeRequired('feedback'),
         },
       },
     };
@@ -221,6 +278,11 @@ router.post('/', async (req: Request, res: Response) => {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
+    if (isRequesterRole(req)) {
+      logRequesterPermissionDenied(req, 'requester_list_all_requests_blocked');
+      return res.status(403).json({ error: 'Requester accounts cannot list all requests' });
+    }
+
     const limit = Math.min(parseInt(req.query.limit as string || '20'), 100);
     const offset = parseInt(req.query.offset as string || '0');
     const status = req.query.status as string;
@@ -270,6 +332,11 @@ router.get('/:requestId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: `Request ${req.params.requestId} not found` });
     }
 
+    if (!requestBelongsToAuthenticatedUser(req, request)) {
+      logRequesterPermissionDenied(req, 'requester_request_detail_not_owner', req.params.requestId);
+      return res.status(403).json({ error: 'Requester accounts can only access their own requests' });
+    }
+
     res.json({
       id: request.id,
       type: request.type,
@@ -297,6 +364,11 @@ router.post('/:requestId/resume', async (req: Request, res: Response) => {
 
     if (!request) {
       return res.status(404).json({ error: `Request ${req.params.requestId} not found` });
+    }
+
+    if (isRequesterRole(req)) {
+      logRequesterPermissionDenied(req, 'requester_resume_request_blocked', req.params.requestId);
+      return res.status(403).json({ error: 'Requester accounts cannot resume requests directly' });
     }
 
     appContext.logger.info(`▶️  Resuming request: ${req.params.requestId}`);
@@ -334,6 +406,11 @@ router.delete('/:requestId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: `Request ${req.params.requestId} not found` });
     }
 
+    if (isRequesterRole(req)) {
+      logRequesterPermissionDenied(req, 'requester_cancel_request_blocked', req.params.requestId);
+      return res.status(403).json({ error: 'Requester accounts cannot cancel requests via API' });
+    }
+
     // Mark as cancelled instead of deleting
     request.overallStatus = 'cancelled';
     request.lastUpdated = new Date().toISOString();
@@ -368,6 +445,11 @@ router.get('/:requestId/history', async (req: Request, res: Response) => {
 
     if (!request) {
       return res.status(404).json({ error: `Request ${req.params.requestId} not found` });
+    }
+
+    if (!requestBelongsToAuthenticatedUser(req, request)) {
+      logRequesterPermissionDenied(req, 'requester_request_history_not_owner', req.params.requestId);
+      return res.status(403).json({ error: 'Requester accounts can only access their own request history' });
     }
 
     res.json({

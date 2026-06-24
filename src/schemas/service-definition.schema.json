@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Service Definition Schema v1.0.3 - June 6, 2026",
-  "description": "Complete canonical schema for Service Envelope YAML definitions. Aligns with SERVICE_DEFINITION_RULES.yaml (the bible). v1.0.3: Expanded delivery/feedback envelope email template controls (start/end/cancel + optional defaults), delivery tracking URL template support, emailTemplateId + resolveAttachmentsFrom on deliveryMethods.email, notificationTemplateId on physical_mail and pickup methods, and statusCode 4 (pickup_complete).",
+  "title": "Service Definition Schema v1.0.5 - June 24, 2026",
+  "description": "Complete canonical schema for Service Envelope YAML definitions. v1.0.5: service definitions can override lifecycle email templates, while core generic email fallbacks remain available outside YAML for required process communications.",
   "type": "object",
   "required": ["name", "type", "description", "envelopes"],
   "properties": {
@@ -161,6 +161,22 @@
             },
             "required": ["type", "required"]
           }
+        },
+        "emailTemplateStartEnvelope": {
+          "type": "string",
+          "description": "Service-specific email template ID sent when request intake begins. If omitted, the orchestrator can use generic fallback templates."
+        },
+        "emailTemplateEndEnvelope": {
+          "type": "string",
+          "description": "Service-specific email template ID sent when request intake is accepted/completed. If omitted, the orchestrator can use generic fallback templates."
+        },
+        "defaultEmailTemplateStartEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for request start."
+        },
+        "defaultEmailTemplateEndEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for request completion."
         }
       }
     },
@@ -213,6 +229,18 @@
         "emailTemplateCancelEnvelope": {
           "type": "string",
           "description": "Email template ID sent when approval is DENIED and request is CANCELLED (e.g., SERV-999-request-cancelled)"
+        },
+        "defaultEmailTemplateStartEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for approval start."
+        },
+        "defaultEmailTemplateEndEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for approval completion."
+        },
+        "defaultEmailTemplateCancelEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for approval cancellation/failure."
         },
         "expiryHours": {
           "type": "number",
@@ -278,11 +306,23 @@
         },
         "emailTemplateEndEnvelope": {
           "type": "string",
-          "description": "Email template ID sent when payment is received (e.g., SERV-999-payment-end)"
+          "description": "Email template ID sent when payment is received/completed. This is the editable payment receipt/confirmation email (e.g., SERV-999-payment-end)."
         },
         "emailTemplateCancelEnvelope": {
           "type": "string",
           "description": "Email template ID sent when payment expires and request is CANCELLED (e.g., SERV-999-request-cancelled)"
+        },
+        "defaultEmailTemplateStartEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for payment start."
+        },
+        "defaultEmailTemplateEndEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for payment completion/receipt."
+        },
+        "defaultEmailTemplateCancelEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for payment cancellation/expiry."
         }
       }
     },
@@ -374,6 +414,18 @@
         "emailTemplateCancelEnvelope": {
           "type": "string",
           "description": "Email template ID sent when task fails and request is CANCELLED (e.g., SERV-999-request-cancelled)"
+        },
+        "defaultEmailTemplateStartEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for processing start."
+        },
+        "defaultEmailTemplateEndEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for processing completion."
+        },
+        "defaultEmailTemplateCancelEnvelope": {
+          "type": "string",
+          "description": "Optional service-definition-controlled default template ID for processing cancellation/failure."
         }
       }
     },
@@ -400,7 +452,7 @@
                 },
                 "emailTemplateId": {
                   "type": "string",
-                  "description": "Email template ID for the document delivery email sent to the recipient (e.g., SERV-999-delivery-email-document). Falls back to generic 'delivery-email-document' template. Template receives {{documentLinks}} with resolved document URLs."
+                  "description": "Service-specific template ID for the document delivery email sent to the recipient (e.g., SERV-999-delivery-email-document). If omitted, delivery can use service-scoped or global generic fallback templates. Template receives {{documentLinks}} with resolved document URLs."
                 },
                 "resolveAttachmentsFrom": {
                   "type": "array",
@@ -478,7 +530,7 @@
                 },
                 "notificationTemplateId": {
                   "type": "string",
-                  "description": "Email template ID for the 'your shipment has been dispatched' notification (e.g., SERV-999-delivery-shipped). Falls back to generic 'delivery-shipped' template."
+                  "description": "Service-specific email template ID for the 'your shipment has been dispatched' notification (e.g., SERV-999-delivery-shipped). Implemented notification senders may use service-scoped or global generic fallback templates if omitted."
                 },
                 "fields": {
                   "type": "object",
@@ -519,7 +571,7 @@
                 },
                 "notificationTemplateId": {
                   "type": "string",
-                  "description": "Email template ID for the 'ready for pickup' notification sent to the requester (e.g., SERV-999-delivery-pickup-ready). Falls back to generic 'delivery-pickup-ready' template."
+                  "description": "Service-specific email template ID for the 'ready for pickup' notification sent to the requester (e.g., SERV-999-delivery-pickup-ready). If omitted, delivery can use service-scoped or global generic fallback templates."
                 }
               }
             }
