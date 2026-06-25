@@ -8,6 +8,12 @@ import { appContext } from '../server.js';
 import { requireAuth } from '../middleware/auth.js';
 import YAML from 'yaml';
 import { validateServiceDefinition, getServiceSchema, initializeValidator } from '../../utils/schema-validator.js';
+import {
+  generateApiClientCredentials,
+  generateApiClientSecretSalt,
+  hashApiClientSecret,
+} from '../../utils/api-client-secret.js';
+import { API_CLIENT_SCOPE_GROUPS, API_CLIENT_SCOPES } from '../../utils/api-client-scopes.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
@@ -15,6 +21,8 @@ import { fileURLToPath } from 'url';
 const router = Router();
 const AUTH_USER_ROLES = ['super_admin', 'admin', 'requester', 'orchestrator'] as const;
 type AuthUserRole = typeof AUTH_USER_ROLES[number];
+const API_CLIENT_ROLES = ['orchestrator', 'service'] as const;
+type ApiClientRole = typeof API_CLIENT_ROLES[number];
 
 function normalizeAuthEmail(email: unknown): string | null {
   if (typeof email !== 'string') {
@@ -33,6 +41,32 @@ function normalizeAuthRole(role: unknown): AuthUserRole {
   return AUTH_USER_ROLES.includes(role as AuthUserRole)
     ? role as AuthUserRole
     : 'requester';
+}
+
+function normalizeApiClientRole(role: unknown): ApiClientRole {
+  return API_CLIENT_ROLES.includes(role as ApiClientRole)
+    ? role as ApiClientRole
+    : 'orchestrator';
+}
+
+function normalizeScopes(scopes: unknown): string[] {
+  if (!Array.isArray(scopes)) {
+    return [];
+  }
+
+  return [...new Set(scopes
+    .filter((scope): scope is string => typeof scope === 'string')
+    .map(scope => scope.trim())
+    .filter(Boolean))];
+}
+
+function sanitizeApiClient(client: any): any {
+  if (!client) {
+    return null;
+  }
+
+  const { secretHash, secretSalt, __v, _id, ...safeClient } = client;
+  return safeClient;
 }
 
 function resolveCanonicalSchemaPath(): string {
@@ -416,6 +450,193 @@ router.delete('/auth-users/:email', requireAuth({ roles: ['super_admin'] }), asy
   } catch (error) {
     appContext.logger.error('Error deactivating auth user:', error);
     res.status(500).json({ error: 'Failed to deactivate auth user' });
+  }
+});
+
+/**
+ * GET /api/admin/api-clients
+ * List machine-to-machine API clients.
+ */
+router.get('/api-clients', requireAuth({ roles: ['super_admin'] }), async (_req: Request, res: Response) => {
+  try {
+    const clients = await (appContext.stateManager as any).listApiClients();
+    const safeClients = clients.map(sanitizeApiClient);
+    res.json({
+      clients: safeClients,
+      total: safeClients.length,
+    });
+  } catch (error) {
+    appContext.logger.error('Error fetching API clients:', error);
+    res.status(500).json({ error: 'Failed to fetch API clients' });
+  }
+});
+
+/**
+ * POST /api/admin/api-clients
+ * Create a machine-to-machine API client. The plaintext secret is returned once.
+ */
+router.post('/api-clients', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
+  try {
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    if (!name) {
+      return res.status(400).json({ error: 'Client name is required' });
+    }
+
+    const { clientId, clientSecret } = generateApiClientCredentials();
+    const secretSalt = generateApiClientSecretSalt();
+    const secretHash = hashApiClientSecret(clientSecret, secretSalt);
+
+    const client = await (appContext.stateManager as any).createApiClient({
+      clientId,
+      name,
+      role: normalizeApiClientRole(req.body?.role),
+      scopes: normalizeScopes(req.body?.scopes),
+      secretHash,
+      secretSalt,
+      isActive: req.body?.isActive !== false,
+      metadata: req.body?.metadata || {},
+    });
+
+    res.status(201).json({
+      success: true,
+      client: sanitizeApiClient(client),
+      credentials: {
+        clientId,
+        clientSecret,
+      },
+      message: 'Store clientSecret now. It cannot be retrieved again after this response.',
+    });
+  } catch (error) {
+    appContext.logger.error('Error creating API client:', error);
+    res.status(500).json({ error: 'Failed to create API client' });
+  }
+});
+
+/**
+ * GET /api/admin/api-client-scopes
+ * List supported machine-to-machine API client scopes for admin UI selection.
+ */
+router.get('/api-client-scopes', requireAuth({ roles: ['super_admin'] }), async (_req: Request, res: Response) => {
+  res.json({
+    scopeGroups: API_CLIENT_SCOPE_GROUPS,
+    scopes: API_CLIENT_SCOPES,
+    total: API_CLIENT_SCOPES.length,
+  });
+});
+
+/**
+ * GET /api/admin/api-clients/:clientId
+ * Fetch one API client without secret material.
+ */
+router.get('/api-clients/:clientId', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
+  try {
+    const client = await (appContext.stateManager as any).getApiClientById(req.params.clientId);
+    if (!client) {
+      return res.status(404).json({ error: 'API client not found' });
+    }
+
+    res.json({
+      success: true,
+      client: sanitizeApiClient(client),
+    });
+  } catch (error) {
+    appContext.logger.error('Error fetching API client:', error);
+    res.status(500).json({ error: 'Failed to fetch API client' });
+  }
+});
+
+/**
+ * PUT /api/admin/api-clients/:clientId
+ * Update API client metadata, role, scopes, or active status.
+ */
+router.put('/api-clients/:clientId', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
+  try {
+    const updates: any = {};
+    if (req.body?.name !== undefined) {
+      const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+      if (!name) {
+        return res.status(400).json({ error: 'Client name cannot be empty' });
+      }
+      updates.name = name;
+    }
+    if (req.body?.role !== undefined) {
+      updates.role = normalizeApiClientRole(req.body.role);
+    }
+    if (req.body?.scopes !== undefined) {
+      updates.scopes = normalizeScopes(req.body.scopes);
+    }
+    if (req.body?.isActive !== undefined) {
+      updates.isActive = req.body.isActive === true;
+    }
+    if (req.body?.metadata !== undefined) {
+      updates.metadata = req.body.metadata || {};
+    }
+
+    const client = await (appContext.stateManager as any).updateApiClient(req.params.clientId, updates);
+    if (!client) {
+      return res.status(404).json({ error: 'API client not found' });
+    }
+
+    res.json({
+      success: true,
+      client: sanitizeApiClient(client),
+    });
+  } catch (error) {
+    appContext.logger.error('Error updating API client:', error);
+    res.status(500).json({ error: 'Failed to update API client' });
+  }
+});
+
+/**
+ * POST /api/admin/api-clients/:clientId/rotate-secret
+ * Rotate an API client secret. The new plaintext secret is returned once.
+ */
+router.post('/api-clients/:clientId/rotate-secret', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
+  try {
+    const existing = await (appContext.stateManager as any).getApiClientById(req.params.clientId);
+    if (!existing) {
+      return res.status(404).json({ error: 'API client not found' });
+    }
+
+    const { clientSecret } = generateApiClientCredentials();
+    const secretSalt = generateApiClientSecretSalt();
+    const secretHash = hashApiClientSecret(clientSecret, secretSalt);
+    const client = await (appContext.stateManager as any).rotateApiClientSecret(
+      req.params.clientId,
+      secretHash,
+      secretSalt
+    );
+
+    res.json({
+      success: true,
+      client: sanitizeApiClient(client),
+      credentials: {
+        clientId: req.params.clientId,
+        clientSecret,
+      },
+      message: 'Store clientSecret now. It cannot be retrieved again after this response.',
+    });
+  } catch (error) {
+    appContext.logger.error('Error rotating API client secret:', error);
+    res.status(500).json({ error: 'Failed to rotate API client secret' });
+  }
+});
+
+/**
+ * DELETE /api/admin/api-clients/:clientId
+ * Deactivate an API client without deleting audit history.
+ */
+router.delete('/api-clients/:clientId', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
+  try {
+    const deactivated = await (appContext.stateManager as any).deactivateApiClient(req.params.clientId);
+    res.json({
+      success: deactivated,
+      clientId: req.params.clientId,
+      status: deactivated ? 'deactivated' : 'not_found',
+    });
+  } catch (error) {
+    appContext.logger.error('Error deactivating API client:', error);
+    res.status(500).json({ error: 'Failed to deactivate API client' });
   }
 });
 

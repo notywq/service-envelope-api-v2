@@ -3,8 +3,9 @@ info:
   title: Service Envelope API v2.0
   version: 2.1.0
   description: REST API for the Service Envelope System. Includes OTP bearer
-    authentication, Mongo-backed auth users and roles, generic email template
-    fallbacks, schema v1.0.5 service validation, and unified delivery selection.
+    authentication, machine-to-machine client credentials, Mongo-backed auth
+    users/API clients and roles, generic email template fallbacks, schema v1.0.5
+    service validation, and unified delivery selection.
   contact:
     name: Service Envelope Team
   license:
@@ -105,6 +106,51 @@ paths:
         - lang: bash
           label: cURL
           source: curl -X POST "http://localhost:8000/api/auth/login"
+  /api/auth/client-token:
+    post:
+      tags:
+        - Auth
+      summary: Issue Bearer Token For API Client
+      operationId: issueClientToken
+      security: []
+      description: |
+        Machine-to-machine token exchange. API clients are created by a super_admin
+        through /api/admin/api-clients. The plaintext clientSecret is returned only
+        during creation or secret rotation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClientCredentialsRequest"
+            examples:
+              camelCase:
+                value:
+                  clientId: cli_abc123
+                  clientSecret: sec_live_example
+              oauthStyle:
+                value:
+                  grant_type: client_credentials
+                  client_id: cli_abc123
+                  client_secret: sec_live_example
+      responses:
+        "200":
+          description: Client credentials verified and bearer token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientTokenResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+      x-codeSamples:
+        - lang: bash
+          label: cURL
+          source: >-
+            curl -X POST "http://localhost:8000/api/auth/client-token" \
+              -H "Content-Type: application/json" \
+              -d '{"clientId":"cli_abc123","clientSecret":"sec_live_example"}'
   /api/auth/verify:
     post:
       tags:
@@ -2179,6 +2225,194 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /api/admin/api-clients:
+    get:
+      tags:
+        - Admin
+      summary: List API Clients
+      operationId: listApiClients
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token. Returns API clients without secret material.
+      responses:
+        "200":
+          description: API clients
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  clients:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApiClientRecord"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags:
+        - Admin
+      summary: Create API Client
+      operationId: createApiClient
+      security:
+        - BearerAuth: []
+      description: |
+        Requires a super_admin bearer token. Creates a machine-to-machine API client.
+        The plaintext clientSecret is returned once and is not stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiClientCreateRequest"
+      responses:
+        "201":
+          description: API client created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiClientCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/admin/api-client-scopes:
+    get:
+      tags:
+        - Admin
+      summary: List API Client Scopes
+      operationId: listApiClientScopes
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token. Returns the canonical grouped scope catalog for API client UI selection.
+      responses:
+        "200":
+          description: API client scope catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiClientScopeCatalogResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/admin/api-clients/{clientId}:
+    get:
+      tags:
+        - Admin
+      summary: Get API Client
+      operationId: getApiClient
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token. Secret material is never returned.
+      parameters:
+        - $ref: "#/components/parameters/ClientIdParam"
+      responses:
+        "200":
+          description: API client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiClientMutationResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags:
+        - Admin
+      summary: Update API Client
+      operationId: updateApiClient
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token.
+      parameters:
+        - $ref: "#/components/parameters/ClientIdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApiClientUpdateRequest"
+      responses:
+        "200":
+          description: API client updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiClientMutationResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags:
+        - Admin
+      summary: Deactivate API Client
+      operationId: deactivateApiClient
+      security:
+        - BearerAuth: []
+      description: Requires a super_admin bearer token. Deactivates the client instead of deleting history.
+      parameters:
+        - $ref: "#/components/parameters/ClientIdParam"
+      responses:
+        "200":
+          description: API client deactivated or not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  clientId:
+                    type: string
+                  status:
+                    type: string
+                    enum:
+                      - deactivated
+                      - not_found
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/admin/api-clients/{clientId}/rotate-secret:
+    post:
+      tags:
+        - Admin
+      summary: Rotate API Client Secret
+      operationId: rotateApiClientSecret
+      security:
+        - BearerAuth: []
+      description: |
+        Requires a super_admin bearer token. Replaces the stored secret hash and
+        returns the new plaintext clientSecret once.
+      parameters:
+        - $ref: "#/components/parameters/ClientIdParam"
+      responses:
+        "200":
+          description: API client secret rotated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiClientCreateResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/admin/services:
     get:
       tags:
@@ -3031,6 +3265,14 @@ components:
         format: email
       example: barondimaranan@gmail.com
       description: Auth user email address.
+    ClientIdParam:
+      name: clientId
+      in: path
+      required: true
+      schema:
+        type: string
+      example: cli_qZ3p0YFlx9x5nM0U6m1JX22i
+      description: Machine API client identifier.
     VersionParam:
       name: version
       in: path
@@ -3134,6 +3376,228 @@ components:
         - requester
         - orchestrator
       example: requester
+    ApiClientRole:
+      type: string
+      enum:
+        - orchestrator
+        - service
+      example: orchestrator
+    ApiClientScopeDefinition:
+      type: object
+      properties:
+        scope:
+          type: string
+          example: requests:create
+        label:
+          type: string
+          example: Create requests
+        description:
+          type: string
+        endpoints:
+          type: array
+          items:
+            type: string
+          example:
+            - POST /api/requests
+    ApiClientScopeGroup:
+      type: object
+      properties:
+        id:
+          type: string
+          example: requests
+        label:
+          type: string
+          example: Requests
+        description:
+          type: string
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiClientScopeDefinition"
+    ApiClientScopeCatalogResponse:
+      type: object
+      properties:
+        scopeGroups:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApiClientScopeGroup"
+        scopes:
+          type: array
+          items:
+            type: string
+          example:
+            - services:read
+            - requests:create
+            - requests:read
+        total:
+          type: integer
+          example: 20
+    ClientCredentialsRequest:
+      type: object
+      description: Accepts either camelCase fields or OAuth-style snake_case fields.
+      properties:
+        grant_type:
+          type: string
+          enum:
+            - client_credentials
+          default: client_credentials
+        grantType:
+          type: string
+          enum:
+            - client_credentials
+          default: client_credentials
+        clientId:
+          type: string
+          example: cli_qZ3p0YFlx9x5nM0U6m1JX22i
+        clientSecret:
+          type: string
+          format: password
+          example: sec_live_example
+        client_id:
+          type: string
+          example: cli_qZ3p0YFlx9x5nM0U6m1JX22i
+        client_secret:
+          type: string
+          format: password
+          example: sec_live_example
+      oneOf:
+        - required:
+            - clientId
+            - clientSecret
+        - required:
+            - client_id
+            - client_secret
+    ClientTokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          example: Bearer
+        expiresIn:
+          type: string
+          example: 1h
+        client:
+          type: object
+          properties:
+            clientId:
+              type: string
+            name:
+              type: string
+            role:
+              $ref: "#/components/schemas/ApiClientRole"
+            scopes:
+              type: array
+              items:
+                type: string
+    ApiClientRecord:
+      type: object
+      properties:
+        clientId:
+          type: string
+          example: cli_qZ3p0YFlx9x5nM0U6m1JX22i
+        name:
+          type: string
+          example: Student Portal Backend
+        role:
+          $ref: "#/components/schemas/ApiClientRole"
+        scopes:
+          type: array
+          items:
+            type: string
+          example:
+            - requests:create
+            - requests:read
+        isActive:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        rotatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        deactivatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    ApiClientCreateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          example: Student Portal Backend
+        role:
+          $ref: "#/components/schemas/ApiClientRole"
+        scopes:
+          type: array
+          items:
+            type: string
+          default: []
+        isActive:
+          type: boolean
+          default: true
+        metadata:
+          type: object
+          additionalProperties: true
+    ApiClientUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/ApiClientRole"
+        scopes:
+          type: array
+          items:
+            type: string
+        isActive:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties: true
+    ApiClientCredentials:
+      type: object
+      properties:
+        clientId:
+          type: string
+        clientSecret:
+          type: string
+          format: password
+      description: Returned only on client creation and secret rotation.
+    ApiClientCreateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        client:
+          $ref: "#/components/schemas/ApiClientRecord"
+        credentials:
+          $ref: "#/components/schemas/ApiClientCredentials"
+        message:
+          type: string
+    ApiClientMutationResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        client:
+          $ref: "#/components/schemas/ApiClientRecord"
     AuthUserPublic:
       type: object
       properties:

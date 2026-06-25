@@ -163,6 +163,49 @@ const AuthUserModel = mongoose.model<AuthUserDoc>(
   AuthUserSchema
 );
 
+// Define API Client Schema for machine-to-machine authentication
+const ApiClientSchema = new Schema({
+  clientId: { type: String, unique: true, required: true, index: true },
+  name: { type: String, required: true },
+  role: {
+    type: String,
+    enum: ['orchestrator', 'service'],
+    default: 'orchestrator',
+    index: true,
+  },
+  scopes: { type: [String], default: [] },
+  secretHash: { type: String, required: true },
+  secretSalt: { type: String, required: true },
+  isActive: { type: Boolean, default: true, index: true },
+  metadata: Schema.Types.Mixed,
+  lastUsedAt: { type: Date, default: null },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+  rotatedAt: { type: Date, default: null },
+  deactivatedAt: { type: Date, default: null },
+}, { collection: 'apiclients' });
+
+interface ApiClientDoc extends Document {
+  clientId: string;
+  name: string;
+  role: 'orchestrator' | 'service';
+  scopes: string[];
+  secretHash: string;
+  secretSalt: string;
+  isActive: boolean;
+  metadata?: any;
+  lastUsedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  rotatedAt?: Date | null;
+  deactivatedAt?: Date | null;
+}
+
+const ApiClientModel = mongoose.model<ApiClientDoc>(
+  'ApiClient',
+  ApiClientSchema
+);
+
 // Define Service Definition Schema
 const ServiceDefinitionSchema = new Schema({
   id: { type: String, unique: true, required: true, index: true },
@@ -675,6 +718,147 @@ export class MongoDBStateManager {
       );
     } catch (error) {
       this.logger.error(`Failed to update auth user login timestamp ${email}:`, error);
+    }
+  }
+
+  // API Client Methods
+  async createApiClient(client: {
+    clientId: string;
+    name: string;
+    role?: 'orchestrator' | 'service';
+    scopes?: string[];
+    secretHash: string;
+    secretSalt: string;
+    isActive?: boolean;
+    metadata?: any;
+  }): Promise<any> {
+    try {
+      const doc = await ApiClientModel.create({
+        clientId: client.clientId,
+        name: client.name,
+        role: client.role || 'orchestrator',
+        scopes: client.scopes || [],
+        secretHash: client.secretHash,
+        secretSalt: client.secretSalt,
+        isActive: client.isActive !== false,
+        metadata: client.metadata || {},
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      return doc.toObject();
+    } catch (error) {
+      this.logger.error(`Failed to create API client ${client.clientId}:`, error);
+      throw error;
+    }
+  }
+
+  async getApiClientById(clientId: string): Promise<any> {
+    try {
+      const doc = await ApiClientModel.findOne({ clientId: clientId.trim() });
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to get API client ${clientId}:`, error);
+      return null;
+    }
+  }
+
+  async listApiClients(): Promise<any[]> {
+    try {
+      const docs = await ApiClientModel.find({}).sort({ createdAt: -1 });
+      return docs.map(doc => doc.toObject());
+    } catch (error) {
+      this.logger.error('Failed to list API clients:', error);
+      return [];
+    }
+  }
+
+  async updateApiClient(clientId: string, updates: {
+    name?: string;
+    role?: 'orchestrator' | 'service';
+    scopes?: string[];
+    isActive?: boolean;
+    metadata?: any;
+  }): Promise<any> {
+    try {
+      const set: Record<string, any> = { updatedAt: new Date() };
+
+      if (updates.name !== undefined) {
+        set.name = updates.name;
+      }
+      if (updates.role !== undefined) {
+        set.role = updates.role;
+      }
+      if (updates.scopes !== undefined) {
+        set.scopes = updates.scopes;
+      }
+      if (updates.isActive !== undefined) {
+        set.isActive = updates.isActive;
+        set.deactivatedAt = updates.isActive ? null : new Date();
+      }
+      if (updates.metadata !== undefined) {
+        set.metadata = updates.metadata;
+      }
+
+      const doc = await ApiClientModel.findOneAndUpdate(
+        { clientId: clientId.trim() },
+        { $set: set },
+        { new: true }
+      );
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to update API client ${clientId}:`, error);
+      throw error;
+    }
+  }
+
+  async rotateApiClientSecret(clientId: string, secretHash: string, secretSalt: string): Promise<any> {
+    try {
+      const doc = await ApiClientModel.findOneAndUpdate(
+        { clientId: clientId.trim() },
+        {
+          $set: {
+            secretHash,
+            secretSalt,
+            rotatedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+        { new: true }
+      );
+      return doc ? doc.toObject() : null;
+    } catch (error) {
+      this.logger.error(`Failed to rotate API client secret ${clientId}:`, error);
+      throw error;
+    }
+  }
+
+  async deactivateApiClient(clientId: string): Promise<boolean> {
+    try {
+      const result = await ApiClientModel.updateOne(
+        { clientId: clientId.trim() },
+        {
+          $set: {
+            isActive: false,
+            deactivatedAt: new Date(),
+            updatedAt: new Date(),
+          },
+        }
+      );
+      return (result.modifiedCount || 0) > 0;
+    } catch (error) {
+      this.logger.error(`Failed to deactivate API client ${clientId}:`, error);
+      throw error;
+    }
+  }
+
+  async markApiClientUsed(clientId: string): Promise<void> {
+    try {
+      await ApiClientModel.updateOne(
+        { clientId: clientId.trim() },
+        { lastUsedAt: new Date(), updatedAt: new Date() }
+      );
+    } catch (error) {
+      this.logger.error(`Failed to update API client usage ${clientId}:`, error);
     }
   }
 

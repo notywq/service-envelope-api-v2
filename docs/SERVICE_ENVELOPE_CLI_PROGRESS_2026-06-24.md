@@ -96,6 +96,25 @@ This document summarizes the work completed during the service-envelope audit an
 - Added frontend handoff documentation in `docs/FRONTEND_UI_AGENT_HANDOFF_2026-06-24.md`.
 - Updated `openapi.yaml` to document OTP auth, bearer verification, auth-user CRUD, roles, and 403 permission responses.
 
+## Machine-To-Machine Auth Addendum - June 25, 2026
+
+- Added MongoDB-backed API clients in the `apiclients` collection.
+- Added salted hashing for API client secrets. Plaintext secrets are returned only on create and rotate.
+- Added client credentials bearer-token exchange:
+  - `POST /api/auth/client-token`
+- Added super-admin API client management endpoints:
+  - `GET /api/admin/api-client-scopes`
+  - `GET /api/admin/api-clients`
+  - `POST /api/admin/api-clients`
+  - `GET /api/admin/api-clients/:clientId`
+  - `PUT /api/admin/api-clients/:clientId`
+  - `POST /api/admin/api-clients/:clientId/rotate-secret`
+  - `DELETE /api/admin/api-clients/:clientId`
+- API clients can use `orchestrator` or `service` roles for authenticated non-admin machine access.
+- API client scopes are enforced for protected non-admin API routes when the bearer token was minted through client credentials.
+- Added frontend handoff documentation in `docs/FRONTEND_API_CLIENTS_HANDOFF_2026-06-25.md`.
+- Updated `openapi.yaml` to document client credentials and API client management.
+
 ## Environment Additions
 
 Added production auth/OTP settings to `.env.example`:
@@ -114,6 +133,8 @@ OTP_MAX_ATTEMPTS=5
 OTP_EMAIL_TEMPLATE_ID=otp-login
 OTP_ECHO_IN_RESPONSE=false
 ```
+
+Machine API clients do not need env allowlists. They are created and managed in MongoDB through `/api/admin/api-clients`.
 
 Email delivery is configured through the standard shared sender variables:
 

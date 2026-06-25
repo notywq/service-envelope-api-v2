@@ -6,6 +6,8 @@ This handoff summarizes backend changes the frontend should support after the Ju
 
 The API now supports email OTP login and bearer tokens.
 
+June 25 addendum: machine-to-machine API client management has been added. See `docs/FRONTEND_API_CLIENTS_HANDOFF_2026-06-25.md` for the full UI build notes.
+
 ### Login Flow
 
 1. User enters email.
@@ -78,6 +80,7 @@ Auth and OTP:
 - `POST /api/OTP/verify`: public. Body: `{ email, code, purpose? }`. Returns `{ accessToken, tokenType, expiresIn, user }`.
 - `POST /api/OTP/cancel`: public. Body: `{ email, purpose? }`. Cancels active OTP challenges for that email.
 - `POST /api/OTP/flush`: protected. Requires `super_admin`. Deletes stale OTP challenge records.
+- `POST /api/auth/client-token`: public machine-token exchange. Body: `{ clientId, clientSecret }` or OAuth-style `{ grant_type, client_id, client_secret }`.
 - `POST /api/auth/login`: disabled. Returns `410`.
 - `POST /api/auth/verify`: protected. Verifies current bearer token.
 - `GET /api/auth/me`: protected. Returns current bearer user.
@@ -88,6 +91,16 @@ Auth-user management:
 - `POST /api/admin/auth-users`: requires `super_admin`. Creates/replaces an OTP user.
 - `PUT /api/admin/auth-users/:email`: requires `super_admin`. Updates role/status/OTP access.
 - `DELETE /api/admin/auth-users/:email`: requires `super_admin`. Deactivates OTP access without deleting history.
+
+API-client management:
+
+- `GET /api/admin/api-client-scopes`: requires `super_admin`. Returns the grouped canonical scope catalog for API-client forms.
+- `GET /api/admin/api-clients`: requires `super_admin`. Lists machine clients without secret material.
+- `POST /api/admin/api-clients`: requires `super_admin`. Creates a machine client and returns `clientSecret` once.
+- `GET /api/admin/api-clients/:clientId`: requires `super_admin`. Gets one client without secret material.
+- `PUT /api/admin/api-clients/:clientId`: requires `super_admin`. Updates name, role, scopes, status, or metadata.
+- `POST /api/admin/api-clients/:clientId/rotate-secret`: requires `super_admin`. Rotates secret and returns the new `clientSecret` once.
+- `DELETE /api/admin/api-clients/:clientId`: requires `super_admin`. Deactivates the client.
 
 Request permission changes:
 

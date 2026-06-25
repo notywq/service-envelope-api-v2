@@ -1,5 +1,24 @@
 # Service Envelope System CLI - v2
 
+## Authentication
+
+The API supports two bearer-token paths:
+
+- Human users authenticate with email OTP via `POST /api/OTP/send` and `POST /api/OTP/verify`.
+- Machine integrations authenticate with client credentials via `POST /api/auth/client-token`.
+
+Machine API clients are stored in MongoDB in the `apiclients` collection. A `super_admin` manages them through:
+
+- `GET /api/admin/api-clients`
+- `GET /api/admin/api-client-scopes`
+- `POST /api/admin/api-clients`
+- `GET /api/admin/api-clients/:clientId`
+- `PUT /api/admin/api-clients/:clientId`
+- `POST /api/admin/api-clients/:clientId/rotate-secret`
+- `DELETE /api/admin/api-clients/:clientId`
+
+Client secrets are returned only when a client is created or rotated. The backend stores only salted secret hashes.
+
 A **TypeScript + RxJS-powered orchestration engine** for processing complex, multi-step service requests in a **configurable, dynamic, and future-proof way**.
 
 This system executes "envelopes" that simulate a pipeline (discrete processing stages) such as:

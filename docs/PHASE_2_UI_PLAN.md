@@ -535,6 +535,7 @@ src/
 - **Requestor**: Email-based login with OTP or session token
 - **Approver**: System authentication (SSO recommended)
 - **Admin**: Role-based access control (RBAC)
+- **Machine/API clients**: Client credentials via `POST /api/auth/client-token`; managed by `super_admin` through `/api/admin/api-clients`
 - **Feedback**: Token-based access (no authentication)
 - **Payment**: Session-based (MAYA handles payment security)
 
@@ -543,6 +544,7 @@ src/
 - **Requestor**: Can only view/modify own requests
 - **Approver**: Can only approve assigned requests
 - **Admin**: Full access (audit logging recommended)
+- **Machine/API clients**: `orchestrator` or `service` roles for authenticated non-admin APIs
 - **Feedback**: Token validation required (expires after 7 days)
 
 ### 7.3 Data Protection

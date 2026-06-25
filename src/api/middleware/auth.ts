@@ -7,6 +7,9 @@ export interface AuthenticatedUser {
   email: string;
   role: ApiRole;
   name?: string;
+  clientId?: string;
+  scopes?: string[];
+  authType?: 'otp' | 'client_credentials';
   tokenType: 'access';
 }
 
@@ -83,6 +86,9 @@ export function issueAccessToken(user: Omit<AuthenticatedUser, 'tokenType'>): st
       email: user.email,
       role: user.role,
       name: user.name,
+      clientId: user.clientId,
+      scopes: user.scopes,
+      authType: user.authType,
       tokenType: 'access',
     },
     getJwtSecret(),
@@ -101,6 +107,9 @@ export function verifyAccessToken(token: string): AuthenticatedUser {
     email: decoded.email,
     role: (decoded.role as ApiRole) || 'requester',
     name: typeof decoded.name === 'string' ? decoded.name : undefined,
+    clientId: typeof decoded.clientId === 'string' ? decoded.clientId : undefined,
+    scopes: Array.isArray(decoded.scopes) ? decoded.scopes.filter(scope => typeof scope === 'string') : undefined,
+    authType: decoded.authType === 'client_credentials' ? 'client_credentials' : 'otp',
     tokenType: 'access',
   };
 }
@@ -180,6 +189,76 @@ function canAccessAuthenticatedApi(user: AuthenticatedUser, path: string, method
   return false;
 }
 
+function getRequiredClientScope(path: string, method: string): string | null {
+  const normalizedPath = path.toLowerCase();
+  const normalizedMethod = method.toUpperCase();
+
+  if (normalizedPath.startsWith('/services')) {
+    if (normalizedMethod === 'GET') {
+      return 'services:read';
+    }
+    if (/^\/services\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'DELETE') {
+      return 'services:delete';
+    }
+  }
+
+  if (normalizedPath === '/requests' && normalizedMethod === 'POST') {
+    return 'requests:create';
+  }
+  if (normalizedPath === '/requests' && normalizedMethod === 'GET') {
+    return 'requests:list';
+  }
+  if (/^\/requests\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'GET') {
+    return 'requests:read';
+  }
+  if (/^\/requests\/[^/]+\/history$/.test(normalizedPath) && normalizedMethod === 'GET') {
+    return 'requests:history';
+  }
+  if (/^\/requests\/[^/]+\/resume$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return 'requests:resume';
+  }
+  if (/^\/requests\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'DELETE') {
+    return 'requests:cancel';
+  }
+
+  if (/^\/delivery\/[^/]+(\/method)?$/.test(normalizedPath) && normalizedMethod === 'GET') {
+    return 'delivery:read';
+  }
+  if (/^\/delivery\/[^/]+\/(details|method)$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return 'delivery:update';
+  }
+
+  if (/^\/delivery-status\/[^/]+\/(history|current)$/.test(normalizedPath) && normalizedMethod === 'GET') {
+    return 'delivery-status:read';
+  }
+  if (/^\/delivery-status\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return 'delivery-status:update';
+  }
+
+  if (/^\/payments\/[^/]+\/complete$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return 'payments:complete';
+  }
+  if (/^\/payments\/[^/]+\/failed$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return 'payments:fail';
+  }
+  if ((normalizedPath === '/payments/maya' || normalizedPath === '/webhooks/maya') && normalizedMethod === 'POST') {
+    return 'payments:webhook';
+  }
+
+  if (/^\/feedback\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'GET') {
+    return 'feedback:read';
+  }
+  if (/^\/feedback\/[^/]+\/submit$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return 'feedback:submit';
+  }
+
+  if (/^\/processing\/[^/]+(\/tasks\/[^/]+|\/summary)?$/.test(normalizedPath) && normalizedMethod === 'GET') {
+    return 'processing:read';
+  }
+
+  return null;
+}
+
 function logPermissionDenied(req: Request, details: Record<string, unknown>) {
   console.warn(JSON.stringify({
     level: 'warn',
@@ -190,6 +269,23 @@ function logPermissionDenied(req: Request, details: Record<string, unknown>) {
     userAgent: req.headers['user-agent'] || '',
     timestamp: new Date().toISOString(),
     ...details,
+  }));
+}
+
+function logMachineAuthAccess(req: Request, user: AuthenticatedUser, requiredScope: string | null) {
+  console.log(JSON.stringify({
+    level: 'info',
+    event: 'machine_auth_access',
+    clientId: user.clientId,
+    role: user.role,
+    method: req.method,
+    path: req.originalUrl || req.path,
+    requiredScope,
+    grantedScopes: user.scopes || [],
+    ip: req.ip,
+    forwardedFor: req.headers['x-forwarded-for'] || '',
+    userAgent: req.headers['user-agent'] || '',
+    timestamp: new Date().toISOString(),
   }));
 }
 
@@ -314,6 +410,23 @@ export function requireApiAuth(req: Request, res: Response, next: NextFunction) 
         role: user.role,
       });
       return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    if (user.authType === 'client_credentials') {
+      const requiredScope = getRequiredClientScope(req.path, req.method);
+      if (!requiredScope || !user.scopes?.includes(requiredScope)) {
+        logPermissionDenied(req, {
+          reason: requiredScope ? 'missing_client_scope' : 'route_not_scoped_for_client_credentials',
+          email: user.email,
+          role: user.role,
+          clientId: user.clientId,
+          requiredScope,
+        });
+        return res.status(403).json({
+          error: 'Insufficient client scope',
+          requiredScope,
+        });
+      }
+      logMachineAuthAccess(req, user, requiredScope);
     }
     req.user = user;
     return next();

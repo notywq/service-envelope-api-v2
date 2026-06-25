@@ -22,7 +22,7 @@
 #   - Canonical schema version: 1.0.5, saved in MongoDB SchemaVersion collection.
 #   - Service definitions are stored and validated from MongoDB, not local YAML files.
 #   - API access is bearer-token protected when AUTH_REQUIRED is enabled.
-#   - OTP login users and roles are stored in MongoDB authusers collection.
+#   - OTP login users live in MongoDB authusers; machine clients live in apiclients.
 #   - Email templates are stored in MongoDB EmailTemplate collection.
 #   - Service YAML may specify email template overrides, but core generic fallback
 #     templates remain outside YAML so required process emails can still send.
@@ -1439,8 +1439,9 @@ feedback:
 # ============================================================================
 #
 # Service Envelope CLI provides these endpoints for frontend/API integration.
-# When AUTH_REQUIRED=true, every endpoint except health/docs and OTP send/verify/cancel
-# requires Authorization: Bearer <token>.
+# When AUTH_REQUIRED=true, every endpoint except health/docs, OTP send/verify/cancel,
+# approval-token routes, feedback-token routes, and client-token exchange requires
+# Authorization: Bearer <token>.
 #
 # AUTH + OTP:
 # 1. POST /api/OTP/send
@@ -1470,81 +1471,121 @@ feedback:
 # 7. POST /api/auth/login
 #    PURPOSE: Disabled legacy password login. Returns 410; use OTP flow.
 #
+# 8. POST /api/auth/client-token
+#    PURPOSE: Machine-to-machine client credentials exchange
+#    BODY: { clientId, clientSecret } OR { grant_type: "client_credentials", client_id, client_secret }
+#    RETURNS: { accessToken, tokenType: "Bearer", expiresIn, client: { clientId, name, role, scopes } }
+#
 # ROLE MODEL:
 #   super_admin: full access, including auth-user CRUD and role assignment.
 #   admin: operational/admin APIs except auth-user CRUD and role assignment.
 #   orchestrator: internal operational access for envelope/email/API work.
+#   service: machine/service access equivalent to orchestrator for authenticated non-admin APIs.
 #   requester: can create requests and view/update only their own request flow.
 #   Permission denials are logged server-side as api_permission_denied.
 #
 # AUTH USER ADMIN:
-# 8. GET /api/admin/auth-users
+# 9. GET /api/admin/auth-users
 #    PURPOSE: List active/allowed users and roles
 #    ACCESS: super_admin only
 #
-# 9. POST /api/admin/auth-users
+# 10. POST /api/admin/auth-users
 #    PURPOSE: Create an OTP-allowed user
 #    ACCESS: super_admin only
 #    BODY: { email, role: "requester"|"admin"|"orchestrator"|"super_admin", isActive: true }
 #
-# 10. PUT /api/admin/auth-users/{userId}
+# 11. PUT /api/admin/auth-users/{userId}
 #     PURPOSE: Edit user role/active status/OTP permission
 #     ACCESS: super_admin only
 #
-# 11. DELETE /api/admin/auth-users/{userId}
+# 12. DELETE /api/admin/auth-users/{userId}
 #     PURPOSE: Deactivate/remove a user from API access
 #     ACCESS: super_admin only
 #
+# API CLIENT ADMIN:
+# 13. GET /api/admin/api-client-scopes
+#     PURPOSE: Return grouped canonical API-client scopes for UI selection
+#     ACCESS: super_admin only
+#
+# 14. GET /api/admin/api-clients
+#     PURPOSE: List machine-to-machine API clients without secret material
+#     ACCESS: super_admin only
+#
+# 15. POST /api/admin/api-clients
+#     PURPOSE: Create a machine-to-machine API client
+#     ACCESS: super_admin only
+#     BODY: { name, role: "orchestrator"|"service", scopes: string[], isActive: true, metadata: {} }
+#     RETURNS: { client, credentials: { clientId, clientSecret } }
+#     NOTE: clientSecret is returned once and stored only as a salted hash.
+#
+# 16. GET /api/admin/api-clients/{clientId}
+#     PURPOSE: View one API client without secret material
+#     ACCESS: super_admin only
+#
+# 17. PUT /api/admin/api-clients/{clientId}
+#     PURPOSE: Update client name, role, scopes, active status, or metadata
+#     ACCESS: super_admin only
+#
+# 18. POST /api/admin/api-clients/{clientId}/rotate-secret
+#     PURPOSE: Replace a client secret
+#     ACCESS: super_admin only
+#     RETURNS: { client, credentials: { clientId, clientSecret } }
+#     NOTE: new clientSecret is returned once.
+#
+# 19. DELETE /api/admin/api-clients/{clientId}
+#     PURPOSE: Deactivate an API client without deleting history
+#     ACCESS: super_admin only
+#
 # SERVICE + REQUEST FLOW:
-# 12. GET /api/services/{serviceId}
+# 20. GET /api/services/{serviceId}
 #     PURPOSE: Retrieve service definition to render form
 #     RETURNS: Complete YAML parsed as JSON
 #     INCLUDES: parameters schema, all envelope configurations
 #
-# 13. POST /api/requests
+# 21. POST /api/requests
 #     PURPOSE: Submit new service request
 #     BODY: { type: "service-type", initiator: "user@email.com", parameters: {...} }
 #     REQUESTER RULE: requester role may submit only for its own email identity
 #     RETURNS: { id: "REQ-2025-001", status: "pending_approval", ... }
 #
-# 14. GET /api/requests/{requestId}
+# 22. GET /api/requests/{requestId}
 #     PURPOSE: Get request status and all envelope details
 #     REQUESTER RULE: requester role may read only its own request
 #
-# 15. POST /api/delivery/{requestId}/details
+# 23. POST /api/delivery/{requestId}/details
 #     PURPOSE: Submit delivery details AFTER request created
 #     BODY: { deliveryMethod: "physical_mail", deliveryDetails: {...} }
 #
-# 16. POST /api/approvals/{requestId}
+# 24. POST /api/approvals/{requestId}
 #     PURPOSE: Approver submits decision (approve/deny)
 #     BODY: { decision: "approve" | "deny", notes: "..." }
 #
-# 17. POST /api/payments/{requestId}/complete
+# 25. POST /api/payments/{requestId}/complete
 #     PURPOSE: Called after payment success
 #     BODY: { transactionId, amount, currency, method, reference, metadata }
 #     EMAIL: Sends editable payment-end receipt via YAML override or generic fallback
 #
-# 18. POST /api/delivery-status/{requestId}
+# 26. POST /api/delivery-status/{requestId}
 #     PURPOSE: Update delivery status (progress tracking)
 #     BODY: { statusCode: 0|1|2|3, notes: "..." }
 #     STATUS CODES: 0=processing, 1=ready, 2=in_transit, 3=delivered
 #
-# 19. POST /api/requests/{requestId}/feedback
+# 27. POST /api/requests/{requestId}/feedback
 #     PURPOSE: Submit feedback survey responses
 #     BODY: { ratings: {...}, comments: "..." }
 #
 # EMAIL TEMPLATE ADMIN:
-# 20. GET /api/admin/email-templates
+# 28. GET /api/admin/email-templates
 #     PURPOSE: List all email templates for customization
 #
-# 21. POST /api/admin/email-templates
+# 29. POST /api/admin/email-templates
 #     PURPOSE: Create/update email template
 #     BODY: { templateId: "SERV-999-approval-start", html: "...", subject: "..." }
 #
-# 22. PUT /api/admin/email-templates/{templateId}
+# 30. PUT /api/admin/email-templates/{templateId}
 #     PURPOSE: Update an existing email template
 #
-# 23. DELETE /api/admin/email-templates/{templateId}
+# 31. DELETE /api/admin/email-templates/{templateId}
 #     PURPOSE: Disable/remove an email template
 
 # ============================================================================
