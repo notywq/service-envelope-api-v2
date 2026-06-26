@@ -160,6 +160,22 @@ OAuth-style field names are also accepted:
 }
 ```
 
+Swagger UI Authorize flow:
+
+- Open Swagger docs and click `Authorize`.
+- Choose `MachineClientCredentials`.
+- Enter the API client's `client_id` and `client_secret`.
+- Select the scopes needed for testing, or select all scopes assigned to the client.
+- Swagger will call `POST /api/auth/client-token` using the OAuth2 client credentials flow.
+- The backend returns OAuth-compatible fields: `access_token`, `token_type`, `expires_in`, and `scope`.
+- Swagger stores that bearer token and sends it on protected operational API calls.
+
+Notes:
+
+- Admin endpoints still require a human/admin `BearerAuth` token because machine clients are limited to `orchestrator` or `service` roles.
+- If Swagger requests scopes not assigned to the API client, `/api/auth/client-token` returns `403 invalid_scope`.
+- CORS is disabled unless `CORS_ENABLED=true` or `SWAGGER_UI_ENABLED=true`. For local Swagger UI on port 8080, enable CORS and keep `http://localhost:8080` / `http://127.0.0.1:8080` in `CORS_ALLOWED_ORIGINS`. Additional docs/frontend origins can be configured with `CORS_ALLOWED_ORIGINS`.
+
 ## UI Requirements
 
 API clients table:
@@ -256,6 +272,13 @@ The canonical contract is updated in `openapi.yaml`:
 - `PUT /api/admin/api-clients/{clientId}`
 - `POST /api/admin/api-clients/{clientId}/rotate-secret`
 - `DELETE /api/admin/api-clients/{clientId}`
+
+Swagger/OpenAPI helpers:
+
+- `BearerAuth`: manual JWT bearer entry.
+- `MachineClientCredentials`: OAuth2 client credentials scheme using `/api/auth/client-token`.
+- `OAuthClientCredentialsFormRequest`: form payload used by Swagger UI.
+- `ClientTokenResponse`: includes both API-native fields (`accessToken`, `tokenType`, `expiresIn`) and OAuth fields (`access_token`, `token_type`, `expires_in`, `scope`).
 
 ## Current Scope Catalog
 

@@ -1475,6 +1475,8 @@ feedback:
 #    PURPOSE: Machine-to-machine client credentials exchange
 #    BODY: { clientId, clientSecret } OR { grant_type: "client_credentials", client_id, client_secret }
 #    RETURNS: { accessToken, tokenType: "Bearer", expiresIn, client: { clientId, name, role, scopes } }
+#    SWAGGER: Also returns OAuth-compatible { access_token, token_type, expires_in, scope }
+#             so the OpenAPI MachineClientCredentials Authorize flow can mint and apply a bearer token.
 #
 # ROLE MODEL:
 #   super_admin: full access, including auth-user CRUD and role assignment.

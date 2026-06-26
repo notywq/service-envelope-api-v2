@@ -115,13 +115,13 @@ export const API_CLIENT_SCOPE_GROUPS: ApiClientScopeGroup[] = [
         scope: 'payments:complete',
         label: 'Complete payments',
         description: 'Mark a request payment as completed.',
-        endpoints: ['POST /api/payments/:requestId/complete'],
+        endpoints: ['POST /api/payments/:requestId/complete', 'POST /api/webhooks/:requestId/complete'],
       },
       {
         scope: 'payments:fail',
         label: 'Fail payments',
         description: 'Mark a request payment as failed.',
-        endpoints: ['POST /api/payments/:requestId/failed'],
+        endpoints: ['POST /api/payments/:requestId/failed', 'POST /api/webhooks/:requestId/failed'],
       },
       {
         scope: 'payments:webhook',

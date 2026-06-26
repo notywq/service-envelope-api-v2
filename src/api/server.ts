@@ -93,6 +93,66 @@ function isSrvLookupRefused(error: unknown): boolean {
     && text.includes('_mongodb._tcp');
 }
 
+function getCorsAllowedOrigins(): string[] {
+  const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+
+  if (configuredOrigins.length > 0) {
+    return configuredOrigins;
+  }
+
+  return [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:8080',
+    'http://127.0.0.1:8080',
+  ];
+}
+
+function getCorsAllowedHeaders(): string[] {
+  const configuredHeaders = (process.env.CORS_ALLOWED_HEADERS || '')
+    .split(',')
+    .map(header => header.trim())
+    .filter(Boolean);
+
+  if (configuredHeaders.length > 0) {
+    return configuredHeaders;
+  }
+
+  return ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With'];
+}
+
+function isCorsEnabled(): boolean {
+  if (process.env.CORS_ENABLED === 'true') {
+    return true;
+  }
+  if (process.env.CORS_ENABLED === 'false') {
+    return false;
+  }
+
+  return process.env.SWAGGER_UI_ENABLED === 'true';
+}
+
+function createCorsOptions(): cors.CorsOptions {
+  const allowedOrigins = getCorsAllowedOrigins();
+
+  return {
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS origin not allowed: ${origin}`));
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: getCorsAllowedHeaders(),
+    credentials: false,
+  };
+}
+
 async function connectMongoWithFallback(stateManager: MongoDBStateManager): Promise<void> {
   const primaryMongoUri = process.env.MONGODB_SRV_URI || process.env.MONGODB_URI;
   if (!primaryMongoUri) {
@@ -171,7 +231,14 @@ async function initializeApp(): Promise<Express> {
   const app = express();
 
   // Middleware
-  app.use(cors());
+  if (isCorsEnabled()) {
+    const corsOptions = createCorsOptions();
+    app.use(cors(corsOptions));
+    app.options('*', cors(corsOptions));
+    logger.info(`[CORS] Enabled for origins: ${getCorsAllowedOrigins().join(', ')}`);
+  } else {
+    logger.info('[CORS] Disabled. Set CORS_ENABLED=true when using browser-based Swagger UI or frontend clients.');
+  }
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 

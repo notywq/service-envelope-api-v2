@@ -51,6 +51,30 @@ export function getAccessTokenExpiresIn(): string {
   return process.env.JWT_ACCESS_TOKEN_EXPIRES_IN || '1h';
 }
 
+export function getAccessTokenExpiresInSeconds(): number {
+  const raw = getAccessTokenExpiresIn().trim();
+  const match = raw.match(/^(\d+)([smhd])?$/i);
+
+  if (!match) {
+    return 3600;
+  }
+
+  const value = Number(match[1]);
+  const unit = (match[2] || 's').toLowerCase();
+
+  switch (unit) {
+    case 'd':
+      return value * 24 * 60 * 60;
+    case 'h':
+      return value * 60 * 60;
+    case 'm':
+      return value * 60;
+    case 's':
+    default:
+      return value;
+  }
+}
+
 function getJwtOptions(): SignOptions {
   const options: SignOptions = {
     expiresIn: getAccessTokenExpiresIn() as SignOptions['expiresIn'],
@@ -238,7 +262,13 @@ function getRequiredClientScope(path: string, method: string): string | null {
   if (/^\/payments\/[^/]+\/complete$/.test(normalizedPath) && normalizedMethod === 'POST') {
     return 'payments:complete';
   }
+  if (/^\/webhooks\/[^/]+\/complete$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return 'payments:complete';
+  }
   if (/^\/payments\/[^/]+\/failed$/.test(normalizedPath) && normalizedMethod === 'POST') {
+    return 'payments:fail';
+  }
+  if (/^\/webhooks\/[^/]+\/failed$/.test(normalizedPath) && normalizedMethod === 'POST') {
     return 'payments:fail';
   }
   if ((normalizedPath === '/payments/maya' || normalizedPath === '/webhooks/maya') && normalizedMethod === 'POST') {

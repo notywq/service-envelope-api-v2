@@ -15,6 +15,9 @@ servers:
     description: Development
   - url: https://api.mapua.edu.ph
     description: Production
+security:
+  - BearerAuth: []
+  - MachineClientCredentials: []
 paths:
   /health:
     get:
@@ -133,6 +136,13 @@ paths:
                   grant_type: client_credentials
                   client_id: cli_abc123
                   client_secret: sec_live_example
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/OAuthClientCredentialsFormRequest"
+            encoding:
+              scope:
+                style: form
+                explode: false
       responses:
         "200":
           description: Client credentials verified and bearer token issued
@@ -144,6 +154,12 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Requested scope is not assigned to this API client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthErrorResponse"
       x-codeSamples:
         - lang: bash
           label: cURL
@@ -159,6 +175,7 @@ paths:
       operationId: verifyToken
       security:
         - BearerAuth: []
+        - MachineClientCredentials: []
       responses:
         "200":
           description: Token is valid
@@ -196,6 +213,7 @@ paths:
       operationId: getCurrentAuthUser
       security:
         - BearerAuth: []
+        - MachineClientCredentials: []
       responses:
         "200":
           description: Current authenticated user
@@ -327,7 +345,10 @@ paths:
         - Services
       summary: List All Services
       operationId: listAllServices
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - services:read
       responses:
         "200":
           description: All available services
@@ -367,7 +388,10 @@ paths:
         - Services
       summary: Get Service IDs Quick Reference
       operationId: getServiceIds
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - services:read
       responses:
         "200":
           description: ID/name mapping and list
@@ -416,7 +440,10 @@ paths:
         - Services
       summary: Get Service Details
       operationId: getServiceDetails
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - services:read
       parameters:
         - $ref: "#/components/parameters/ServiceIdParam"
       responses:
@@ -452,7 +479,10 @@ paths:
         - Services
       summary: Delete Service
       operationId: deleteService
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - services:delete
       parameters:
         - $ref: "#/components/parameters/ServiceIdParam"
       responses:
@@ -491,7 +521,10 @@ paths:
         - Requests
       summary: List All Requests
       operationId: listAllRequests
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - requests:list
       parameters:
         - $ref: "#/components/parameters/StatusQueryParam"
         - $ref: "#/components/parameters/TypeQueryParam"
@@ -528,7 +561,10 @@ paths:
         - Requests
       summary: Create Request
       operationId: createRequest
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - requests:create
       requestBody:
         required: true
         content:
@@ -590,7 +626,10 @@ paths:
         - Requests
       summary: Get Request Details
       operationId: getRequestDetails
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - requests:read
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -625,7 +664,10 @@ paths:
         - Requests
       summary: Cancel Request
       operationId: cancelRequest
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - requests:cancel
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -664,7 +706,10 @@ paths:
         - Requests
       summary: Resume Request
       operationId: resumeRequest
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - requests:resume
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
@@ -715,7 +760,10 @@ paths:
         - Requests
       summary: Get Request History
       operationId: getRequestHistory
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - requests:history
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -756,7 +804,8 @@ paths:
         - Approvals
       summary: Get Approval Tokens (Approvals Admin)
       operationId: getApprovalTokensByRequestInApprovalsRoute
-      security: []
+      security:
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -1015,7 +1064,10 @@ paths:
         - Payments
       summary: Mark Payment Complete
       operationId: completePayment
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - payments:complete
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
@@ -1096,7 +1148,10 @@ paths:
         - Payments
       summary: Mark Payment Failed
       operationId: failPayment
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - payments:fail
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
@@ -1170,7 +1225,10 @@ paths:
         - Payments
       summary: Maya Webhook (payments mount)
       operationId: mayaPaymentWebhookFromPaymentsMount
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - payments:webhook
       requestBody:
         required: true
         content:
@@ -1212,7 +1270,10 @@ paths:
         - Payments
       summary: Maya Webhook (webhooks mount)
       operationId: mayaPaymentWebhookFromWebhooksMount
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - payments:webhook
       requestBody:
         required: true
         content:
@@ -1252,7 +1313,10 @@ paths:
         - Payments
       summary: Mark Payment Complete (webhooks mount alias)
       operationId: completePaymentFromWebhooksMount
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - payments:complete
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
@@ -1307,7 +1371,10 @@ paths:
         - Payments
       summary: Mark Payment Failed (webhooks mount alias)
       operationId: failPaymentFromWebhooksMount
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - payments:fail
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
@@ -1491,7 +1558,10 @@ paths:
         - Delivery
       summary: Submit Delivery Method and Details (Canonical)
       operationId: submitDeliveryDetails
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - delivery:update
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
@@ -1590,7 +1660,10 @@ paths:
         - Delivery
       summary: Get Delivery Method
       operationId: getDeliveryMethod
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - delivery:read
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -1634,7 +1707,10 @@ paths:
         /api/delivery/{requestId}/details.
       operationId: updateDeliveryMethodAlias
       deprecated: true
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - delivery:update
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
@@ -1708,7 +1784,10 @@ paths:
         - Delivery
       summary: Get Delivery Status
       operationId: getDeliveryStatus
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - delivery:read
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -1750,7 +1829,10 @@ paths:
         - Delivery
       summary: Update Delivery Status (Method-Aware Guardrails)
       operationId: updateDeliveryStatus
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - delivery-status:update
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       requestBody:
@@ -1840,7 +1922,10 @@ paths:
         - Delivery
       summary: Get Delivery Status History
       operationId: getDeliveryStatusHistory
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - delivery-status:read
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -1925,7 +2010,10 @@ paths:
         - Delivery
       summary: Get Current Delivery Status
       operationId: getCurrentDeliveryStatus
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - delivery-status:read
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -2025,7 +2113,10 @@ paths:
         - Processing
       summary: Get Processing Status
       operationId: getProcessingStatus
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - processing:read
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -2053,7 +2144,10 @@ paths:
         - Processing
       summary: Get Specific Task Status
       operationId: getTaskStatus
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - processing:read
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
         - $ref: "#/components/parameters/TaskNameParam"
@@ -2084,7 +2178,10 @@ paths:
         - Processing
       summary: Get Processing Summary
       operationId: getProcessingSummary
-      security: []
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - processing:read
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -2419,7 +2516,8 @@ paths:
         - Admin
       summary: Get All Services (Admin)
       operationId: getAllServicesAdmin
-      security: []
+      security:
+        - BearerAuth: []
       responses:
         "200":
           description: All service definitions
@@ -2460,7 +2558,8 @@ paths:
         - Admin
       summary: Create Service (Admin)
       operationId: createServiceAdmin
-      security: []
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -2495,7 +2594,8 @@ paths:
         - Admin
       summary: Update Service (Admin)
       operationId: updateServiceAdmin
-      security: []
+      security:
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/ServiceIdParam"
       requestBody:
@@ -2533,7 +2633,8 @@ paths:
         - Admin
       summary: Get Audit Logs
       operationId: getAuditLogs
-      security: []
+      security:
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/LimitQueryParam"
         - $ref: "#/components/parameters/OffsetQueryParam"
@@ -2574,7 +2675,8 @@ paths:
         - Admin
       summary: List Email Templates
       operationId: listEmailTemplates
-      security: []
+      security:
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/TemplateScopeQueryParam"
         - $ref: "#/components/parameters/EventKeyQueryParam"
@@ -2624,7 +2726,8 @@ paths:
         - Admin
       summary: Create Email Template
       operationId: createEmailTemplate
-      security: []
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -2659,7 +2762,8 @@ paths:
         - Admin
       summary: Get Email Template
       operationId: getEmailTemplate
-      security: []
+      security:
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/TemplateIdParam"
       responses:
@@ -2698,7 +2802,8 @@ paths:
         - Admin
       summary: Update Email Template
       operationId: updateEmailTemplate
-      security: []
+      security:
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/TemplateIdParam"
       requestBody:
@@ -2733,7 +2838,8 @@ paths:
         - Admin
       summary: Delete Email Template
       operationId: deleteEmailTemplate
-      security: []
+      security:
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/TemplateIdParam"
       responses:
@@ -2752,7 +2858,8 @@ paths:
         - Admin
       summary: Get Approval Token Metadata
       operationId: getApprovalTokensForRequest
-      security: []
+      security:
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/RequestIdParam"
       responses:
@@ -2781,7 +2888,8 @@ paths:
         - Admin
       summary: Get Latest Service Definition Schema
       operationId: getLatestSchema
-      security: []
+      security:
+        - BearerAuth: []
       responses:
         "200":
           description: Latest schema from MongoDB
@@ -2809,7 +2917,8 @@ paths:
         - Admin
       summary: List All Schema Versions
       operationId: listSchemaVersions
-      security: []
+      security:
+        - BearerAuth: []
       responses:
         "200":
           description: All schema versions
@@ -2861,7 +2970,8 @@ paths:
         - Admin
       summary: Get Latest Schema Version
       operationId: getLatestSchemaVersion
-      security: []
+      security:
+        - BearerAuth: []
       responses:
         "200":
           description: Latest schema version document
@@ -2891,7 +3001,8 @@ paths:
         - Admin
       summary: Get Specific Schema Version
       operationId: getSchemaVersion
-      security: []
+      security:
+        - BearerAuth: []
       parameters:
         - $ref: "#/components/parameters/VersionParam"
       responses:
@@ -2926,7 +3037,8 @@ paths:
         - Admin
       summary: Reload Schema Validator
       operationId: reloadSchema
-      security: []
+      security:
+        - BearerAuth: []
       responses:
         "200":
           description: Schema reloaded successfully
@@ -2967,7 +3079,8 @@ paths:
         - Admin
       summary: Upload and Activate Schema Version
       operationId: uploadSchemaVersion
-      security: []
+      security:
+        - BearerAuth: []
       requestBody:
         required: false
         content:
@@ -3055,7 +3168,8 @@ paths:
         - Mock
       summary: Mock Verify Student
       operationId: mockVerifyStudent
-      security: []
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3095,7 +3209,8 @@ paths:
         - Mock
       summary: Mock Generate Academic Record
       operationId: mockGenerateRecord
-      security: []
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3135,7 +3250,8 @@ paths:
         - Mock
       summary: Mock Generate Transcript
       operationId: mockGenerateTranscript
-      security: []
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3171,7 +3287,8 @@ paths:
         - Mock
       summary: Mock Prepare Delivery Package
       operationId: mockPrepareDelivery
-      security: []
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -3215,6 +3332,37 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    MachineClientCredentials:
+      type: oauth2
+      description: |
+        Swagger Authorize support for machine API clients. Use the clientId and
+        clientSecret returned by POST /api/admin/api-clients or secret rotation.
+        Swagger UI will call POST /api/auth/client-token and store the returned
+        bearer token for protected operational API calls.
+      flows:
+        clientCredentials:
+          tokenUrl: /api/auth/client-token
+          scopes:
+            services:read: Read service definitions.
+            services:delete: Delete service definitions.
+            requests:create: Create service requests.
+            requests:list: List service requests.
+            requests:read: Read service request details.
+            requests:history: Read service request history.
+            requests:resume: Resume paused service requests.
+            requests:cancel: Cancel service requests.
+            delivery:read: Read delivery details and selected methods.
+            delivery:update: Submit delivery details and method choices.
+            delivery-status:read: Read delivery status and history.
+            delivery-status:update: Submit delivery status updates.
+            payments:complete: Mark payments as completed.
+            payments:fail: Mark payments as failed.
+            payments:webhook: Submit payment gateway webhook events.
+            approvals:read: Read approval token status and approval request details.
+            approvals:submit: Submit approval token decisions.
+            feedback:read: Read feedback data.
+            feedback:submit: Submit feedback responses.
+            processing:read: Read processing envelope state and summaries.
   parameters:
     ServiceIdParam:
       name: serviceId
@@ -3467,6 +3615,38 @@ components:
         - required:
             - client_id
             - client_secret
+    OAuthClientCredentialsFormRequest:
+      type: object
+      required:
+        - grant_type
+      properties:
+        grant_type:
+          type: string
+          enum:
+            - client_credentials
+          default: client_credentials
+        client_id:
+          type: string
+          example: cli_qZ3p0YFlx9x5nM0U6m1JX22i
+          description: Optional when credentials are sent with HTTP Basic auth.
+        client_secret:
+          type: string
+          format: password
+          example: sec_live_example
+          description: Optional when credentials are sent with HTTP Basic auth.
+        scope:
+          type: string
+          description: Space-delimited requested scopes. If omitted, all scopes assigned to the API client are issued.
+          example: requests:create requests:read services:read
+    OAuthErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: invalid_scope
+        error_description:
+          type: string
+          example: Client is not allowed to request scopes.
     ClientTokenResponse:
       type: object
       properties:
@@ -3478,6 +3658,18 @@ components:
         expiresIn:
           type: string
           example: 1h
+        access_token:
+          type: string
+          description: OAuth2-compatible bearer token field used by Swagger UI.
+        token_type:
+          type: string
+          example: Bearer
+        expires_in:
+          type: integer
+          example: 3600
+        scope:
+          type: string
+          example: requests:create requests:read
         client:
           type: object
           properties:
