@@ -349,6 +349,9 @@ paths:
         - BearerAuth: []
         - MachineClientCredentials:
             - services:read
+      parameters:
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
       responses:
         "200":
           description: All available services
@@ -357,9 +360,20 @@ paths:
               schema:
                 type: object
                 properties:
+                  total:
+                    type: integer
                   count:
                     type: integer
                     example: 4
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  hasMore:
+                    type: boolean
+                  nextOffset:
+                    type: integer
+                    nullable: true
                   services:
                     type: array
                     items:
@@ -368,7 +382,12 @@ paths:
                 sample:
                   summary: Sample 200 response
                   value:
+                    total: 4
                     count: 4
+                    limit: 20
+                    offset: 0
+                    hasMore: false
+                    nextOffset: null
                     services:
                       - serviceId: SERVICE-999
                         id: SERV-1-04152026
@@ -392,6 +411,9 @@ paths:
         - BearerAuth: []
         - MachineClientCredentials:
             - services:read
+      parameters:
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
       responses:
         "200":
           description: ID/name mapping and list
@@ -400,8 +422,19 @@ paths:
               schema:
                 type: object
                 properties:
+                  total:
+                    type: integer
                   count:
                     type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  hasMore:
+                    type: boolean
+                  nextOffset:
+                    type: integer
+                    nullable: true
                   serviceMap:
                     type: object
                     additionalProperties:
@@ -421,7 +454,12 @@ paths:
                 sample:
                   summary: Sample 200 response
                   value:
+                    total: 1
                     count: 1
+                    limit: 20
+                    offset: 0
+                    hasMore: false
+                    nextOffset: null
                     serviceMap:
                       sampleKey: sampleValue
                     services:
@@ -545,6 +583,8 @@ paths:
                     count: 1
                     limit: 1
                     offset: 1
+                    hasMore: false
+                    nextOffset: null
                     requests:
                       - id: sample
                         type: sample
@@ -2213,6 +2253,9 @@ paths:
       security:
         - BearerAuth: []
       description: Requires a super_admin bearer token.
+      parameters:
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
       responses:
         "200":
           description: Auth users
@@ -2227,6 +2270,17 @@ paths:
                       $ref: "#/components/schemas/AuthUserRecord"
                   total:
                     type: integer
+                  count:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  hasMore:
+                    type: boolean
+                  nextOffset:
+                    type: integer
+                    nullable: true
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2331,6 +2385,9 @@ paths:
       security:
         - BearerAuth: []
       description: Requires a super_admin bearer token. Returns API clients without secret material.
+      parameters:
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
       responses:
         "200":
           description: API clients
@@ -2345,6 +2402,17 @@ paths:
                       $ref: "#/components/schemas/ApiClientRecord"
                   total:
                     type: integer
+                  count:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  hasMore:
+                    type: boolean
+                  nextOffset:
+                    type: integer
+                    nullable: true
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2518,6 +2586,9 @@ paths:
       operationId: getAllServicesAdmin
       security:
         - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
       responses:
         "200":
           description: All service definitions
@@ -2532,6 +2603,17 @@ paths:
                       $ref: "#/components/schemas/ServiceDefinitionDetails"
                   total:
                     type: integer
+                  count:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  hasMore:
+                    type: boolean
+                  nextOffset:
+                    type: integer
+                    nullable: true
               examples:
                 sample:
                   summary: Sample 200 response
@@ -2549,6 +2631,11 @@ paths:
                         requestParameters:
                           - sampleKey: sampleValue
                     total: 1
+                    count: 1
+                    limit: 20
+                    offset: 0
+                    hasMore: false
+                    nextOffset: null
       x-codeSamples:
         - lang: bash
           label: cURL
@@ -2652,10 +2739,17 @@ paths:
                       type: object
                   total:
                     type: integer
+                  count:
+                    type: integer
                   limit:
                     type: integer
                   offset:
                     type: integer
+                  hasMore:
+                    type: boolean
+                  nextOffset:
+                    type: integer
+                    nullable: true
               examples:
                 sample:
                   summary: Sample 200 response
@@ -2663,8 +2757,11 @@ paths:
                     logs:
                       - {}
                     total: 1
+                    count: 1
                     limit: 1
                     offset: 1
+                    hasMore: false
+                    nextOffset: null
       x-codeSamples:
         - lang: bash
           label: cURL
@@ -2684,6 +2781,8 @@ paths:
         - $ref: "#/components/parameters/PhaseQueryParam"
         - $ref: "#/components/parameters/ServiceTypeQueryParam"
         - $ref: "#/components/parameters/IsActiveQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
       responses:
         "200":
           description: All email templates
@@ -2698,6 +2797,17 @@ paths:
                       $ref: "#/components/schemas/EmailTemplate"
                   total:
                     type: integer
+                  count:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  hasMore:
+                    type: boolean
+                  nextOffset:
+                    type: integer
+                    nullable: true
               examples:
                 sample:
                   summary: Sample 200 response
@@ -2717,6 +2827,11 @@ paths:
                         createdAt: 2026-06-07T00:00:00.000Z
                         updatedAt: 2026-06-07T00:00:00.000Z
                     total: 1
+                    count: 1
+                    limit: 20
+                    offset: 0
+                    hasMore: false
+                    nextOffset: null
       x-codeSamples:
         - lang: bash
           label: cURL
@@ -2919,6 +3034,9 @@ paths:
       operationId: listSchemaVersions
       security:
         - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
       responses:
         "200":
           description: All schema versions
@@ -2929,8 +3047,19 @@ paths:
                 properties:
                   success:
                     type: boolean
+                  total:
+                    type: integer
                   count:
                     type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  hasMore:
+                    type: boolean
+                  nextOffset:
+                    type: integer
+                    nullable: true
                   versions:
                     type: array
                     items:
@@ -2953,7 +3082,12 @@ paths:
                   summary: Sample 200 response
                   value:
                     success: true
+                    total: 1
                     count: 1
+                    limit: 20
+                    offset: 0
+                    hasMore: false
+                    nextOffset: null
                     versions:
                       - version: sample
                         name: sample
@@ -4043,6 +4177,11 @@ components:
           type: integer
         offset:
           type: integer
+        hasMore:
+          type: boolean
+        nextOffset:
+          type: integer
+          nullable: true
         requests:
           type: array
           items:

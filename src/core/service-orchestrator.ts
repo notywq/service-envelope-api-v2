@@ -511,7 +511,7 @@ export class ServiceOrchestrator {
       }
 
       // Prepare email context with all available variables for substitution
-      let emailContext = this.buildEmailContext(request, envelopeType);
+      let emailContext = await this.buildEmailContext(request, envelopeType);
       console.log(`🔧 ${marker} Email context keys:`, Object.keys(emailContext).join(', '));
 
       // Send email to each recipient
@@ -686,10 +686,10 @@ export class ServiceOrchestrator {
   /**
    * Build context object for variable substitution with all available request data
    */
-  private buildEmailContext<K extends keyof EnvelopeCollection>(
+  private async buildEmailContext<K extends keyof EnvelopeCollection>(
     request: ServiceRequest,
     envelopeType: K
-  ): Record<string, any> {
+  ): Promise<Record<string, any>> {
     const requestEnvelope = request.envelopes.request as any;
     const approvalEnvelope = request.envelopes.approval as any;
     const requestParams = requestEnvelope?.parameters || {};
@@ -714,12 +714,27 @@ export class ServiceOrchestrator {
       trackingId: resolvedTrackingId,
     });
 
+    const serviceDefinition = await this.stateManager.getServiceDefinitionByType(request.type);
+    const canonicalServiceDefinition = serviceDefinition?.definition || serviceDefinition || {};
+    const serviceDisplayName =
+      canonicalServiceDefinition.name ||
+      serviceDefinition?.name ||
+      request.type;
+    const serviceId =
+      canonicalServiceDefinition.id ||
+      serviceDefinition?.id ||
+      serviceDefinition?.serviceId ||
+      '';
+
     return {
       ...serviceData,
       ...requestParams,
       // Request data
       requestId: request.id,
-      serviceType: request.type,
+      serviceType: serviceDisplayName,
+      serviceName: serviceDisplayName,
+      serviceId,
+      serviceDefinitionType: request.type,
       studentId: requestParams?.studentId || '',
       firstName: requestParams?.firstName || '',
       lastName: requestParams?.lastName || '',
@@ -959,26 +974,12 @@ export class ServiceOrchestrator {
       );
 
       // Build email context with failure details
-      const requestParams = request.envelopes.request?.parameters || {};
-      const serviceData = (requestParams as any)?.serviceData || {};
       const requesterEmail = this.getRequesterEmail(request);
       const submittedDate = request.createdAt || new Date().toISOString();
+      const baseEmailContext = await this.buildEmailContext(request, triggerEnvelopeType || 'request');
       
       const emailContext = {
-        ...serviceData,
-        ...requestParams,
-        requestId: request.id,
-        studentId: requestParams?.studentId || '',
-        firstName: requestParams?.firstName || '',
-        lastName: requestParams?.lastName || '',
-        email: requesterEmail,
-        requesterEmail,
-        currentTimestamp: new Date().toISOString(),
-        documentTypes: Array.isArray(requestParams?.documentTypes)
-          ? requestParams.documentTypes.join(', ')
-          : requestParams?.documentTypes || '',
-        purpose: requestParams?.purpose || '',
-        numberOfCopies: requestParams?.numberOfCopies || '',
+        ...baseEmailContext,
         failedTask: failedTask,
         failureDetails: failureDetails,
         cancellationReason: `Technical issue during document processing - ${failedTask} failed`,

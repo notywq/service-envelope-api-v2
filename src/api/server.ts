@@ -357,6 +357,7 @@ async function initializeApp(): Promise<Express> {
   app.use('/api/auth', authRouter);
   app.use('/api/OTP', otpRouter);
   app.use('/api/otp', otpRouter);
+  app.use('/api/mock', mockServiceApisRouter);  // Mock APIs for local/testing processing tasks
   app.use('/api', requireApiAuth);
   app.use('/api/services', servicesRouter);
   app.use('/api/requests', requestsRouter);
@@ -368,7 +369,6 @@ async function initializeApp(): Promise<Express> {
   app.use('/api/delivery-status', deliveryStatusRouter);
   app.use('/api/processing', processingRouter);
   app.use('/api/webhooks', paymentsRouter);
-  app.use('/api/mock', requireAuth({ roles: ['admin'] }), mockServiceApisRouter);  // Mock APIs for testing
 
   // Health check
   app.get('/health', (req: Request, res: Response) => {

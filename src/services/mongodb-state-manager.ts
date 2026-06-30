@@ -303,6 +303,20 @@ const SchemaVersionModel = mongoose.model<SchemaVersionDoc>(
 export class MongoDBStateManager {
   constructor(private logger: Logger) {}
 
+  private applyPagination<T>(query: mongoose.Query<T[], any>, limit?: number, offset: number = 0): mongoose.Query<T[], any> {
+    const safeOffset = Math.max(offset, 0);
+
+    if (safeOffset > 0) {
+      query = query.skip(safeOffset);
+    }
+
+    if (typeof limit === 'number') {
+      query = query.limit(Math.max(limit, 0));
+    }
+
+    return query;
+  }
+
   private normalizeLoadedServiceDefinition(service: any): any {
     if (!service) {
       return service;
@@ -412,13 +426,25 @@ export class MongoDBStateManager {
     }
   }
 
-  async listRequests(limit: number = 100, offset: number = 0): Promise<ServiceRequest[]> {
+  async listRequests(
+    limit: number = 100,
+    offset: number = 0,
+    filters: { status?: string; type?: string } = {}
+  ): Promise<ServiceRequest[]> {
     try {
-      const docs = await ServiceRequestModel
-        .find({})
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .skip(offset);
+      const query: Record<string, string> = {};
+      if (filters.status) {
+        query.overallStatus = filters.status;
+      }
+      if (filters.type) {
+        query.type = filters.type;
+      }
+
+      const docs = await this.applyPagination(
+        ServiceRequestModel.find(query).sort({ createdAt: -1 }),
+        limit,
+        offset
+      );
       return docs.map(doc => doc.toObject() as ServiceRequest);
     } catch (error) {
       this.logger.error('Failed to list requests:', error);
@@ -446,18 +472,30 @@ export class MongoDBStateManager {
     }
   }
 
-  async countRequests(): Promise<number> {
+  async countRequests(filters: { status?: string; type?: string } = {}): Promise<number> {
     try {
-      return await ServiceRequestModel.countDocuments();
+      const query: Record<string, string> = {};
+      if (filters.status) {
+        query.overallStatus = filters.status;
+      }
+      if (filters.type) {
+        query.type = filters.type;
+      }
+
+      return await ServiceRequestModel.countDocuments(query);
     } catch (error) {
       this.logger.error('Failed to count requests:', error);
       return 0;
     }
   }
 
-  async findByStatus(status: string): Promise<ServiceRequest[]> {
+  async findByStatus(status: string, limit: number = 100, offset: number = 0): Promise<ServiceRequest[]> {
     try {
-      const docs = await ServiceRequestModel.find({ overallStatus: status });
+      const docs = await this.applyPagination(
+        ServiceRequestModel.find({ overallStatus: status }).sort({ createdAt: -1 }),
+        limit,
+        offset
+      );
       return docs.map(doc => doc.toObject() as ServiceRequest);
     } catch (error) {
       this.logger.error(`Failed to find requests with status ${status}:`, error);
@@ -465,9 +503,13 @@ export class MongoDBStateManager {
     }
   }
 
-  async findByType(type: string): Promise<ServiceRequest[]> {
+  async findByType(type: string, limit: number = 100, offset: number = 0): Promise<ServiceRequest[]> {
     try {
-      const docs = await ServiceRequestModel.find({ type });
+      const docs = await this.applyPagination(
+        ServiceRequestModel.find({ type }).sort({ createdAt: -1 }),
+        limit,
+        offset
+      );
       return docs.map(doc => doc.toObject() as ServiceRequest);
     } catch (error) {
       this.logger.error(`Failed to find requests with type ${type}:`, error);
@@ -678,9 +720,13 @@ export class MongoDBStateManager {
     }
   }
 
-  async listAuthUsers(): Promise<any[]> {
+  async listAuthUsers(limit?: number, offset: number = 0): Promise<any[]> {
     try {
-      const docs = await AuthUserModel.find({}).sort({ email: 1 });
+      const docs = await this.applyPagination(
+        AuthUserModel.find({}).sort({ email: 1 }),
+        limit,
+        offset
+      );
       return docs.map(doc => doc.toObject());
     } catch (error) {
       this.logger.error('Failed to list auth users:', error);
@@ -762,13 +808,26 @@ export class MongoDBStateManager {
     }
   }
 
-  async listApiClients(): Promise<any[]> {
+  async listApiClients(limit?: number, offset: number = 0): Promise<any[]> {
     try {
-      const docs = await ApiClientModel.find({}).sort({ createdAt: -1 });
+      const docs = await this.applyPagination(
+        ApiClientModel.find({}).sort({ createdAt: -1 }),
+        limit,
+        offset
+      );
       return docs.map(doc => doc.toObject());
     } catch (error) {
       this.logger.error('Failed to list API clients:', error);
       return [];
+    }
+  }
+
+  async countApiClients(): Promise<number> {
+    try {
+      return ApiClientModel.countDocuments();
+    } catch (error) {
+      this.logger.error('Failed to count API clients:', error);
+      return 0;
     }
   }
 
@@ -963,10 +1022,14 @@ export class MongoDBStateManager {
     }
   }
 
-  async getAllServiceDefinitions(): Promise<any[]> {
+  async getAllServiceDefinitions(limit?: number, offset: number = 0): Promise<any[]> {
     try {
       this.logger.debug('[ServiceRegistry] Querying servicedefinitions collection...');
-      const docs = await ServiceDefinitionModel.find({}).sort({ createdAt: -1 });
+      const docs = await this.applyPagination(
+        ServiceDefinitionModel.find({}).sort({ createdAt: -1 }),
+        limit,
+        offset
+      );
       this.logger.debug(`[ServiceRegistry] Found ${docs.length} service definitions`);
       if (docs.length === 0) {
         this.logger.warn('[ServiceRegistry] No documents found in servicedefinitions collection');
@@ -979,6 +1042,15 @@ export class MongoDBStateManager {
         this.logger.error('Error stack:', error.stack);
       }
       return [];
+    }
+  }
+
+  async countServiceDefinitions(): Promise<number> {
+    try {
+      return ServiceDefinitionModel.countDocuments();
+    } catch (error) {
+      this.logger.error('Failed to count service definitions:', error);
+      return 0;
     }
   }
 
@@ -1055,18 +1127,40 @@ export class MongoDBStateManager {
     }
   }
 
-  async countEmailTemplates(): Promise<number> {
+  async countEmailTemplates(filters: {
+    templateScope?: string;
+    eventKey?: string;
+    envelopeType?: string;
+    phase?: string;
+    serviceType?: string;
+    isActive?: boolean;
+  } = {}): Promise<number> {
     try {
-      return await EmailTemplateModel.countDocuments();
+      return await EmailTemplateModel.countDocuments(filters);
     } catch (error) {
       this.logger.error('Failed to count email templates:', error);
       return 0;
     }
   }
 
-  async getAllEmailTemplates(): Promise<any[]> {
+  async getAllEmailTemplates(
+    limit?: number,
+    offset: number = 0,
+    filters: {
+      templateScope?: string;
+      eventKey?: string;
+      envelopeType?: string;
+      phase?: string;
+      serviceType?: string;
+      isActive?: boolean;
+    } = {}
+  ): Promise<any[]> {
     try {
-      const docs = await EmailTemplateModel.find({}).sort({ createdAt: -1 });
+      const docs = await this.applyPagination(
+        EmailTemplateModel.find(filters).sort({ createdAt: -1 }),
+        limit,
+        offset
+      );
       return docs.map(doc => doc.toObject());
     } catch (error) {
       this.logger.error('Failed to get all email templates:', error);
@@ -1125,13 +1219,26 @@ export class MongoDBStateManager {
     }
   }
 
-  async getAllSchemaVersions(): Promise<any[]> {
+  async getAllSchemaVersions(limit?: number, offset: number = 0): Promise<any[]> {
     try {
-      const docs = await SchemaVersionModel.find({}).sort({ updatedAt: -1 });
+      const docs = await this.applyPagination(
+        SchemaVersionModel.find({}).sort({ updatedAt: -1 }),
+        limit,
+        offset
+      );
       return docs.map(doc => doc.toObject());
     } catch (error) {
       this.logger.error('Failed to get all schema versions:', error);
       return [];
+    }
+  }
+
+  async countSchemaVersions(): Promise<number> {
+    try {
+      return SchemaVersionModel.countDocuments();
+    } catch (error) {
+      this.logger.error('Failed to count schema versions:', error);
+      return 0;
     }
   }
 }

@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { appContext } from '../server.js';
 import { ParameterValidator } from '../../utils/parameter-validator.js';
 import { resolveRequesterEmail } from '../../utils/request-email.js';
+import { paginationMeta, parsePagination } from '../../utils/pagination.js';
 
 function normalizeEmail(email: unknown): string | null {
   return typeof email === 'string' && email.trim()
@@ -283,28 +284,31 @@ router.get('/', async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Requester accounts cannot list all requests' });
     }
 
-    const limit = Math.min(parseInt(req.query.limit as string || '20'), 100);
-    const offset = parseInt(req.query.offset as string || '0');
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
     const status = req.query.status as string;
     const type = req.query.type as string;
+    const filters = { status, type };
 
     let requests;
 
-    if (status) {
-      requests = await appContext.stateManager.findByStatus(status);
+    if (status && !type) {
+      requests = await appContext.stateManager.findByStatus(status, limit, offset);
     } else if (type) {
-      requests = await appContext.stateManager.findByType(type);
+      requests = await appContext.stateManager.listRequests(limit, offset, filters);
     } else {
       requests = await appContext.stateManager.listRequests(limit, offset);
     }
 
-    const total = await appContext.stateManager.countRequests();
+    const total = await appContext.stateManager.countRequests(filters);
+    const meta = paginationMeta(total, requests.length, limit, offset);
 
     res.json({
-      total,
-      count: requests.length,
+      total: meta.total,
+      count: meta.count,
       limit,
       offset,
+      hasMore: meta.hasMore,
+      nextOffset: meta.nextOffset,
       requests: requests.map(r => ({
         id: r.id,
         type: r.type,

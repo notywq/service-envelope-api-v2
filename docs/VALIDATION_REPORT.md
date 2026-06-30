@@ -129,7 +129,7 @@ All tasks use proper `{{parameter}}` substitution:
 - ✅ `{{numberOfCopies}}` → Maps to request parameter
 - ✅ `{{documentTypes}}` → Maps to request parameter
 - ✅ `{{deliveryMethod}}` → Maps to request parameter
-- ✅ `{{apiToken}}` → System variable (to be provided at runtime)
+- ✅ Mock API tasks do not require bearer auth
 
 **Processing Validation**: ✅ **ALL TASKS VALID**
 - Sequential execution ensured

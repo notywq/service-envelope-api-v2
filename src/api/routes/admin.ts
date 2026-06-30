@@ -13,6 +13,7 @@ import {
   generateApiClientSecretSalt,
   hashApiClientSecret,
 } from '../../utils/api-client-secret.js';
+import { paginationMeta, parsePagination } from '../../utils/pagination.js';
 import { API_CLIENT_SCOPE_GROUPS, API_CLIENT_SCOPES } from '../../utils/api-client-scopes.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -319,10 +320,19 @@ router.put('/services/:serviceId', async (req: Request, res: Response) => {
  */
 router.get('/services', async (req: Request, res: Response) => {
   try {
-    const services = await appContext.stateManager.getAllServiceDefinitions();
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 500 });
+    const services = await appContext.stateManager.getAllServiceDefinitions(limit, offset);
+    const total = await (appContext.stateManager as any).countServiceDefinitions();
+    const meta = paginationMeta(total, services.length, limit, offset);
+
     res.json({
       services,
-      total: services.length,
+      total: meta.total,
+      count: meta.count,
+      limit,
+      offset,
+      hasMore: meta.hasMore,
+      nextOffset: meta.nextOffset,
     });
   } catch (error) {
     appContext.logger.error('Error fetching services:', error);
@@ -336,15 +346,17 @@ router.get('/services', async (req: Request, res: Response) => {
  */
 router.get('/audit-logs', async (req: Request, res: Response) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit as string || '100'), 1000);
-    const offset = parseInt(req.query.offset as string || '0');
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 100, maxLimit: 1000 });
 
     // TODO: Fetch from audit log collection in MongoDB
     res.json({
       logs: [],
       total: 0,
+      count: 0,
       limit,
       offset,
+      hasMore: false,
+      nextOffset: null,
     });
   } catch (error) {
     appContext.logger.error('Error fetching audit logs:', error);
@@ -356,12 +368,21 @@ router.get('/audit-logs', async (req: Request, res: Response) => {
  * GET /api/admin/auth-users
  * List users allowed to authenticate with OTP.
  */
-router.get('/auth-users', requireAuth({ roles: ['super_admin'] }), async (_req: Request, res: Response) => {
+router.get('/auth-users', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
   try {
-    const users = await (appContext.stateManager as any).listAuthUsers();
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 500 });
+    const users = await (appContext.stateManager as any).listAuthUsers(limit, offset);
+    const total = await (appContext.stateManager as any).countAuthUsers();
+    const meta = paginationMeta(total, users.length, limit, offset);
+
     res.json({
       users,
-      total: users.length,
+      total: meta.total,
+      count: meta.count,
+      limit,
+      offset,
+      hasMore: meta.hasMore,
+      nextOffset: meta.nextOffset,
     });
   } catch (error) {
     appContext.logger.error('Error fetching auth users:', error);
@@ -457,13 +478,22 @@ router.delete('/auth-users/:email', requireAuth({ roles: ['super_admin'] }), asy
  * GET /api/admin/api-clients
  * List machine-to-machine API clients.
  */
-router.get('/api-clients', requireAuth({ roles: ['super_admin'] }), async (_req: Request, res: Response) => {
+router.get('/api-clients', requireAuth({ roles: ['super_admin'] }), async (req: Request, res: Response) => {
   try {
-    const clients = await (appContext.stateManager as any).listApiClients();
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 500 });
+    const clients = await (appContext.stateManager as any).listApiClients(limit, offset);
     const safeClients = clients.map(sanitizeApiClient);
+    const total = await (appContext.stateManager as any).countApiClients();
+    const meta = paginationMeta(total, safeClients.length, limit, offset);
+
     res.json({
       clients: safeClients,
-      total: safeClients.length,
+      total: meta.total,
+      count: meta.count,
+      limit,
+      offset,
+      hasMore: meta.hasMore,
+      nextOffset: meta.nextOffset,
     });
   } catch (error) {
     appContext.logger.error('Error fetching API clients:', error);
@@ -708,26 +738,28 @@ router.post('/email-templates', async (req: Request, res: Response) => {
  */
 router.get('/email-templates', async (req: Request, res: Response) => {
   try {
-    const templates = await appContext.stateManager.getAllEmailTemplates();
-    const filteredTemplates = templates.filter(t => {
-      const templateScope = req.query.templateScope as string | undefined;
-      const eventKey = req.query.eventKey as string | undefined;
-      const envelopeType = req.query.envelopeType as string | undefined;
-      const phase = req.query.phase as string | undefined;
-      const serviceType = req.query.serviceType as string | undefined;
-      const isActive = req.query.isActive as string | undefined;
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 500 });
+    const filters: Record<string, string | boolean> = {};
+    const templateScope = req.query.templateScope as string | undefined;
+    const eventKey = req.query.eventKey as string | undefined;
+    const envelopeType = req.query.envelopeType as string | undefined;
+    const phase = req.query.phase as string | undefined;
+    const serviceType = req.query.serviceType as string | undefined;
+    const isActive = req.query.isActive as string | undefined;
 
-      if (templateScope && t.templateScope !== templateScope) return false;
-      if (eventKey && t.eventKey !== eventKey) return false;
-      if (envelopeType && t.envelopeType !== envelopeType) return false;
-      if (phase && t.phase !== phase) return false;
-      if (serviceType && t.serviceType !== serviceType) return false;
-      if (isActive !== undefined && String(Boolean(t.isActive)) !== isActive) return false;
+    if (templateScope) filters.templateScope = templateScope;
+    if (eventKey) filters.eventKey = eventKey;
+    if (envelopeType) filters.envelopeType = envelopeType;
+    if (phase) filters.phase = phase;
+    if (serviceType) filters.serviceType = serviceType;
+    if (isActive === 'true') filters.isActive = true;
+    if (isActive === 'false') filters.isActive = false;
 
-      return true;
-    });
+    const templates = await appContext.stateManager.getAllEmailTemplates(limit, offset, filters);
+    const total = await appContext.stateManager.countEmailTemplates(filters);
+    const meta = paginationMeta(total, templates.length, limit, offset);
 
-    const formattedTemplates = filteredTemplates.map(t => ({
+    const formattedTemplates = templates.map(t => ({
       id: t.id,
       name: t.name,
       subject: t.subject,
@@ -744,7 +776,12 @@ router.get('/email-templates', async (req: Request, res: Response) => {
     }));
     res.json({
       templates: formattedTemplates,
-      total: formattedTemplates.length,
+      total: meta.total,
+      count: meta.count,
+      limit,
+      offset,
+      hasMore: meta.hasMore,
+      nextOffset: meta.nextOffset,
     });
   } catch (error) {
     appContext.logger.error('Error fetching email templates:', error);
@@ -1097,10 +1134,19 @@ router.get('/schema', async (req: Request, res: Response) => {
  */
 router.get('/schema/versions', async (req: Request, res: Response) => {
   try {
-    const versions = await appContext.stateManager.getAllSchemaVersions();
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 500 });
+    const versions = await appContext.stateManager.getAllSchemaVersions(limit, offset);
+    const total = await (appContext.stateManager as any).countSchemaVersions();
+    const meta = paginationMeta(total, versions.length, limit, offset);
+
     res.json({
       success: true,
-      count: versions.length,
+      total: meta.total,
+      count: meta.count,
+      limit,
+      offset,
+      hasMore: meta.hasMore,
+      nextOffset: meta.nextOffset,
       versions: versions.map(v => ({
         version: v.version,
         name: v.name,

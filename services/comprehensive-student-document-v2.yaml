@@ -152,7 +152,6 @@ envelopes:
         method: POST
         url: "http://localhost:8000/api/mock/students/verify"
         headers:
-          Authorization: "Bearer {{apiToken}}"
           Content-Type: "application/json"
         payload:
           studentId: "{{studentId}}"
@@ -167,7 +166,6 @@ envelopes:
         method: POST
         url: "http://localhost:8000/api/mock/documents/generate-record"
         headers:
-          Authorization: "Bearer {{apiToken}}"
           Content-Type: "application/json"
         payload:
           studentId: "{{studentId}}"
@@ -182,7 +180,6 @@ envelopes:
         method: POST
         url: "http://localhost:8000/api/mock/documents/generate-transcript"
         headers:
-          Authorization: "Bearer {{apiToken}}"
           Content-Type: "application/json"
         payload:
           studentId: "{{studentId}}"
@@ -196,7 +193,6 @@ envelopes:
         method: POST
         url: "http://localhost:8000/api/mock/documents/prepare-delivery"
         headers:
-          Authorization: "Bearer {{apiToken}}"
           Content-Type: "application/json"
         payload:
           studentId: "{{studentId}}"

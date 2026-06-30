@@ -32,7 +32,7 @@ export class APITaskExecutor {
 
       // Substitute parameters in URL, headers, payload, and query params
       const url = this.substituteParameters(task.url, request);
-      const headers = this.substituteParametersInObject(task.headers || {}, request);
+      const headers = this.sanitizeHeaders(this.substituteParametersInObject(task.headers || {}, request));
       const payload = this.substituteParametersInObject(task.payload || {}, request);
       const queryParams = this.substituteParametersInObject(task.queryParams || {}, request);
 
@@ -197,6 +197,33 @@ export class APITaskExecutor {
     }
 
     return result;
+  }
+
+  private sanitizeHeaders(headers: Record<string, any>): Record<string, any> {
+    const sanitized: Record<string, any> = {};
+
+    Object.entries(headers).forEach(([key, value]) => {
+      if (value === undefined || value === null) {
+        return;
+      }
+
+      const stringValue = String(value).trim();
+      if (!stringValue || /\{\{\w+\}\}/.test(stringValue)) {
+        this.logger.warn(
+          `[PROCESSING-TASK] Omitting header "${key}" because it contains an unresolved template value`
+        );
+        return;
+      }
+
+      if (key.toLowerCase() === 'authorization' && /^bearer\s*$/i.test(stringValue)) {
+        this.logger.warn('[PROCESSING-TASK] Omitting empty Authorization bearer header');
+        return;
+      }
+
+      sanitized[key] = value;
+    });
+
+    return sanitized;
   }
 
   /**
