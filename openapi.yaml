@@ -175,7 +175,6 @@ paths:
       operationId: verifyToken
       security:
         - BearerAuth: []
-        - MachineClientCredentials: []
       responses:
         "200":
           description: Token is valid
@@ -339,6 +338,27 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+  /api/table-events:
+    get:
+      tags:
+        - System
+      summary: Stream Table Change Events
+      operationId: streamTableEvents
+      description: Server-Sent Events stream for request and service table cache invalidation.
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials: []
+      responses:
+        "200":
+          description: SSE stream of table change events
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  data: {"resource":"requests","event":"updated","version":"requests:1720000000","ids":["REQ-20260701-001"]}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/services:
     get:
       tags:
@@ -374,6 +394,8 @@ paths:
                   nextOffset:
                     type: integer
                     nullable: true
+                  meta:
+                    $ref: "#/components/schemas/TableVersionMeta"
                   services:
                     type: array
                     items:
@@ -388,6 +410,8 @@ paths:
                     offset: 0
                     hasMore: false
                     nextOffset: null
+                    meta:
+                      version: services:1720000000
                     services:
                       - serviceId: SERVICE-999
                         id: SERV-1-04152026
@@ -435,6 +459,8 @@ paths:
                   nextOffset:
                     type: integer
                     nullable: true
+                  meta:
+                    $ref: "#/components/schemas/TableVersionMeta"
                   serviceMap:
                     type: object
                     additionalProperties:
@@ -460,6 +486,8 @@ paths:
                     offset: 0
                     hasMore: false
                     nextOffset: null
+                    meta:
+                      version: services:1720000000
                     serviceMap:
                       sampleKey: sampleValue
                     services:
@@ -585,6 +613,8 @@ paths:
                     offset: 1
                     hasMore: false
                     nextOffset: null
+                    meta:
+                      version: requests:1720000000
                     requests:
                       - id: sample
                         type: sample
@@ -2614,6 +2644,8 @@ paths:
                   nextOffset:
                     type: integer
                     nullable: true
+                  meta:
+                    $ref: "#/components/schemas/TableVersionMeta"
               examples:
                 sample:
                   summary: Sample 200 response
@@ -2636,6 +2668,8 @@ paths:
                     offset: 0
                     hasMore: false
                     nextOffset: null
+                    meta:
+                      version: services:1720000000
       x-codeSamples:
         - lang: bash
           label: cURL
@@ -4166,6 +4200,13 @@ components:
           additionalProperties: true
         message:
           type: string
+    TableVersionMeta:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Collection cache validation version for paginated table responses.
+          example: requests:1720000000
     RequestListResponse:
       type: object
       properties:
@@ -4182,6 +4223,8 @@ components:
         nextOffset:
           type: integer
           nullable: true
+        meta:
+          $ref: "#/components/schemas/TableVersionMeta"
         requests:
           type: array
           items:

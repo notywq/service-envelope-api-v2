@@ -30,9 +30,9 @@ export class EmailService {
       
       // Verify connection
       await this.transporter.verify();
-      this.logger.info('✅ Email service initialized successfully');
+      this.logger.info(`BOOT | Email        | SMTP ready | host=${smtpConfig.host} | port=${smtpConfig.port} | secure=${smtpConfig.secure} | user=${smtpConfig.auth.user ? 'set' : 'missing'}`);
     } catch (error) {
-      this.logger.error('❌ Failed to initialize email service:', error);
+      this.logger.error('BOOT | Email        | SMTP failed', error);
       throw error;
     }
   }

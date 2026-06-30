@@ -30,74 +30,149 @@ export class ServiceOrchestrator {
     private logger: Logger
   ) {}
 
+  private formatConsoleValue(value: unknown): string {
+    if (value === undefined || value === null || value === '') {
+      return 'n/a';
+    }
+
+    if (Array.isArray(value)) {
+      return `[${value.map(item => this.formatConsoleValue(item)).join(', ')}]`;
+    }
+
+    if (typeof value === 'object') {
+      return JSON.stringify(value);
+    }
+
+    const text = String(value);
+    return /\s/.test(text) ? JSON.stringify(text) : text;
+  }
+
+  private formatConsoleFields(fields: Record<string, unknown>): string {
+    return Object.entries(fields)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${this.formatConsoleValue(value)}`)
+      .join(' | ');
+  }
+
+  private consoleLine(
+    section: 'Pipeline' | 'Envelope' | 'Email' | 'Template' | 'Recipients',
+    message: string,
+    fields: Record<string, unknown> = {},
+    level: 'log' | 'warn' | 'error' = 'log'
+  ): void {
+    const detail = this.formatConsoleFields(fields);
+    const line = detail ? `[${section}] ${message} | ${detail}` : `[${section}] ${message}`;
+    if (level === 'error') {
+      this.logger.error(line);
+      return;
+    }
+    if (level === 'warn') {
+      this.logger.warn(line);
+      return;
+    }
+    this.logger.info(line);
+  }
+
+  private pipelineLog(request: ServiceRequest, message: string, fields: Record<string, unknown> = {}, level: 'log' | 'warn' | 'error' = 'log'): void {
+    this.consoleLine('Pipeline', message, {
+      request: request.id,
+      service: request.type,
+      ...fields,
+    }, level);
+  }
+
+  private envelopeLog<K extends keyof EnvelopeCollection>(
+    request: ServiceRequest,
+    envelopeType: K,
+    message: string,
+    fields: Record<string, unknown> = {},
+    level: 'log' | 'warn' | 'error' = 'log'
+  ): void {
+    this.consoleLine('Envelope', message, {
+      request: request.id,
+      envelope: String(envelopeType),
+      ...fields,
+    }, level);
+  }
+
+  private emailLog<K extends keyof EnvelopeCollection>(
+    request: ServiceRequest,
+    envelopeType: K | 'cancellation',
+    phase: string,
+    message: string,
+    fields: Record<string, unknown> = {},
+    level: 'log' | 'warn' | 'error' = 'log'
+  ): void {
+    this.consoleLine('Email', message, {
+      request: request.id,
+      envelope: String(envelopeType),
+      phase,
+      ...fields,
+    }, level);
+  }
+
   /**
    * Main orchestration method
    */
   processRequest(request: ServiceRequest): Observable<ServiceRequest> {
-    console.log(`\n🎯 [ORCHESTRATOR-START] Beginning orchestration for request: ${request.id}`);
-    this.logger.info(`Starting orchestration for request ${request.id}`);
+    this.pipelineLog(request, 'started', { status: request.overallStatus });
 
     return of(request).pipe(
       tap(req => {
-        console.log(`💾 [ORCHESTRATOR-INIT] Saving initial request state`);
+        this.pipelineLog(req, 'state saved before envelope flow', { status: req.overallStatus });
         this.stateManager.saveRequest(req);
       }),
 
       // Sequentially process all envelopes
       switchMap(req => {
-        console.log(`\n📦 [ORCHESTRATOR-FLOW] Moving to REQUEST envelope`);
+        this.pipelineLog(req, 'entering envelope', { envelope: 'request' });
         return this.processEnvelope(req, 'request');
       }),
       switchMap(req => {
-        console.log(`\n📦 [ORCHESTRATOR-FLOW] Moving to APPROVAL envelope`);
+        this.pipelineLog(req, 'entering envelope', { envelope: 'approval' });
         return this.processEnvelope(req, 'approval');
       }),
       switchMap(req => {
-        console.log(`\n📦 [ORCHESTRATOR-FLOW] Moving to PAYMENT envelope`);
+        this.pipelineLog(req, 'entering envelope', { envelope: 'payment' });
         return this.processEnvelope(req, 'payment');
       }),
       switchMap(req => {
-        console.log(`\n📦 [ORCHESTRATOR-FLOW] Moving to PROCESSING envelope`);
+        this.pipelineLog(req, 'entering envelope', { envelope: 'processing' });
         return this.processEnvelope(req, 'processing');
       }),
       switchMap(req => {
-        console.log(`\n📦 [ORCHESTRATOR-FLOW] Moving to DELIVERY envelope`);
+        this.pipelineLog(req, 'entering envelope', { envelope: 'delivery' });
         return this.processEnvelope(req, 'delivery');
       }),
       switchMap(req => {
-        console.log(`\n📦 [ORCHESTRATOR-FLOW] Moving to FEEDBACK envelope`);
+        this.pipelineLog(req, 'entering envelope', { envelope: 'feedback' });
         return this.processEnvelope(req, 'feedback');
       }),
 
       // Finalize request if all envelopes processed
       tap(req => {
-        console.log(`\n✅ [ORCHESTRATOR-COMPLETE] All envelopes processed! Marking request as COMPLETED`);
         req.overallStatus = 'completed';
         req.lastUpdated = new Date().toISOString();
         this.addHistoryEntry(req, 'completed', 'system');
         this.stateManager.saveRequest(req);
-        this.logger.info(`Request ${req.id} completed successfully`);
+        this.pipelineLog(req, 'completed', { status: req.overallStatus });
       }),
 
       catchError(error => {
         const errorMsg = error.message || '';
         
-        console.log(`\n❌ [ORCHESTRATOR-ERROR] Pipeline error: ${errorMsg}`);
-        
         // If this is a pending_external pause, don't mark as failed
         // The status has already been set correctly in processEnvelope
         if (errorMsg.includes('pending_external')) {
-          console.log(`⏸️  [ORCHESTRATOR-PAUSED] Pipeline paused - waiting for external processes`);
-          this.logger.info(`Request ${request.id} paused - waiting for external processes`);
+          this.pipelineLog(request, 'paused for external work', { reason: errorMsg }, 'warn');
           return throwError(() => error);
         }
         
         // For other errors, mark as failed
-        console.log(`❌ [ORCHESTRATOR-FAILED] Marking request as FAILED`);
-        this.logger.error(`Request ${request.id} failed: ${error.message}`);
         request.overallStatus = 'failed';
         this.addHistoryEntry(request, 'failed', 'system', error.message);
         this.stateManager.saveRequest(request);
+        this.pipelineLog(request, 'failed', { reason: errorMsg }, 'error');
         return throwError(() => error);
       })
     );
@@ -110,17 +185,16 @@ export class ServiceOrchestrator {
     request: ServiceRequest,
     envelopeType: K
   ): Observable<ServiceRequest> {
-    console.log(`\n✅ [PROCESS-ENVELOPE-START] Starting ${envelopeType.toUpperCase()} envelope processing for request ${request.id}`);
-    
     const processor = this.getProcessor(envelopeType);
     const envelope = request.envelopes[envelopeType];
-    
-    console.log(`📋 [PROCESS-ENVELOPE-START] Current ${envelopeType} envelope status: ${envelope.status}`);
+    this.envelopeLog(request, envelopeType, 'started', {
+      status: envelope.status,
+      required: (envelope as any).required ?? 'unknown',
+    });
 
     // Skip if already completed or failed
     if (['completed', 'waived'].includes(envelope.status)) {
-      console.log(`⏭️  [PROCESS-ENVELOPE-SKIP] Skipping ${envelopeType.toUpperCase()} (already ${envelope.status})`);
-      this.logger.info(`Skipping ${envelopeType.toUpperCase()} (status: ${envelope.status.toUpperCase()}) for request ${request.id}`);
+      this.envelopeLog(request, envelopeType, 'skipped', { reason: `already ${envelope.status}` });
 
       // Delivery can be completed externally via /api/delivery-status final codes.
       // Ensure END email still fires exactly once for non-email methods.
@@ -137,10 +211,9 @@ export class ServiceOrchestrator {
         );
 
       if (shouldSendEndFromSkip) {
-        console.log(`📧 [DELIVERY] Sending END email from skip path (externally completed)`);
+        this.emailLog(request, envelopeType, 'end', 'queued after external completion');
         this.sendEnvelopeEmailTemplate(request, envelopeType, 'end').catch(err => {
-          console.log(`⚠️  [DELIVERY-END-EMAIL] Failed in skip path:`, err.message);
-          this.logger.warn(`Failed to process completion email for ${envelopeType} from skip path:`, err);
+          this.emailLog(request, envelopeType, 'end', 'failed after external completion', { error: err.message }, 'warn');
         });
       }
 
@@ -174,18 +247,18 @@ export class ServiceOrchestrator {
       if (paymentInitiatedAt) {
         const daysSinceInitiation = (Date.now() - paymentInitiatedAt.getTime()) / (1000 * 60 * 60 * 24);
         if (daysSinceInitiation > expiryDays) {
-          console.log(`❌ CANCELLING REQUEST - Payment expired (${Math.floor(daysSinceInitiation)} days > ${expiryDays} days)`);
-          this.logger.error(
-            `[REQUEST CANCELLED] Payment expired for request ${request.id} | Initiated ${Math.floor(daysSinceInitiation)} days ago, expiry is ${expiryDays} days`
-          );
+          this.pipelineLog(request, 'cancelled: payment window expired', {
+            ageDays: Math.floor(daysSinceInitiation),
+            expiryDays,
+          }, 'warn');
           
           request.overallStatus = 'cancelled';
           request.lastUpdated = new Date().toISOString();
           this.stateManager.saveRequest(request);
 
           // Send cancellation email for payment expiry
-          console.log(`📧 Sending cancellation email for payment expiry...`);
-            this.sendCancellationEmail(request, 'Payment Processing', `Payment window expired (${expiryDays} days)`, 'payment').catch(err => {
+          this.emailLog(request, 'cancellation', 'payment', 'queued for payment expiry');
+          this.sendCancellationEmail(request, 'Payment Processing', `Payment window expired (${expiryDays} days)`, 'payment').catch(err => {
             this.logger.warn(`Failed to send cancellation email:`, err);
           });
 
@@ -210,30 +283,22 @@ export class ServiceOrchestrator {
   ): Observable<ServiceRequest> {
     // Resume if status is pending_external — we try processing again
     if (envelope.status === 'pending_external') {
-      console.log(`🔄 [PROCESS-ENVELOPE-RESUME] Resuming ${envelopeType.toUpperCase()} from pending_external`);
-      this.logger.info(`Resuming ${envelopeType.toUpperCase()} for request ${request.id}`);
+      this.envelopeLog(request, envelopeType, 'resuming from pending_external');
     }
 
     if (envelope.status === 'failed') {
-      console.log(`🔄 [PROCESS-ENVELOPE-RETRY] Retrying ${envelopeType.toUpperCase()} after previous failure`);
-      this.logger.warn(
-        `[RETRY ENVELOPE ENABLED] ${envelopeType.toUpperCase()} previously failed for request ${request.id}. Retrying now...`
-      );
+      this.envelopeLog(request, envelopeType, 'retrying after previous failure', {}, 'warn');
     }
 
-    console.log(`🚀 [PROCESS-ENVELOPE-EXEC] Calling processor.process() for ${envelopeType.toUpperCase()}`);
-    console.log(`🚀 [PROCESS-ENVELOPE-DEBUG] Envelope object before processing:`, { type: envelopeType, status: envelope.status });
+    this.envelopeLog(request, envelopeType, 'processor invoked', { status: envelope.status });
     
     return processor.process(request, envelope).pipe(
-      tap(() => console.log(`📍 [PROCESS-ENVELOPE-TAP] Observable from ${envelopeType} processor emitted`)),
       switchMap(updatedEnvelope => {
-        console.log(`✅ [PROCESS-ENVELOPE-COMPLETE] ${envelopeType.toUpperCase()} processor returned status: ${updatedEnvelope.status}`);
-        
         request.envelopes[envelopeType] = updatedEnvelope;
         request.lastUpdated = new Date().toISOString();
         this.addHistoryEntry(request, updatedEnvelope.status, envelopeType);
 
-        console.log(`\n📧 [ENVELOPE-PROCESSING] ${envelopeType.toUpperCase()}: Processing complete with status: ${updatedEnvelope.status}`);
+        this.envelopeLog(request, envelopeType, 'processor completed', { status: updatedEnvelope.status });
 
           // Send start email exactly once per envelope — guard prevents double-fire on resume.
           // If both start and end are due in the same pass (fast envelopes), ensure start is
@@ -255,13 +320,14 @@ export class ServiceOrchestrator {
             );
 
           if (shouldSendStartEmail) {
-            console.log(`📧 [${envelopeType.toUpperCase()}] Sending START email (first time)`);
+            this.emailLog(request, envelopeType, 'start', 'queued');
             startEmailPromise = this.sendEnvelopeEmailTemplate(request, envelopeType, 'start').catch(err => {
-              console.log(`⚠️  [${envelopeType.toUpperCase()}-START-EMAIL] Failed:`, err.message);
-              this.logger.warn(`Failed to process start email for ${envelopeType}:`, err);
+            this.emailLog(request, envelopeType, 'start', 'failed', { error: err.message }, 'warn');
             });
           } else {
-            console.log(`⏭️  [${envelopeType.toUpperCase()}] START email already sent, skipping`);
+            this.emailLog(request, envelopeType, 'start', 'not queued', {
+              reason: envelopeForEmailCheck?.startEmailSentAt ? 'already sent' : 'not applicable',
+            });
           }
 
           // Send end email exactly once on completion — guard prevents double-fire on resume.
@@ -278,10 +344,9 @@ export class ServiceOrchestrator {
 
           if (shouldSendEndEmail) {
             const sendEndEmail = () => {
-              console.log(`📧 [${envelopeType.toUpperCase()}] Sending END email (completion)`);
+              this.emailLog(request, envelopeType, 'end', 'queued');
               this.sendEnvelopeEmailTemplate(request, envelopeType, 'end').catch(err => {
-                console.log(`⚠️  [${envelopeType.toUpperCase()}-END-EMAIL] Failed:`, err.message);
-                this.logger.warn(`Failed to process completion email for ${envelopeType}:`, err);
+                this.emailLog(request, envelopeType, 'end', 'failed', { error: err.message }, 'warn');
               });
             };
 
@@ -294,10 +359,7 @@ export class ServiceOrchestrator {
 
         // Pause if processor signals pending_external
         if (updatedEnvelope.status === 'pending_external') {
-          console.log(`⏸️  PAUSING - ${envelopeType} is pending_external`);
-          this.logger.warn(
-            `\x1b[36m[PAUSING PIPELINE]\x1b[0m — ${envelopeType} is waiting for external processes to complete (request ${request.id})`
-          );
+          this.envelopeLog(request, envelopeType, 'paused for external work', { status: updatedEnvelope.status }, 'warn');
           // Update overall status to reflect the current stage
           request.overallStatus = this.mapEnvelopeToOverallStatus(envelopeType);
           request.lastUpdated = new Date().toISOString();
@@ -309,24 +371,20 @@ export class ServiceOrchestrator {
         if (updatedEnvelope.status === 'failed') {
           // Special handling for approval denial - cancel entire request
           if (envelopeType === 'approval') {
-            console.log(`❌ CANCELLING REQUEST - Approval denied`);
             const approvalEnvelope = updatedEnvelope as ApprovalEnvelope;
             const deniedApprover = approvalEnvelope.approvers?.find((a: any) => a.status === 'denied');
             const reason = deniedApprover 
               ? `Your request was denied by ${deniedApprover.role} (${deniedApprover.id})`
               : 'Your request was denied by an approver';
             
-            this.logger.error(
-              `[REQUEST CANCELLED] Approval envelope failed for request ${request.id} | Denied by: ${deniedApprover?.id}`
-            );
-            
             request.overallStatus = 'cancelled';
             request.lastUpdated = new Date().toISOString();
             this.stateManager.saveRequest(request);
+            this.pipelineLog(request, 'cancelled: approval denied', { approver: deniedApprover?.id }, 'warn');
 
             // Send cancellation email with denial details
-            console.log(`📧 Sending cancellation email for approval denial...`);
-              this.sendCancellationEmail(request, 'Approval Process', reason, 'approval').catch(err => {
+            this.emailLog(request, 'cancellation', 'approval', 'queued for approval denial');
+            this.sendCancellationEmail(request, 'Approval Process', reason, 'approval').catch(err => {
               this.logger.warn(`Failed to send cancellation email:`, err);
             });
 
@@ -335,21 +393,22 @@ export class ServiceOrchestrator {
 
           // Special handling for processing envelope - cancel entire request
           if (envelopeType === 'processing') {
-            console.log(`❌ CANCELLING REQUEST - Processing failed`);
             const processingEnvelope = updatedEnvelope as ProcessingEnvelope;
             const failedTask = processingEnvelope.tasks?.find((t: any) => t.status === 'failed');
             const failureDetails = failedTask?.responseError || 'Unknown error';
             
-            this.logger.error(
-              `[REQUEST CANCELLED] Processing envelope failed for request ${request.id} | Failed task: ${failedTask?.name} | Error: ${failureDetails}`
-            );
-            
             request.overallStatus = 'cancelled';
             request.lastUpdated = new Date().toISOString();
             this.stateManager.saveRequest(request);
+            this.pipelineLog(request, 'cancelled: processing failed', {
+              task: failedTask?.name || 'unknown',
+              error: failureDetails,
+            }, 'warn');
 
             // Send cancellation email with failure details
-            console.log(`📧 Sending cancellation email with failure details...`);
+            this.emailLog(request, 'cancellation', 'processing', 'queued for processing failure', {
+              task: failedTask?.name || 'unknown',
+            });
             this.sendCancellationEmail(request, failedTask?.name || 'Unknown', failureDetails, 'processing').catch(err => {
               this.logger.warn(`Failed to send cancellation email:`, err);
             });
@@ -358,25 +417,22 @@ export class ServiceOrchestrator {
           }
 
           // For other envelopes, just pause
-          console.log(`❌ PAUSING - ${envelopeType} failed`);
-          this.logger.warn(
-            `[PAUSING PIPELINE] ${envelopeType.toUpperCase()} failed for request ${request.id} — will allow retry on resume`
-          );
+          this.envelopeLog(request, envelopeType, 'paused after failure', { status: updatedEnvelope.status }, 'warn');
           request.overallStatus = this.mapEnvelopeToOverallStatus(envelopeType);
           request.lastUpdated = new Date().toISOString();
           this.stateManager.saveRequest(request);
           return throwError(() => new Error(`[PIPELINE PAUSED]: ${envelopeType} envelope failed`));
         }
 
-        console.log(`✅ [PROCESS-ENVELOPE-RETURNING] Returning to continue pipeline for next envelope`);
+        this.envelopeLog(request, envelopeType, 'finished; pipeline may continue', { status: updatedEnvelope.status });
         return of(request);
       }),
       catchError(error => {
-        console.log(`❌ [PROCESS-ENVELOPE-ERROR] Error in ${envelopeType.toUpperCase()} processing:`, error.message);
+        this.envelopeLog(request, envelopeType, 'error', { error: error.message }, 'error');
         return throwError(() => error);
       }),
       tap(req => {
-        console.log(`💾 [PROCESS-ENVELOPE-SAVE] Saving request state after ${envelopeType.toUpperCase()}`);
+        this.envelopeLog(req, envelopeType, 'state saved', { status: req.envelopes[envelopeType].status });
         this.stateManager.saveRequest(req);
       })
     );
@@ -396,45 +452,40 @@ export class ServiceOrchestrator {
     const marker = `[${envelopeType.toUpperCase()}-${phase.toUpperCase()}-EMAIL]`;
     
     try {
-      console.log(`\n📧 ${marker} Starting email process for request: ${request.id}`);
-      this.logger.info(`📧 ${marker} Triggering - Request ${request.id}`);
+      this.emailLog(request, envelopeType, phase, 'started');
 
       // Check if email service is available
       if (!appContext?.emailService) {
-        console.log(`❌ ${marker} Email service not available`);
+        this.emailLog(request, envelopeType, phase, 'skipped', { reason: 'email service unavailable' }, 'warn');
         this.logger.debug(`📧 Email service not available`);
         return;
       }
-      console.log(`✅ ${marker} Email service is available`);
 
       // Get service definition by type
-      console.log(`🔍 ${marker} Looking up service definition for type: ${request.type}`);
       const serviceDefinition = await this.stateManager.getServiceDefinitionByType(request.type);
 
       if (!serviceDefinition) {
-        console.log(`❌ ${marker} Service definition NOT found for type: ${request.type}`);
+        this.emailLog(request, envelopeType, phase, 'skipped', { reason: 'service definition not found' }, 'warn');
         this.logger.debug(`📧 Service definition not found`);
         return;
       }
-      console.log(`✅ ${marker} Service definition found`);
 
       // Check if envelopes exist - they might be nested in "definition"
       let envelopes = serviceDefinition.envelopes;
       if (!envelopes && serviceDefinition.definition?.envelopes) {
-        console.log(`⚠️  ${marker} Envelopes found in definition property`);
         envelopes = serviceDefinition.definition.envelopes;
       }
 
       if (!envelopes?.[envelopeType]) {
-        console.log(`❌ ${marker} Envelope config NOT found for: ${envelopeType}`);
-        console.log(`   Available envelopes:`, envelopes ? Object.keys(envelopes) : 'NONE');
+        this.emailLog(request, envelopeType, phase, 'skipped', {
+          reason: 'envelope config not found',
+          availableEnvelopes: envelopes ? Object.keys(envelopes) : [],
+        }, 'warn');
         this.logger.debug(`📧 Envelope config not found for: ${envelopeType}`);
         return;
       }
-      console.log(`✅ ${marker} Envelope config found for: ${envelopeType}`);
 
       const envelopeConfig = envelopes[envelopeType];
-      console.log(`📋 ${marker} Envelope config keys:`, Object.keys(envelopeConfig));
 
       // Get template name based on phase and then apply fallback candidates.
       const configuredTemplateName = phase === 'start'
@@ -454,7 +505,12 @@ export class ServiceOrchestrator {
       ];
 
       const candidateLogList = [...new Set(templateCandidates.filter((candidate): candidate is string => !!candidate))];
-      console.log(`🔍 ${marker} Resolving template candidates: ${candidateLogList.join(', ')}`);
+      this.consoleLine('Template', 'resolving candidates', {
+        request: request.id,
+        envelope: String(envelopeType),
+        phase,
+        candidates: candidateLogList,
+      });
       const templateResolution = await this.resolveEmailTemplateByCandidates(templateCandidates, {
         yamlConfiguredCandidates: [configuredTemplateName, envelopeDefaultTemplateName],
         serviceScopedGenericCandidates: [serviceScopedGenericTemplateName],
@@ -462,48 +518,62 @@ export class ServiceOrchestrator {
       });
 
       if (!templateResolution) {
-        console.log(`❌ ${marker} Template NOT found for any candidate`);
-        this.logger.warn(`📧 Email template not found for candidates: ${candidateLogList.join(', ')}`);
+        this.consoleLine('Template', 'not found', {
+          request: request.id,
+          envelope: String(envelopeType),
+          phase,
+          candidates: candidateLogList,
+        }, 'warn');
         return;
       }
       const template = templateResolution.template;
-      console.log(`✅ ${marker} Template loaded: ${template.name}`);
-      this.logger.info(
-        `[TEMPLATE-RESOLUTION] Request ${request.id} | Envelope ${String(envelopeType)}:${phase} | Matched: ${templateResolution.matchedCandidate} | Source: ${templateResolution.source} | TemplateId: ${template.id || 'n/a'} | TemplateScope: ${template.templateScope || 'n/a'}`
-      );
+      this.consoleLine('Template', 'matched', {
+        request: request.id,
+        envelope: String(envelopeType),
+        phase,
+        candidate: templateResolution.matchedCandidate,
+        source: templateResolution.source,
+        template: template.name || template.id || 'unnamed',
+      });
 
       // Determine recipients based on envelope type
-      console.log(`👥 ${marker} Determining recipients for envelope type: ${envelopeType}`);
       const recipients = this.getEmailRecipients(request, envelopeType, phase);
-      console.log(`📧 ${marker} Recipients:`, recipients);
 
       if (!recipients || recipients.length === 0) {
-        console.log(`⚠️  ${marker} No recipients determined for envelope`);
-        this.logger.warn(`📧 No recipients determined for ${envelopeType}`);
+        this.emailLog(request, envelopeType, phase, 'skipped', { reason: 'no recipients' }, 'warn');
         return;
       }
 
-      console.log(`✅ ${marker} ${recipients.length} recipient(s) ready`);
+      this.consoleLine('Recipients', 'resolved', {
+        request: request.id,
+        envelope: String(envelopeType),
+        phase,
+        count: recipients.length,
+        recipients,
+      });
 
       // Canonical token generation path (single source of truth — ThirdPartyService no longer does this).
       // Uses configured expiryHours from the approval envelope. Skips approvers that already have a token
       // so resume calls do not re-generate or duplicate tokens.
       if (envelopeType === 'approval' && phase === 'start') {
-        console.log(`🔐 ${marker} Generating approval tokens for approvers`);
+        this.emailLog(request, envelopeType, phase, 'checking approval tokens');
         const approvalEnvelope = request.envelopes.approval as any;
         const configuredExpiryHours = approvalEnvelope?.expiryHours;
 
         if (approvalEnvelope?.approvers) {
           for (const approver of approvalEnvelope.approvers) {
             if (approver.approvalToken) {
-              console.log(`⏭️  ${marker} Token already exists for ${approver.email}, skipping`);
+              this.emailLog(request, envelopeType, phase, 'approval token exists', { approver: approver.email || approver.id });
               continue;
             }
             const { randomUUID } = await import('crypto');
             const token = randomUUID();
             approver.approvalToken = token;
             await this.stateManager.saveApprovalToken(token, request.id, approver.id, configuredExpiryHours);
-            console.log(`✅ ${marker} Token generated for ${approver.email} (expiryHours: ${configuredExpiryHours ?? 'default'})`);
+            this.emailLog(request, envelopeType, phase, 'approval token created', {
+              approver: approver.email || approver.id,
+              expiryHours: configuredExpiryHours ?? 'default',
+            });
           }
           // Persist updated approver tokens immediately so subsequent reads see them
           await this.stateManager.saveRequest(request);
@@ -512,7 +582,7 @@ export class ServiceOrchestrator {
 
       // Prepare email context with all available variables for substitution
       let emailContext = await this.buildEmailContext(request, envelopeType);
-      console.log(`🔧 ${marker} Email context keys:`, Object.keys(emailContext).join(', '));
+      this.emailLog(request, envelopeType, phase, 'context prepared', { keys: Object.keys(emailContext).length });
 
       // Send email to each recipient
       let allEmailsSent = true;
@@ -532,17 +602,14 @@ export class ServiceOrchestrator {
                 ? `${process.env.FRONTEND_BASE_URL || 'http://localhost:5173'}/approvals/${approver.approvalToken}`
                 : '',
             };
-            console.log(`🔐 ${marker} Using token for ${approver.email}: ${approver.approvalToken?.substring(0, 8)}...`);
+            this.emailLog(request, envelopeType, phase, 'approval link prepared', { approver: approver.email || approver.id });
           }
         }
 
         const subject = this.substituteVariables(template.subject, currentContext);
         const html = this.substituteVariables(template.htmlBody, currentContext);
 
-        console.log(`\n📮 ${marker} Sending to: ${recipient}`);
-        console.log(`   Subject: ${subject}`);
-
-        this.logger.info(`📧 ${marker} Sending to ${recipient}`);
+        this.emailLog(request, envelopeType, phase, 'sending', { to: recipient, subject });
 
         // Send via email service (non-blocking)
         const sendResult = await appContext.emailService.sendEmail({
@@ -553,10 +620,9 @@ export class ServiceOrchestrator {
 
         if (!sendResult) {
           allEmailsSent = false;
-          console.log(`⚠️  ${marker} Email send returned false`);
-          this.logger.warn(`⚠️  Email send failed for ${recipient}`);
+          this.emailLog(request, envelopeType, phase, 'send returned false', { to: recipient }, 'warn');
         } else {
-          console.log(`✅ ${marker} Sent to ${recipient}`);
+          this.emailLog(request, envelopeType, phase, 'sent', { to: recipient });
         }
       }
       if (!allEmailsSent) {
@@ -576,10 +642,11 @@ export class ServiceOrchestrator {
       }
       await this.stateManager.saveRequest(latestRequest);
 
-      console.log(`\n✅ ${marker} Email process completed`);
+      this.emailLog(request, envelopeType, phase, 'completed', { sentAt });
     } catch (error) {
-      console.log(`❌ ${marker} Error:`, error instanceof Error ? error.message : String(error));
-      this.logger.error(`📧 Email send error for ${envelopeType} (${phase}):`, error);
+      this.emailLog(request, envelopeType, phase, 'error', {
+        error: error instanceof Error ? error.message : String(error),
+      }, 'error');
       throw error;
     }
   }
@@ -592,7 +659,6 @@ export class ServiceOrchestrator {
     envelopeType: K,
     phase: 'start' | 'end' = 'start'
   ): string[] {
-    console.log(`\n🔍 [GET-RECIPIENTS] Determining recipients for envelope: ${envelopeType}`);
     const recipients: string[] = [];
     const requesterEmail = this.getRequesterEmail(request);
 
@@ -600,7 +666,6 @@ export class ServiceOrchestrator {
       case 'request':
         // Send to requester - email is in request.envelopes.request.parameters.email
         const requestEmail = requesterEmail;
-        console.log(`📧 [REQUEST] email from parameters:`, requestEmail);
         if (requestEmail) {
           recipients.push(requestEmail);
         }
@@ -616,30 +681,26 @@ export class ServiceOrchestrator {
 
         // Send to all approvers
         const approval = request.envelopes.approval as any;
-        console.log(`👥 [APPROVAL] Approvers object:`, approval?.approvers);
-        console.log(`👥 [APPROVAL] Is array?`, Array.isArray(approval?.approvers));
-        console.log(`👥 [APPROVAL] Approvers count:`, approval?.approvers?.length);
-        
+
         if (approval?.approvers && Array.isArray(approval.approvers)) {
-          console.log(`👥 [APPROVAL] Processing ${approval.approvers.length} approver(s)`);
-          approval.approvers.forEach((approver: any, idx: number) => {
-            console.log(`  [APPROVAL #${idx}] approver:`, approver);
+          approval.approvers.forEach((approver: any) => {
             const approverEmail = approver?.email || approver?.id;
-            console.log(`  [APPROVAL #${idx}] email:`, approver?.email);
             if (approverEmail) {
-              console.log(`  ✓ Adding approver email: ${approver.email}`);
               recipients.push(approverEmail);
             }
           });
         } else {
-          console.log(`❌ [APPROVAL] Approvers not found or not array`);
+          this.consoleLine('Recipients', 'approval approvers missing', {
+            request: request.id,
+            envelope: String(envelopeType),
+            phase,
+          }, 'warn');
         }
         break;
 
       case 'payment':
         // Send to requester
         const paymentEmail = requesterEmail;
-        console.log(`💳 [PAYMENT] email from parameters:`, paymentEmail);
         if (paymentEmail) {
           recipients.push(paymentEmail);
         }
@@ -648,7 +709,6 @@ export class ServiceOrchestrator {
       case 'processing':
         // Send to requester
         const processingEmail = requesterEmail;
-        console.log(`⚙️  [PROCESSING] email from parameters:`, processingEmail);
         if (processingEmail) {
           recipients.push(processingEmail);
         }
@@ -657,7 +717,6 @@ export class ServiceOrchestrator {
       case 'delivery':
         // Send to requester
         const deliveryEmail = requesterEmail;
-        console.log(`🚚 [DELIVERY] email from parameters:`, deliveryEmail);
         if (deliveryEmail) {
           recipients.push(deliveryEmail);
         }
@@ -666,7 +725,6 @@ export class ServiceOrchestrator {
       case 'feedback':
         // Send to requester
         const feedbackEmail = requesterEmail;
-        console.log(`📋 [FEEDBACK] email from parameters:`, feedbackEmail);
         if (feedbackEmail) {
           recipients.push(feedbackEmail);
         }
@@ -675,7 +733,6 @@ export class ServiceOrchestrator {
 
     // Remove duplicates
     const uniqueRecipients = [...new Set(recipients)];
-    console.log(`✅ [GET-RECIPIENTS] Final list: ${uniqueRecipients.length} recipient(s):`, uniqueRecipients);
     return uniqueRecipients;
   }
 
@@ -969,9 +1026,6 @@ export class ServiceOrchestrator {
         return;
       }
       const template = templateResolution.template;
-      this.logger.info(
-        `[TEMPLATE-RESOLUTION] Request ${request.id} | Envelope cancellation:${triggerEnvelopeType || 'unknown'} | Matched: ${templateResolution.matchedCandidate} | Source: ${templateResolution.source} | TemplateId: ${template.id || 'n/a'} | TemplateScope: ${template.templateScope || 'n/a'}`
-      );
 
       // Build email context with failure details
       const requesterEmail = this.getRequesterEmail(request);
@@ -997,10 +1051,12 @@ export class ServiceOrchestrator {
         return;
       }
 
-      console.log(`\n📧 [CANCELLATION-EMAIL] Sending to: ${recipient}`);
-      console.log(`   Subject: ${subject}`);
-      console.log(`   Failed Task: ${failedTask}`);
-      console.log(`   Error: ${failureDetails}`);
+      this.emailLog(request, 'cancellation', triggerEnvelopeType || 'unknown', 'sending', {
+        to: recipient,
+        subject,
+        failedTask,
+        error: failureDetails,
+      });
 
       const sendResult = await appContext.emailService.sendEmail({
         to: recipient,
@@ -1009,11 +1065,9 @@ export class ServiceOrchestrator {
       });
 
       if (sendResult) {
-        console.log(`✅ [CANCELLATION-EMAIL] Sent to ${recipient}`);
-        this.logger.info(`[CANCELLATION-EMAIL] Cancellation email sent to ${recipient}`);
+        this.emailLog(request, 'cancellation', triggerEnvelopeType || 'unknown', 'sent', { to: recipient });
       } else {
-        console.log(`⚠️  [CANCELLATION-EMAIL] Send returned false`);
-        this.logger.warn(`[CANCELLATION-EMAIL] Failed to send cancellation email`);
+        this.emailLog(request, 'cancellation', triggerEnvelopeType || 'unknown', 'send returned false', { to: recipient }, 'warn');
       }
     } catch (error) {
       this.logger.error(`[CANCELLATION-EMAIL] Error sending cancellation email:`, error);

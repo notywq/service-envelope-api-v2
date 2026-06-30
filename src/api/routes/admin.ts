@@ -14,6 +14,7 @@ import {
   hashApiClientSecret,
 } from '../../utils/api-client-secret.js';
 import { paginationMeta, parsePagination } from '../../utils/pagination.js';
+import { getTableVersion } from '../../utils/table-events.js';
 import { API_CLIENT_SCOPE_GROUPS, API_CLIENT_SCOPES } from '../../utils/api-client-scopes.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -333,6 +334,9 @@ router.get('/services', async (req: Request, res: Response) => {
       offset,
       hasMore: meta.hasMore,
       nextOffset: meta.nextOffset,
+      meta: {
+        version: getTableVersion('services'),
+      },
     });
   } catch (error) {
     appContext.logger.error('Error fetching services:', error);

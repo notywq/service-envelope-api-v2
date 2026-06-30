@@ -8,6 +8,7 @@ import { appContext } from '../server.js';
 import { ServiceRequest, EnvelopeCollection, RequestEnvelope, ApprovalEnvelope, PaymentEnvelope, ProcessingEnvelope, DeliveryEnvelope, FeedbackEnvelope } from '../../types/envelope.types.js';
 import { randomUUID } from 'crypto';
 import { paginationMeta, parsePagination } from '../../utils/pagination.js';
+import { getTableVersion } from '../../utils/table-events.js';
 // REMOVED: No longer used. Use ParameterValidator from requests.ts instead
 
 const router = Router();
@@ -22,7 +23,7 @@ router.get('/', (req: Request, res: Response) => {
     const services = appContext.serviceRegistry.getAllServices();
     const pagedServices = services.slice(offset, offset + limit);
     const meta = paginationMeta(services.length, pagedServices.length, limit, offset);
-    console.log('🔍 [API] Getting all services, count:', services.length);
+    appContext.logger.info(`[API] List services | total=${services.length} | limit=${limit} | offset=${offset}`);
     
     const response = {
       total: meta.total,
@@ -31,6 +32,9 @@ router.get('/', (req: Request, res: Response) => {
       offset,
       hasMore: meta.hasMore,
       nextOffset: meta.nextOffset,
+      meta: {
+        version: getTableVersion('services'),
+      },
       services: pagedServices.map(s => {
         const serviceResponse = {
           serviceId: (s as any).serviceId || s.id,  // Use serviceId from YAML if available, fallback to id
@@ -40,20 +44,12 @@ router.get('/', (req: Request, res: Response) => {
           type: s.type,
           yaml: (s as any).yaml || '',
         };
-        console.log(`   📋 Service ${s.id}:`);
-        console.log(`      - yaml present: ${!!serviceResponse.yaml}`);
-        console.log(`      - yaml length: ${serviceResponse.yaml.length}`);
-        if (serviceResponse.yaml) {
-          console.log(`      - yaml preview: ${serviceResponse.yaml.substring(0, 150)}`);
-        }
         return serviceResponse;
       }),
     };
-    
-    console.log('✅ [API] Returning response with', response.services.length, 'services');
+
     res.json(response);
   } catch (error) {
-    console.error('❌ [API] Error listing services:', error);
     appContext.logger.error('Error listing services:', error);
     res.status(500).json({ error: 'Failed to list services' });
   }
@@ -82,6 +78,9 @@ router.get('/ids', (req: Request, res: Response) => {
       offset,
       hasMore: meta.hasMore,
       nextOffset: meta.nextOffset,
+      meta: {
+        version: getTableVersion('services'),
+      },
       serviceMap,
       services: pagedServices.map(s => ({
         serviceId: (s as any).serviceId || s.id,  // Use serviceId from YAML if available, fallback to id

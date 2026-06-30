@@ -81,7 +81,7 @@ This document summarizes the work completed during the service-envelope audit an
   - `POST /api/auth/verify`
 - Disabled legacy mock password login with a `410 Gone` response pointing clients to OTP login.
 - Removed env-based OTP allowlist/role fallbacks. Allowed OTP users and their roles are managed in Mongo only.
-- Admin routes and mock API routes now require admin or super-admin role when auth is enabled.
+- Admin routes require admin or super-admin role when auth is enabled. Mock API routes are unauthenticated local/testing utilities.
 - The admin approval-token debug route now requires admin role.
 - Added role-based API restrictions:
   - `requester` can use the request lifecycle only and cannot list, resume, or cancel all requests.

@@ -32,10 +32,65 @@ import processingRouter from './routes/processing.js';
 import adminRouter from './routes/admin.js';
 import mockServiceApisRouter from './routes/mock-service-apis.js';
 import { initializeValidator } from '../utils/schema-validator.js';
-import { requireApiAuth, requireAuth, validateAuthConfiguration } from './middleware/auth.js';
+import { tableEventsHandler } from '../utils/table-events.js';
+import { isAuthRequired, requireApiAuth, requireAuth, validateAuthConfiguration } from './middleware/auth.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { Writable } from 'stream';
+
+const isProductionRuntime = process.env.NODE_ENV === 'production';
+const logsDirectory = path.resolve(process.cwd(), 'logs');
+
+function getDailyLogFilePath(date: Date = new Date()): string {
+  const day = date.toISOString().slice(0, 10);
+  return path.join(logsDirectory, `service-envelope-${day}.log`);
+}
+
+function ensureLogsDirectory(): void {
+  if (!fs.existsSync(logsDirectory)) {
+    fs.mkdirSync(logsDirectory, { recursive: true });
+  }
+}
+
+function formatConsoleArg(arg: unknown): string {
+  if (arg instanceof Error) {
+    return arg.stack || arg.message;
+  }
+  if (typeof arg === 'string') {
+    return arg;
+  }
+  try {
+    return JSON.stringify(arg);
+  } catch {
+    return String(arg);
+  }
+}
+
+function appendProductionConsoleLine(level: 'info' | 'warn' | 'error', args: unknown[]): void {
+  ensureLogsDirectory();
+  const line = `${new Date().toISOString()} [${level}]: ${args.map(formatConsoleArg).join(' ')}\n`;
+  fs.appendFileSync(getDailyLogFilePath(), line, 'utf-8');
+}
+
+function installProductionConsoleRedirect(): void {
+  if (!isProductionRuntime) {
+    return;
+  }
+
+  console.log = (...args: unknown[]) => appendProductionConsoleLine('info', args);
+  console.info = (...args: unknown[]) => appendProductionConsoleLine('info', args);
+  console.debug = (...args: unknown[]) => appendProductionConsoleLine('info', args);
+  console.warn = (...args: unknown[]) => appendProductionConsoleLine('warn', args);
+  console.error = (...args: unknown[]) => appendProductionConsoleLine('error', args);
+}
+
+class DailyLogStream extends Writable {
+  override _write(chunk: Buffer | string, encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    ensureLogsDirectory();
+    fs.appendFile(getDailyLogFilePath(), chunk, encoding, callback);
+  }
+}
 
 function resolveCanonicalSchemaPath(): string {
   const cwdSchemaPath = path.resolve(process.cwd(), 'src', 'schemas', 'service-definition.schema.json');
@@ -135,6 +190,85 @@ function isCorsEnabled(): boolean {
   return process.env.SWAGGER_UI_ENABLED === 'true';
 }
 
+function getEnvPresence(name: string): 'set' | 'missing' {
+  return process.env[name]?.trim() ? 'set' : 'missing';
+}
+
+function getConfiguredMongoSource(): string {
+  if (process.env.MONGODB_SRV_URI?.trim()) {
+    return 'MONGODB_SRV_URI';
+  }
+  if (process.env.MONGODB_URI?.trim()) {
+    return 'MONGODB_URI';
+  }
+  return 'missing';
+}
+
+function getEmailMode(): string {
+  const emailEnabled = process.env.NODE_ENV !== 'development' || process.env.ENABLE_EMAIL === 'true';
+  return emailEnabled ? 'smtp' : 'mock';
+}
+
+function getDotenvStatus(): string {
+  return fs.existsSync(path.resolve(process.cwd(), '.env')) ? 'found' : 'not found';
+}
+
+function formatBootValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') {
+    return 'n/a';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(formatBootValue).join(', ')}]`;
+  }
+  const text = String(value);
+  return /\s/.test(text) ? JSON.stringify(text) : text;
+}
+
+function formatBootFields(fields: Record<string, unknown>): string {
+  return Object.entries(fields)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => `${key}=${formatBootValue(value)}`)
+    .join(' | ');
+}
+
+function bootLine(section: string, message: string, fields: Record<string, unknown> = {}): string {
+  const detail = formatBootFields(fields);
+  return detail
+    ? `BOOT | ${section.padEnd(12)} | ${message} | ${detail}`
+    : `BOOT | ${section.padEnd(12)} | ${message}`;
+}
+
+function logStartupEnvironment(): void {
+  logger.info(bootLine('Config', 'Runtime loaded', {
+    nodeEnv: process.env.NODE_ENV || 'development',
+    port: process.env.PORT || '8000',
+    host: process.env.HOST || '127.0.0.1',
+    logLevel: process.env.LOG_LEVEL || 'info',
+    logTarget: isProductionRuntime ? getDailyLogFilePath() : 'console',
+    dotEnv: getDotenvStatus(),
+  }));
+  logger.info(bootLine('Config', 'API surface', {
+    authRequired: isAuthRequired(),
+    corsEnabled: isCorsEnabled(),
+    apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:8000',
+    frontendBaseUrl: process.env.FRONTEND_BASE_URL || 'http://localhost:5173',
+  }));
+  logger.info(bootLine('Config', 'Integrations', {
+    mongoSource: getConfiguredMongoSource(),
+    mongoFallback: getEnvPresence('MONGODB_DIRECT_URI'),
+    emailMode: getEmailMode(),
+    emailHost: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    emailUser: getEnvPresence('EMAIL_USER'),
+    emailPassword: getEnvPresence('EMAIL_PASSWORD'),
+  }));
+  logger.info(bootLine('Config', 'Security', {
+    jwtSecret: process.env.JWT_SECRET ? 'set' : 'dev default',
+    jwtIssuer: process.env.JWT_ISSUER || 'unset',
+    jwtAudience: process.env.JWT_AUDIENCE || 'unset',
+    otpSecret: getEnvPresence('OTP_SECRET'),
+  }));
+}
+
 function createCorsOptions(): cors.CorsOptions {
   const allowedOrigins = getCorsAllowedOrigins();
 
@@ -163,49 +297,84 @@ async function connectMongoWithFallback(stateManager: MongoDBStateManager): Prom
       ? process.env.MONGODB_URI
       : undefined);
 
-  logger.info(`[MongoDB] Primary connection: ${getMongoUriMode(primaryMongoUri)} (${describeMongoUri(primaryMongoUri)})`);
+  logger.info(bootLine('MongoDB', 'Primary selected', {
+    source: getConfiguredMongoSource(),
+    mode: getMongoUriMode(primaryMongoUri),
+    target: describeMongoUri(primaryMongoUri),
+  }));
 
   try {
     await stateManager.connect(primaryMongoUri, `MongoDB primary ${getMongoUriMode(primaryMongoUri)}`, false);
     return;
   } catch (error) {
     if (!primaryMongoUri.startsWith('mongodb+srv://') || !isSrvLookupRefused(error)) {
-      logger.error(`[MongoDB] Primary connection failed without eligible SRV fallback:`, error);
+      logger.error(bootLine('MongoDB', 'Primary failed without eligible fallback'), error);
       throw error;
     }
 
     if (!fallbackMongoUri) {
-      logger.error('[MongoDB] SRV lookup was refused, but MONGODB_DIRECT_URI is not configured.');
+      logger.error(bootLine('MongoDB', 'SRV fallback unavailable', { fallback: 'MONGODB_DIRECT_URI missing' }));
       throw error;
     }
 
-    logger.warn(`[MongoDB] SRV lookup refused: ${getErrorText(error)}`);
-    logger.warn(`[MongoDB] Switching to fallback connection: ${getMongoUriMode(fallbackMongoUri)} (${describeMongoUri(fallbackMongoUri)})`);
+    logger.warn(bootLine('MongoDB', 'SRV lookup refused', { error: getErrorText(error) }));
+    logger.warn(bootLine('MongoDB', 'Switching to fallback', {
+      mode: getMongoUriMode(fallbackMongoUri),
+      target: describeMongoUri(fallbackMongoUri),
+    }));
 
     await stateManager.connect(fallbackMongoUri, `MongoDB fallback ${getMongoUriMode(fallbackMongoUri)}`);
-    logger.info('[MongoDB] Startup continued with MongoDB fallback connection.');
+    logger.info(bootLine('MongoDB', 'Startup continued with fallback'));
   }
+}
+
+function createLogFormat(useColor: boolean = false): winston.Logform.Format {
+  const formats: winston.Logform.Format[] = [
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.splat(),
+  ];
+
+  if (useColor) {
+    formats.push(winston.format.colorize());
+  }
+
+  formats.push(winston.format.printf(({ level, message, timestamp, stack, ...metadata }) => {
+    const metadataText = Object.keys(metadata).length > 0
+      ? ` ${JSON.stringify(metadata)}`
+      : '';
+    return `${timestamp} [${level}]: ${stack || message}${metadataText}`;
+  }));
+
+  return winston.format.combine(...formats);
+}
+
+function createLogTransports(): winston.transport[] {
+  if (isProductionRuntime) {
+    ensureLogsDirectory();
+    return [
+      new winston.transports.Stream({
+        stream: new DailyLogStream(),
+        format: createLogFormat(false),
+      }),
+    ];
+  }
+
+  return [
+    new winston.transports.Console({
+      format: createLogFormat(true),
+    }),
+  ];
 }
 
 // Initialize logger
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.errors({ stack: true }),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.printf(({ level, message, timestamp }) => {
-          return `${timestamp} [${level}]: ${message}`;
-        })
-      ),
-    }),
-  ],
+  format: createLogFormat(false),
+  transports: createLogTransports(),
 });
+
+installProductionConsoleRedirect();
 
 export interface AppContext {
   stateManager: MongoDBStateManager;
@@ -230,14 +399,17 @@ export let appContext: AppContext;
 async function initializeApp(): Promise<Express> {
   const app = express();
 
+  logger.info(bootLine('System', 'Service Envelope API starting'));
+  logStartupEnvironment();
+
   // Middleware
   if (isCorsEnabled()) {
     const corsOptions = createCorsOptions();
     app.use(cors(corsOptions));
     app.options('*', cors(corsOptions));
-    logger.info(`[CORS] Enabled for origins: ${getCorsAllowedOrigins().join(', ')}`);
+    logger.info(bootLine('HTTP', 'CORS enabled', { origins: getCorsAllowedOrigins() }));
   } else {
-    logger.info('[CORS] Disabled. Set CORS_ENABLED=true when using browser-based Swagger UI or frontend clients.');
+    logger.info(bootLine('HTTP', 'CORS disabled', { enableWith: 'CORS_ENABLED=true' }));
   }
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
@@ -249,7 +421,7 @@ async function initializeApp(): Promise<Express> {
   });
 
   // Initialize services
-  logger.info('🔧 Initializing services...');
+  logger.info(bootLine('Services', 'Initializing'));
 
   validateAuthConfiguration();
 
@@ -259,7 +431,7 @@ async function initializeApp(): Promise<Express> {
   // Email templates are managed via the Phase 2 UI and API endpoints
   // Count templates in MongoDB
   const templateCount = await stateManager.countEmailTemplates();
-  logger.info(`📧 Email template system: ${templateCount} templates available in MongoDB`);
+  logger.info(bootLine('Templates', 'Loaded from MongoDB', { count: templateCount }));
 
   // Load schema from MongoDB and initialize validator
   try {
@@ -279,7 +451,7 @@ async function initializeApp(): Promise<Express> {
         localSchemaObject,
         localSchemaObject.description || 'Canonical service definition schema'
       );
-      logger.info(`📋 [SCHEMA-VALIDATOR] Seeded schema v${TARGET_SCHEMA_VERSION} into MongoDB`);
+      logger.info(bootLine('Schema', 'Seeded canonical schema', { version: TARGET_SCHEMA_VERSION }));
     }
 
     // Activate latest schema from MongoDB (or local fallback on first-time failure scenarios).
@@ -289,9 +461,9 @@ async function initializeApp(): Promise<Express> {
     const loadSource = latestSchemaDoc?.schema ? 'MongoDB' : 'Local file fallback';
 
     initializeValidator(schemaObject);
-    logger.info(`📋 [SCHEMA-VALIDATOR] Schema v${versionLabel} - Loaded from ${loadSource}`);
+    logger.info(bootLine('Schema', 'Validator ready', { version: versionLabel, source: loadSource }));
   } catch (err) {
-    logger.error(`📋 [SCHEMA-VALIDATOR] Failed to initialize validator:`, err);
+    logger.error(bootLine('Schema', 'Validator failed'), err);
     throw err; // Critical - cannot proceed without schema
   }
 
@@ -312,7 +484,7 @@ async function initializeApp(): Promise<Express> {
       from: process.env.EMAIL_FROM || 'noreply@mapua.edu.ph',
     });
   } else {
-    logger.warn('⚠️  Email service running in mock mode (development)');
+    logger.warn(bootLine('Email', 'Mock mode enabled', { reason: 'development without ENABLE_EMAIL=true' }));
   }
 
   // Instantiate all processors
@@ -351,7 +523,7 @@ async function initializeApp(): Promise<Express> {
     logger,
   };
 
-  logger.info('✅ All services initialized');
+  logger.info(bootLine('Services', 'Initialized'));
 
   // Routes
   app.use('/api/auth', authRouter);
@@ -359,6 +531,7 @@ async function initializeApp(): Promise<Express> {
   app.use('/api/otp', otpRouter);
   app.use('/api/mock', mockServiceApisRouter);  // Mock APIs for local/testing processing tasks
   app.use('/api', requireApiAuth);
+  app.get('/api/table-events', tableEventsHandler);
   app.use('/api/services', servicesRouter);
   app.use('/api/requests', requestsRouter);
   app.use('/api/admin', requireAuth({ roles: ['admin'] }), adminRouter);
@@ -369,6 +542,11 @@ async function initializeApp(): Promise<Express> {
   app.use('/api/delivery-status', deliveryStatusRouter);
   app.use('/api/processing', processingRouter);
   app.use('/api/webhooks', paymentsRouter);
+  logger.info(bootLine('HTTP', 'Routes mounted', {
+    tableEvents: '/api/table-events',
+    mockApis: '/api/mock',
+    apiRoot: '/api',
+  }));
 
   // Health check
   app.get('/health', (req: Request, res: Response) => {
@@ -387,6 +565,7 @@ async function initializeApp(): Promise<Express> {
         'POST /api/OTP/flush',
         'GET /api/auth/me',
         'POST /api/auth/verify',
+        'GET /api/table-events',
         'GET /api/services',
         'POST /api/requests',
         'GET /api/requests',
@@ -419,12 +598,14 @@ async function initializeApp(): Promise<Express> {
 async function start(): Promise<void> {
   try {
     const app = await initializeApp();
-    const port = process.env.PORT || 8000;
+    const port = Number.parseInt(process.env.PORT || '8000', 10);
+    const host = process.env.HOST || '127.0.0.1';
 
-    app.listen(8000, "127.0.0.1", () => {
-      logger.info(`🚀 Server listening on port ${port}`);
-      logger.info(`📍 API available at http://localhost:${port}/api`);
-      logger.info(`💚 Health check at http://localhost:${port}/health`);
+    app.listen(port, host, () => {
+      logger.info(bootLine('HTTP', 'Server listening', { host, port }));
+      logger.info(bootLine('HTTP', 'API ready', { url: `http://${host}:${port}/api` }));
+      logger.info(bootLine('HTTP', 'Health check ready', { url: `http://${host}:${port}/health` }));
+      logger.info(bootLine('System', 'Startup complete'));
     });
   } catch (error) {
     logger.error('Failed to start server:', error);

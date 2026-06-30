@@ -28,36 +28,59 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
     this.templateLoader = new EmailTemplateLoader(stateManager, logger);
   }
 
+  private approvalLog(message: string, fields: Record<string, unknown> = {}, level: 'log' | 'warn' | 'error' = 'log'): void {
+    const detail = Object.entries(fields)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => {
+        const text = Array.isArray(value)
+          ? `[${value.join(', ')}]`
+          : value && typeof value === 'object'
+            ? JSON.stringify(value)
+            : String(value ?? 'n/a');
+        return `${key}=${/\s/.test(text) ? JSON.stringify(text) : text}`;
+      })
+      .join(' | ');
+    const line = detail ? `[Approval] ${message} | ${detail}` : `[Approval] ${message}`;
+    if (level === 'error') {
+      this.logger.error(line);
+      return;
+    }
+    if (level === 'warn') {
+      this.logger.warn(line);
+      return;
+    }
+    this.logger.info(line);
+  }
+
   protected processInternal(request: ServiceRequest, envelope: ApprovalEnvelope): Observable<ApprovalEnvelope> {
-    console.log(`🔵 [APPROVAL-INTERNAL] processInternal() START - Status: ${envelope.status}`);
+    this.approvalLog('started', { request: request.id, status: envelope.status, required: envelope.required });
     
     if (!envelope.required) {
-      console.log(`🔵 [APPROVAL-INTERNAL] Approval not required - returning waived`);
+      this.approvalLog('waived', { request: request.id, reason: 'not required' });
       envelope.status = 'waived';
-      this.logger.info(`[APPROVAL-WAIVED] Request ${request.id} | Approval not required`);
       return of(envelope);
     }
 
     // On initial start: request approvals from all approvers
     // NOTE: Orchestrator handles email sending via sendEnvelopeEmailTemplate()
     if (envelope.status === 'pending') {
-      console.log(`🔵 [APPROVAL-INTERNAL] Initial pending - requesting approvals from ${envelope.approvers.length} approvers`);
+      this.approvalLog('requesting approvers', { request: request.id, count: envelope.approvers.length });
       return this.requestApprovals(request, envelope);
     }
 
     // If pending_external: keep waiting for approvals
     if (envelope.status === 'pending_external') {
-      console.log(`🔵 [APPROVAL-INTERNAL] Already pending_external - returning as-is`);
+      this.approvalLog('waiting for external approval', { request: request.id });
       return of(envelope);
     }
 
     // If completed: just return (orchestrator handles email sending)
     if (envelope.status === 'completed') {
-      console.log(`🔵 [APPROVAL-INTERNAL] Completed - returning as-is`);
+      this.approvalLog('already completed', { request: request.id });
       return of(envelope);
     }
 
-    console.log(`🔵 [APPROVAL-INTERNAL] Fell through all conditions - returning as-is with status: ${envelope.status}`);
+    this.approvalLog('unchanged', { request: request.id, status: envelope.status });
     return of(envelope);
   }
 
@@ -137,53 +160,49 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
    * Request approvals from all required approvers
    */
   private requestApprovals(request: ServiceRequest, envelope: ApprovalEnvelope): Observable<ApprovalEnvelope> {
-    console.log(`🟣 [REQUEST-APPROVALS] Starting - ${envelope.approvers.length} approvers to process`);
+    this.approvalLog('processing approvers', { request: request.id, count: envelope.approvers.length });
     
     // Handle empty approvers case - immediately complete
     if (envelope.approvers.length === 0) {
-      console.log(`🟣 [REQUEST-APPROVALS] No approvers configured - marking as completed`);
+      this.approvalLog('completed', { request: request.id, reason: 'no approvers configured' });
       envelope.status = 'completed';
       envelope.timestamp = new Date().toISOString();
       return of(envelope);
     }
     
     // Send approval requests to all required approvers
-    const approvalObservables = envelope.approvers.map((approver, idx) => {
-      console.log(`🟣 [REQUEST-APPROVALS] Mapping approver ${idx + 1}/${envelope.approvers.length}: ${approver.id}`);
+    const approvalObservables = envelope.approvers.map((approver) => {
       return this.requestApproval(request, approver).pipe(
-        tap(result => console.log(`🟣 [REQUEST-APPROVALS] Approver ${approver.id} returned: ${result.status}`))
+        tap(result => this.approvalLog('approver result', {
+          request: request.id,
+          approver: approver.id,
+          status: result.status,
+        }))
       );
     });
 
-    console.log(`🟣 [REQUEST-APPROVALS] Created ${approvalObservables.length} observables, entering forkJoin`);
-
     return forkJoin(approvalObservables).pipe(
-      tap(approvers => console.log(`🟣 [REQUEST-APPROVALS] forkJoin completed with ${approvers.length} approvers`)),
       map(approvers => {
-        console.log(`🟣 [REQUEST-APPROVALS] In map - processing ${approvers.length} approver results`);
         envelope.approvers = approvers;
 
         // If any approver is still pending, pause the whole envelope
         if (approvers.some(a => a.status === 'pending')) {
-          console.log(`🟣 [REQUEST-APPROVALS] At least one approver pending - setting pending_external`);
           envelope.status = 'pending_external';
           envelope.timestamp = new Date().toISOString();
           request.overallStatus = 'pending_approval';
           this.stateManager.saveRequest(request);
-          this.logger.info(`[APPROVAL-WAIT] Request ${request.id} | Waiting for approvers | Pending: ${approvers.filter((a: any) => a.status === 'pending').length}`);
+          this.approvalLog('waiting', {
+            request: request.id,
+            pending: approvers.filter((a: any) => a.status === 'pending').length,
+            total: approvers.length,
+          });
           return envelope;
         }
 
         // Calculate final status
-        console.log(`🟣 [REQUEST-APPROVALS] No pending approvers - calculating final status`);
         envelope.status = this.calculateApprovalStatus(envelope);
         envelope.timestamp = new Date().toISOString();
-        
-        if (envelope.status === 'completed') {
-          this.logger.info(`[APPROVAL-COMPLETE] Request ${request.id} | All approvals granted`);
-        }
-        
-        console.log(`🟣 [REQUEST-APPROVALS] Returning envelope with status: ${envelope.status}`);
+        this.approvalLog('resolved', { request: request.id, status: envelope.status, total: approvers.length });
         return envelope;
       })
     );
@@ -193,13 +212,10 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
    * Request approval from a specific approver
    */
   private requestApproval(request: ServiceRequest, approver: Approver): Observable<Approver> {
-    console.log(`🟡 [REQUEST-APPROVAL] Starting for approver: ${approver.id}`);
+    this.approvalLog('approver requested', { request: request.id, approver: approver.id });
     
     return from(this.thirdPartyService.sendApprovalRequest(request, approver, this.uiBaseUrl)).pipe(
-      tap(result => console.log(`🟡 [REQUEST-APPROVAL] thirdPartyService returned for ${approver.id}: ${result.status}`)),
       map(result => {
-        console.log(`🟡 [REQUEST-APPROVAL] Processing result for ${approver.id} - Setting status to ${result.status === 'pending_external' ? 'pending' : result.status}`);
-        
         if (result.status === 'pending_external') {
           approver.status = 'pending';
           request.envelopes.approval.status = 'pending_external';
@@ -207,16 +223,13 @@ export class ApprovalProcessor extends EnvelopeProcessor<ApprovalEnvelope> {
           approver.status = 'denied';
           approver.deniedAt = new Date().toISOString();
           request.envelopes.approval.status = 'failed';
-          this.logger.warn(`[APPROVAL-DENIED] Request ${request.id} | Approver ${approver.id} denied`);
         } else if (result.status === 'approved') {
           approver.status = 'approved';
           approver.approvedAt = new Date().toISOString();
-          this.logger.info(`[APPROVAL-APPROVED] Request ${request.id} | Approver ${approver.id} approved`);
         }
-        console.log(`🟡 [REQUEST-APPROVAL] Returning approver for ${approver.id} with status: ${approver.status}`);
+        this.approvalLog('approver updated', { request: request.id, approver: approver.id, status: approver.status });
         return approver;
-      }),
-      tap(() => console.log(`🟡 [REQUEST-APPROVAL] Observable completed for approver: ${approver.id}`))
+      })
     );
   }
 

@@ -6,6 +6,7 @@
 import { ServiceRequest, HistoryEntry } from '../types/envelope.types.js';
 import mongoose, { Schema, Document } from 'mongoose';
 import { Logger } from 'winston';
+import { publishTableEvent } from '../utils/table-events.js';
 
 // Define MongoDB Schemas
 const HistoryEntrySchema = new Schema({
@@ -356,10 +357,10 @@ export class MongoDBStateManager {
   async connect(mongoUri: string, label: string = 'MongoDB', logFailure: boolean = true): Promise<void> {
     try {
       await mongoose.connect(mongoUri);
-      this.logger.info(`Connected to ${label}`);
+      this.logger.info(`BOOT | MongoDB      | Connected | label=${JSON.stringify(label)}`);
     } catch (error) {
       if (logFailure) {
-        this.logger.error(`Failed to connect to ${label}:`, error);
+        this.logger.error(`BOOT | MongoDB      | Connection failed | label=${JSON.stringify(label)}`, error);
       }
       throw error;
     }
@@ -406,6 +407,11 @@ export class MongoDBStateManager {
         request,
         { upsert: true, new: true }
       );
+      publishTableEvent({
+        resource: 'requests',
+        event: existing ? 'updated' : 'created',
+        ids: [request.id],
+      });
       this.logger.debug(`Saved request ${request.id} to MongoDB`);
     } catch (error) {
       this.logger.error(`Failed to save request ${request.id}:`, error);
@@ -465,6 +471,13 @@ export class MongoDBStateManager {
   async deleteRequest(requestId: string): Promise<boolean> {
     try {
       const result = await ServiceRequestModel.deleteOne({ id: requestId });
+      if (result.deletedCount > 0) {
+        publishTableEvent({
+          resource: 'requests',
+          event: 'deleted',
+          ids: [requestId],
+        });
+      }
       return result.deletedCount > 0;
     } catch (error) {
       this.logger.error(`Failed to delete request ${requestId}:`, error);
@@ -997,6 +1010,7 @@ export class MongoDBStateManager {
   // Service Definition Methods
   async saveServiceDefinition(service: any): Promise<void> {
     try {
+      const existing = await ServiceDefinitionModel.findOne({ id: service.id }, { id: 1 });
       await ServiceDefinitionModel.findOneAndUpdate(
         { id: service.id },
         {
@@ -1005,6 +1019,11 @@ export class MongoDBStateManager {
         },
         { upsert: true, new: true }
       );
+      publishTableEvent({
+        resource: 'services',
+        event: existing ? 'updated' : 'created',
+        ids: [service.id],
+      });
       this.logger.debug(`Saved service definition ${service.id} to MongoDB`);
     } catch (error) {
       this.logger.error(`Failed to save service definition ${service.id}:`, error);
@@ -1073,6 +1092,11 @@ export class MongoDBStateManager {
       
       if (result) {
         this.logger.info(`✅ Deleted from MongoDB: ${serviceId} (${(result as any).name})`);
+        publishTableEvent({
+          resource: 'services',
+          event: 'deleted',
+          ids: [serviceId],
+        });
         return true;
       } else {
         this.logger.warn(`⚠️  Service not found in MongoDB for deletion: ${serviceId}`);

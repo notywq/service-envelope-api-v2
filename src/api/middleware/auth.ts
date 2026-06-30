@@ -171,11 +171,11 @@ function canAccessAuthenticatedApi(user: AuthenticatedUser, path: string, method
   }
 
   if (user.role === 'orchestrator' || user.role === 'service') {
-    return !normalizedPath.startsWith('/admin') && !normalizedPath.startsWith('/mock');
+    return !normalizedPath.startsWith('/admin');
   }
 
   if (user.role === 'requester') {
-    if (normalizedPath.startsWith('/admin') || normalizedPath.startsWith('/mock')) {
+    if (normalizedPath.startsWith('/admin')) {
       return false;
     }
 
@@ -289,34 +289,55 @@ function getRequiredClientScope(path: string, method: string): string | null {
   return null;
 }
 
+function formatLogValue(value: unknown): string {
+  if (value === undefined || value === null || value === '') {
+    return 'n/a';
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(formatLogValue).join(', ')}]`;
+  }
+
+  if (typeof value === 'object') {
+    return JSON.stringify(value);
+  }
+
+  const text = String(value);
+  return /\s/.test(text) ? JSON.stringify(text) : text;
+}
+
+function formatLogFields(fields: Record<string, unknown>): string {
+  return Object.entries(fields)
+    .map(([key, value]) => `${key}=${formatLogValue(value)}`)
+    .join(' | ');
+}
+
 function logPermissionDenied(req: Request, details: Record<string, unknown>) {
-  console.warn(JSON.stringify({
-    level: 'warn',
-    event: 'api_permission_denied',
-    method: req.method,
-    path: req.originalUrl || req.path,
+  const reason = details.reason || 'unknown';
+  const extraDetails = Object.fromEntries(
+    Object.entries(details).filter(([key]) => key !== 'reason')
+  );
+
+  console.warn(`[API AUTH] denied ${req.method} ${req.originalUrl || req.path} | ${formatLogFields({
+    reason,
+    ...extraDetails,
     ip: req.ip,
     userAgent: req.headers['user-agent'] || '',
-    timestamp: new Date().toISOString(),
-    ...details,
-  }));
+    at: new Date().toISOString(),
+  })}`);
 }
 
 function logMachineAuthAccess(req: Request, user: AuthenticatedUser, requiredScope: string | null) {
-  console.log(JSON.stringify({
-    level: 'info',
-    event: 'machine_auth_access',
+  console.log(`[API AUTH] machine access ${req.method} ${req.originalUrl || req.path} | ${formatLogFields({
     clientId: user.clientId,
     role: user.role,
-    method: req.method,
-    path: req.originalUrl || req.path,
     requiredScope,
     grantedScopes: user.scopes || [],
     ip: req.ip,
     forwardedFor: req.headers['x-forwarded-for'] || '',
     userAgent: req.headers['user-agent'] || '',
-    timestamp: new Date().toISOString(),
-  }));
+    at: new Date().toISOString(),
+  })}`);
 }
 
 export function getBearerToken(req: Request): string | null {
@@ -388,6 +409,10 @@ export function isPublicApiPath(path: string, method: string): boolean {
   }
 
   if (normalizedPath.startsWith('/auth/') || normalizedPath.startsWith('/otp/')) {
+    return true;
+  }
+
+  if (normalizedPath.startsWith('/mock/')) {
     return true;
   }
 

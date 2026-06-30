@@ -187,7 +187,7 @@ Public exceptions:
   - `GET /api/feedback/token/:token`
   - `POST /api/feedback/token/:token/submit`
 
-Admin and mock routes require `role: admin` or `role: super_admin` when auth is enabled. Auth-user CRUD requires `role: super_admin`.
+Admin routes require `role: admin` or `role: super_admin` when auth is enabled. Mock routes under `/api/mock` are unauthenticated local/testing utilities. Auth-user CRUD requires `role: super_admin`.
 
 ## Email Template Changes
 

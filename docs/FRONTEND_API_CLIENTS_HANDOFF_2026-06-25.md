@@ -220,7 +220,7 @@ API clients may use:
 - `orchestrator`
 - `service`
 
-Both are allowed through authenticated non-admin APIs. They cannot access `/api/admin` or `/api/mock` through the general API middleware. API client management itself requires a `super_admin` bearer token.
+Both are allowed through authenticated non-admin APIs. They cannot access `/api/admin` through the general API middleware. `/api/mock` routes are unauthenticated local/testing utilities and should not require bearer headers. API client management itself requires a `super_admin` bearer token.
 
 Scopes are enforced for protected non-admin API routes when the bearer token was minted through `POST /api/auth/client-token`. Approval-token and feedback-token routes still remain public URL-token flows; their one-time/expiring URL tokens are the primary guard for those email-link actions.
 

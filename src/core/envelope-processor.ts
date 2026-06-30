@@ -19,25 +19,19 @@ export abstract class EnvelopeProcessor<T extends BaseEnvelope> {
    * Process an envelope with retry logic and error handling
    */
   process(request: ServiceRequest, envelope: T): Observable<T> {
-    console.log(`📦 [ENVELOPE-PROCESSOR] process() called for ${this.getEnvelopeType()} | Status: ${envelope.status}`);
-    this.logger.info(`Processing ${this.getEnvelopeType()} envelope for request ${request.id}`);
-    
-    console.log(`📦 [ENVELOPE-PROCESSOR] Invoking processInternal() for ${this.getEnvelopeType()}`);
+    this.logger.info(`[Envelope Processor] started | request=${request.id} | envelope=${this.getEnvelopeType()} | status=${envelope.status}`);
+
     return this.processInternal(request, envelope).pipe(
       map(result => {
-        console.log(`📦 [ENVELOPE-PROCESSOR] processInternal() returned for ${this.getEnvelopeType()} with status: ${result.status}`);
-        // Log status based on envelope status
         if (result.status === 'pending_external') {
-          this.logger.info(`⏳ [PENDING] ${this.getEnvelopeType()} envelope awaiting external processes for request ${request.id}`);
+          this.logger.info(`[Envelope Processor] waiting | request=${request.id} | envelope=${this.getEnvelopeType()} | status=${result.status}`);
         } else {
-          this.logger.info(`\x1b[32m[SUCCESS]\x1b[0m - Processed ${this.getEnvelopeType()} envelope for request ${request.id}`);
+          this.logger.info(`[Envelope Processor] finished | request=${request.id} | envelope=${this.getEnvelopeType()} | status=${result.status}`);
         }
         return result;
       }),
       catchError(error => {
-        // Red for failed
-        console.log(`📦 [ENVELOPE-PROCESSOR] catchError triggered for ${this.getEnvelopeType()}: ${error.message}`);
-        this.logger.error(`\x1b[31m[FAILED]\x1b[0m to process ${this.getEnvelopeType()} envelope for request ${request.id}: ${error.message}`);
+        this.logger.error(`[Envelope Processor] failed | request=${request.id} | envelope=${this.getEnvelopeType()} | error=${error.message}`);
         return throwError(() => error);
       })
     );

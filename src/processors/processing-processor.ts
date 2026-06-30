@@ -24,6 +24,30 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
     this.apiExecutor = new APITaskExecutor(logger);
   }
 
+  private processingLog(message: string, fields: Record<string, unknown> = {}, level: 'log' | 'warn' | 'error' = 'log'): void {
+    const detail = Object.entries(fields)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => {
+        const text = Array.isArray(value)
+          ? `[${value.join(', ')}]`
+          : value && typeof value === 'object'
+            ? JSON.stringify(value)
+            : String(value ?? 'n/a');
+        return `${key}=${/\s/.test(text) ? JSON.stringify(text) : text}`;
+      })
+      .join(' | ');
+    const line = detail ? `[Processing] ${message} | ${detail}` : `[Processing] ${message}`;
+    if (level === 'error') {
+      this.logger.error(line);
+      return;
+    }
+    if (level === 'warn') {
+      this.logger.warn(line);
+      return;
+    }
+    this.logger.info(line);
+  }
+
   protected processInternal(
     request: ServiceRequest,
     envelope: ProcessingEnvelope
@@ -31,7 +55,7 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
     if (!envelope.required) {
       envelope.status = 'waived';
       envelope.timestamp = new Date().toISOString();
-      this.logger.info(`[PROCESSING-WAIVED] Request ${request.id} | Processing not required`);
+      this.processingLog('waived', { request: request.id, reason: 'not required' });
       return of(envelope);
     }
 
@@ -40,12 +64,10 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
       // NOTE: Orchestrator handles email sending via sendEnvelopeEmailTemplate()
       envelope.status = 'in_progress';
       envelope.timestamp = new Date().toISOString();
-      this.logger.info(
-        `[PROCESSING-START] Request ${request.id} | Starting processing envelope | ${envelope.tasks.length} tasks to execute`
-      );
-      console.log(`\n🔄 [PROCESSING-START] Starting ${envelope.tasks.length} API tasks for request: ${request.id}`);
-      envelope.tasks.forEach((task, idx) => {
-        console.log(`   Task ${idx + 1}: ${task.name || 'UNNAMED'}`);
+      this.processingLog('started', {
+        request: request.id,
+        tasks: envelope.tasks.length,
+        taskNames: envelope.tasks.map(task => task.name || 'UNNAMED'),
       });
       return this.processTasks(request, envelope);
     }
@@ -101,22 +123,24 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
             }
             envelope.currentTask = updatedTask.name;
 
-            const statusIcon = updatedTask.status === 'completed' ? '✅' : updatedTask.status === 'failed' ? '❌' : '⏳';
-            console.log(`${statusIcon} Task ${index + 1}/${envelope.tasks.length}: ${updatedTask.name} - ${updatedTask.status.toUpperCase()}`);
-            
-            this.logger.info(
-              `[PROCESSING-EXEC] Request ${request.id} | Task ${index + 1}/${envelope.tasks.length} "${updatedTask.name}" | Status: ${updatedTask.status}`
-            );
+            this.processingLog('task updated', {
+              request: request.id,
+              task: updatedTask.name,
+              index: index + 1,
+              total: envelope.tasks.length,
+              status: updatedTask.status,
+            }, updatedTask.status === 'failed' ? 'warn' : 'log');
 
             // Save state after every task update
             this.stateManager.saveRequest(request);
 
             // If stopOnFailure and task failed, we should stop
             if (envelope.stopOnFailure && updatedTask.status === 'failed') {
-              console.log(`\n⛔ [PROCESSING-ABORT] stopOnFailure enabled - aborting remaining tasks`);
-              this.logger.error(
-                `[PROCESSING-ABORT] Request ${request.id} | Task "${updatedTask.name}" failed, stopOnFailure enabled`
-              );
+              this.processingLog('aborting remaining tasks', {
+                request: request.id,
+                failedTask: updatedTask.name,
+                reason: 'stopOnFailure',
+              }, 'error');
               // Mark envelope as failed
               envelope.status = 'failed';
             }
@@ -134,21 +158,15 @@ export class ProcessingProcessor extends EnvelopeProcessor<ProcessingEnvelope> {
         envelope.currentTask = undefined;
         envelope.timestamp = new Date().toISOString();
 
-        console.log(`\n✅ [PROCESSING-SUMMARY] Request ${request.id} | All ${envelope.tasks.length} API tasks completed`);
-        console.log(`   Status: ${envelope.status.toUpperCase()}`);
-        console.log(`   ✅ Success: ${completedCount}/${envelope.tasks.length}`);
-        if (failedCount > 0) {
-          console.log(`   ❌ Failed: ${failedCount}/${envelope.tasks.length}`);
-          envelope.tasks.forEach((task, idx) => {
-            if (task.status === 'failed') {
-              console.log(`      • Task ${idx + 1}: ${task.name} - ${task.responseError}`);
-            }
-          });
-        }
-
-        this.logger.info(
-          `[PROCESSING-COMPLETE] Request ${request.id} | All tasks completed | Status: ${envelope.status} | ${completedCount}/${envelope.tasks.length} succeeded`
-        );
+        this.processingLog('finished', {
+          request: request.id,
+          status: envelope.status,
+          succeeded: `${completedCount}/${envelope.tasks.length}`,
+          failed: `${failedCount}/${envelope.tasks.length}`,
+          failedTasks: envelope.tasks
+            .filter(task => task.status === 'failed')
+            .map(task => `${task.name}: ${task.responseError || 'unknown error'}`),
+        }, failedCount > 0 ? 'warn' : 'log');
 
         return envelope;
       })

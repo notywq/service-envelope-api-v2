@@ -29,9 +29,6 @@ export class RequestProcessingLock {
       this.logger.info(
         `[LOCK-QUEUED] RequestId: ${requestId} | Request already processing | Queued: ${existingLock.queuedCount}`
       );
-      console.log(
-        `⏸️  [LOCK-QUEUED] RequestId: ${requestId} | Waiting for lock (${existingLock.queuedCount} queued)`
-      );
 
       // Wait for the current lock to finish
       await existingLock.promise;
@@ -52,7 +49,6 @@ export class RequestProcessingLock {
     });
 
     this.logger.info(`[LOCK-ACQUIRED] RequestId: ${requestId} | Lock acquired`);
-    console.log(`🔒 [LOCK-ACQUIRED] RequestId: ${requestId}`);
 
     // Return handle for releasing lock
     return {
@@ -114,9 +110,6 @@ export class RequestProcessingLock {
 
     this.logger.info(
       `[LOCK-RELEASED] RequestId: ${requestId} | Duration: ${duration}ms | Queued: ${queuedCount}`
-    );
-    console.log(
-      `🔓 [LOCK-RELEASED] RequestId: ${requestId} | Duration: ${duration}ms | Queued: ${queuedCount}`
     );
 
     // Resolve the promise to unblock waiting calls

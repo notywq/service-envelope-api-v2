@@ -21,18 +21,9 @@ function normalizeClientRole(role: unknown): Extract<ApiRole, 'orchestrator' | '
 }
 
 function logMachineTokenIssued(req: Request, client: any, scopes: string[]) {
-  console.log(JSON.stringify({
-    level: 'info',
-    event: 'machine_auth_token_issued',
-    clientId: client.clientId,
-    name: client.name,
-    role: client.role,
-    scopes,
-    ip: req.ip,
-    forwardedFor: req.headers['x-forwarded-for'] || '',
-    userAgent: req.headers['user-agent'] || '',
-    timestamp: new Date().toISOString(),
-  }));
+  console.log(
+    `[API AUTH] machine token issued | clientId=${client.clientId} | name=${JSON.stringify(client.name || '')} | role=${client.role} | scopes=[${scopes.join(', ')}] | ip=${req.ip} | forwardedFor=${req.headers['x-forwarded-for'] || 'n/a'} | userAgent=${JSON.stringify(req.headers['user-agent'] || '')} | at=${new Date().toISOString()}`
+  );
 }
 
 function getBasicClientCredentials(req: Request): { clientId: string; clientSecret: string } | null {

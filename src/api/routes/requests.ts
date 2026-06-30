@@ -8,6 +8,7 @@ import { appContext } from '../server.js';
 import { ParameterValidator } from '../../utils/parameter-validator.js';
 import { resolveRequesterEmail } from '../../utils/request-email.js';
 import { paginationMeta, parsePagination } from '../../utils/pagination.js';
+import { getTableVersion } from '../../utils/table-events.js';
 
 function normalizeEmail(email: unknown): string | null {
   return typeof email === 'string' && email.trim()
@@ -309,6 +310,9 @@ router.get('/', async (req: Request, res: Response) => {
       offset,
       hasMore: meta.hasMore,
       nextOffset: meta.nextOffset,
+      meta: {
+        version: getTableVersion('requests'),
+      },
       requests: requests.map(r => ({
         id: r.id,
         type: r.type,

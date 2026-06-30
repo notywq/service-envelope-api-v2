@@ -11,6 +11,34 @@ import { ProcessingTask, ServiceRequest } from '../types/envelope.types.js';
 export class APITaskExecutor {
   constructor(private logger: Logger) {}
 
+  private taskLog(
+    message: string,
+    fields: Record<string, unknown> = {},
+    level: 'log' | 'warn' | 'error' = 'log'
+  ): void {
+    const detail = Object.entries(fields)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => {
+        const text = Array.isArray(value)
+          ? `[${value.join(', ')}]`
+          : value && typeof value === 'object'
+            ? JSON.stringify(value)
+            : String(value ?? 'n/a');
+        return `${key}=${/\s/.test(text) ? JSON.stringify(text) : text}`;
+      })
+      .join(' | ');
+    const line = detail ? `[Processing Task] ${message} | ${detail}` : `[Processing Task] ${message}`;
+    if (level === 'error') {
+      this.logger.error(line);
+      return;
+    }
+    if (level === 'warn') {
+      this.logger.warn(line);
+      return;
+    }
+    this.logger.info(line);
+  }
+
   /**
    * Execute a single API call task with parameter substitution
    * Supports GET, POST, PUT, DELETE, PATCH
@@ -24,11 +52,12 @@ export class APITaskExecutor {
       task.status = 'in_progress';
       task.startedAt = new Date().toISOString();
 
-      console.log(`\n🌐 [API-TASK] Starting: ${task.name}`);
-      console.log(`   Method: ${task.method} ${task.url}`);
-      this.logger.info(
-        `[PROCESSING-TASK] Starting: ${task.name} (${task.method} ${task.url})`
-      );
+      this.taskLog('started', {
+        request: request.id,
+        task: task.name,
+        method: task.method,
+        url: task.url,
+      });
 
       // Substitute parameters in URL, headers, payload, and query params
       const url = this.substituteParameters(task.url, request);
@@ -36,10 +65,7 @@ export class APITaskExecutor {
       const payload = this.substituteParametersInObject(task.payload || {}, request);
       const queryParams = this.substituteParametersInObject(task.queryParams || {}, request);
 
-      console.log(`   Substituted URL: ${url}`);
-      this.logger.debug(
-        `[PROCESSING-TASK] Substituted URL: ${url}`
-      );
+      this.taskLog('url resolved', { request: request.id, task: task.name, url });
 
       // Build query string from queryParams
       const queryString = new URLSearchParams(queryParams).toString();
@@ -56,10 +82,7 @@ export class APITaskExecutor {
       // Retry logic
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          console.log(`   Attempt ${attempt}/${maxRetries}...`);
-          this.logger.debug(
-            `[PROCESSING-TASK] Attempt ${attempt}/${maxRetries} for ${task.name}`
-          );
+          this.taskLog('attempt', { request: request.id, task: task.name, attempt, maxRetries });
 
           response = await axios({
             method: task.method.toLowerCase() as any,
@@ -80,10 +103,12 @@ export class APITaskExecutor {
             task.completedAt = new Date().toISOString();
 
             const duration = Date.now() - startTime;
-            console.log(`✅ SUCCESS: ${task.name} | Status ${response.status} | ${duration}ms`);
-            this.logger.info(
-              `[PROCESSING-TASK] ✅ Completed: ${task.name} (${response.status} in ${duration}ms)`
-            );
+            this.taskLog('completed', {
+              request: request.id,
+              task: task.name,
+              status: response.status,
+              durationMs: duration,
+            });
             return task;
           } else if (response) {
             // Non-success status code
@@ -96,10 +121,12 @@ export class APITaskExecutor {
             );
 
             if (attempt < maxRetries) {
-              console.log(`⚠️ Attempt ${attempt} failed with HTTP ${response.status}, retrying...`);
-              this.logger.warn(
-                `[PROCESSING-TASK] ⚠️ Attempt ${attempt} failed with HTTP ${response.status}, retrying...`
-              );
+              this.taskLog('attempt failed; retrying', {
+                request: request.id,
+                task: task.name,
+                attempt,
+                status: response.status,
+              }, 'warn');
               await this.delay(1000 * attempt); // Exponential backoff
               continue;
             }
@@ -108,10 +135,12 @@ export class APITaskExecutor {
           lastError = error as AxiosError;
 
           if (attempt < maxRetries) {
-            console.log(`⚠️ Attempt ${attempt} failed: ${(error as Error).message}, retrying...`);
-            this.logger.warn(
-              `[PROCESSING-TASK] ⚠️ Attempt ${attempt} failed: ${(error as Error).message}, retrying...`
-            );
+            this.taskLog('attempt failed; retrying', {
+              request: request.id,
+              task: task.name,
+              attempt,
+              error: (error as Error).message,
+            }, 'warn');
             await this.delay(1000 * attempt); // Exponential backoff
             continue;
           }
@@ -127,22 +156,23 @@ export class APITaskExecutor {
       task.completedAt = new Date().toISOString();
 
       const duration = Date.now() - startTime;
-      console.log(`❌ FAILED: ${task.name} | Error: ${task.responseError} | ${duration}ms`);
-      this.logger.error(
-        `[PROCESSING-TASK] ❌ Failed: ${task.name} - ${task.responseError} (${duration}ms)`
-      );
-
+      this.taskLog('failed', {
+        request: request.id,
+        task: task.name,
+        error: task.responseError,
+        durationMs: duration,
+      }, 'error');
       return task;
     } catch (error) {
       task.status = 'failed';
       task.responseError = (error as Error).message;
       task.completedAt = new Date().toISOString();
 
-      console.log(`❌ EXCEPTION: ${task.name} | ${(error as Error).message}`);
-      this.logger.error(
-        `[PROCESSING-TASK] ❌ Exception in task ${task.name}: ${(error as Error).message}`
-      );
-
+      this.taskLog('exception', {
+        request: request.id,
+        task: task.name,
+        error: (error as Error).message,
+      }, 'error');
       return task;
     }
   }

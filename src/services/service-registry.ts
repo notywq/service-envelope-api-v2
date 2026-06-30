@@ -34,31 +34,30 @@ export class ServiceRegistry {
   async loadServices(): Promise<void> {
     try {
       if (!this.stateManager) {
-        this.logger.error('❌ [ServiceRegistry] No MongoDB state manager available - cannot load services');
+        this.logger.error('BOOT | Services     | Registry failed | reason="MongoDB state manager missing"');
         throw new Error('ServiceRegistry requires MongoDB state manager');
       }
 
-      this.logger.info('📚 [ServiceRegistry] Loading services exclusively from MongoDB...');
+      this.logger.info('BOOT | Services     | Loading registry | source=MongoDB');
       const mongoServices = await this.stateManager.getAllServiceDefinitions();
       
       if (!mongoServices || mongoServices.length === 0) {
-        this.logger.warn('⚠️  No services found in MongoDB. Please create services via API admin endpoints.');
-        this.logger.warn('   POST /api/admin/services to create new services');
+        this.logger.warn('BOOT | Services     | Registry empty | action="POST /api/admin/services"');
         return;
       }
 
-      this.logger.debug(`   Found ${mongoServices.length} services in MongoDB`);
+      this.logger.debug(`BOOT | Services     | Registry query complete | count=${mongoServices.length}`);
       
       for (const service of mongoServices) {
         if (service.id) {
           this.services.set(service.id, service);
-          this.logger.debug(`   ✅ Loaded: ${service.id} (${service.name})`);
+          this.logger.debug(`BOOT | Services     | Service cached | id=${service.id} | name=${JSON.stringify(service.name || '')}`);
         }
       }
 
-      this.logger.info(`📦 Successfully loaded ${this.services.size} services from MongoDB`);
+      this.logger.info(`BOOT | Services     | Registry ready | count=${this.services.size}`);
     } catch (error) {
-      this.logger.error('❌ [ServiceRegistry] Failed to load services from MongoDB:', error);
+      this.logger.error('BOOT | Services     | Registry failed', error);
       throw error;
     }
   }
