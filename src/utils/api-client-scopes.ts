@@ -53,7 +53,7 @@ export const API_CLIENT_SCOPE_GROUPS: ApiClientScopeGroup[] = [
         scope: 'requests:read',
         label: 'Read requests',
         description: 'Read request details.',
-        endpoints: ['GET /api/requests/:requestId'],
+        endpoints: ['GET /api/requests/:requestId', 'GET /api/requests/mine', 'GET /api/requests/operator/workbench'],
       },
       {
         scope: 'requests:history',

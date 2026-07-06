@@ -239,6 +239,9 @@ function getRequiredClientScope(path: string, method: string): string | null {
   if (normalizedPath === '/requests/mine' && normalizedMethod === 'GET') {
     return 'requests:read';
   }
+  if (normalizedPath === '/requests/operator/workbench' && normalizedMethod === 'GET') {
+    return 'requests:read';
+  }
   if (/^\/requests\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'GET') {
     return 'requests:read';
   }

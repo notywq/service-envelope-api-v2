@@ -569,6 +569,7 @@ async function initializeApp(): Promise<Express> {
         'GET /api/services',
         'POST /api/requests',
         'GET /api/requests',
+        'GET /api/requests/operator/workbench',
         'GET /api/requests/:requestId',
         'POST /api/requests/:requestId/resume',
         'POST /api/approvals/:token/approve',

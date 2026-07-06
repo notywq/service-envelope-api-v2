@@ -54,6 +54,207 @@ function summarizeRequest(r: any) {
   };
 }
 
+const ENVELOPE_ORDER = ['request', 'approval', 'payment', 'processing', 'delivery', 'feedback'];
+
+function normalizeStatus(status: unknown): string {
+  return typeof status === 'string' && status.trim()
+    ? status.trim().toLowerCase()
+    : 'unknown';
+}
+
+function isRequiredEnvelope(envelope: any): boolean {
+  return envelope?.required !== false;
+}
+
+function isReadyEnvelope(envelope: any): boolean {
+  const status = normalizeStatus(envelope?.status);
+  return ['completed', 'approved', 'paid', 'waived', 'skipped', 'not_required'].includes(status);
+}
+
+function isTerminalRequest(request: any): boolean {
+  return ['completed', 'cancelled', 'failed'].includes(normalizeStatus(request?.overallStatus));
+}
+
+function getActiveEnvelopeName(request: any): string {
+  const overallStatus = normalizeStatus(request?.overallStatus);
+  const byOverallStatus: Record<string, string> = {
+    pending_approval: 'approval',
+    pending_payment: 'payment',
+    pending_processing: 'processing',
+    pending_delivery: 'delivery',
+    pending_feedback: 'feedback',
+  };
+
+  const mapped = byOverallStatus[overallStatus];
+  if (mapped) {
+    return mapped;
+  }
+
+  for (const envelopeName of ENVELOPE_ORDER) {
+    const envelope = request?.envelopes?.[envelopeName];
+    if (envelope && isRequiredEnvelope(envelope) && !isReadyEnvelope(envelope)) {
+      return envelopeName;
+    }
+  }
+
+  return isTerminalRequest(request) ? 'complete' : 'request';
+}
+
+function summarizeProcessingTasks(envelope: any) {
+  const tasks = Array.isArray(envelope?.tasks) ? envelope.tasks : [];
+  return {
+    total: tasks.length,
+    completed: tasks.filter((task: any) => normalizeStatus(task?.status) === 'completed').length,
+    failed: tasks.filter((task: any) => normalizeStatus(task?.status) === 'failed').length,
+    inProgress: tasks.filter((task: any) => normalizeStatus(task?.status) === 'in_progress').length,
+    pending: tasks.filter((task: any) => {
+      const status = normalizeStatus(task?.status);
+      return status === 'pending' || status === 'unknown';
+    }).length,
+  };
+}
+
+function determineOperatorAction(request: any, activeEnvelopeName: string): {
+  actionCategory: string;
+  blockingReason: string;
+  availableActions: string[];
+} {
+  const status = normalizeStatus(request?.overallStatus);
+  const envelopes = request?.envelopes || {};
+  const availableActions = ['view'];
+
+  if (isTerminalRequest(request)) {
+    return {
+      actionCategory: 'terminal',
+      blockingReason: `Request is ${status}`,
+      availableActions,
+    };
+  }
+
+  availableActions.push('cancel');
+
+  if (status === 'pending_external') {
+    availableActions.push('resume');
+  }
+
+  if (activeEnvelopeName === 'approval') {
+    return {
+      actionCategory: 'approval_pending',
+      blockingReason: 'Approval envelope is waiting for required approver decisions',
+      availableActions: ['view', 'inspect_approvals', 'cancel'],
+    };
+  }
+
+  if (activeEnvelopeName === 'payment') {
+    return {
+      actionCategory: 'payment_pending',
+      blockingReason: 'Payment envelope is waiting for payment completion or failure callback',
+      availableActions: ['view', 'cancel'],
+    };
+  }
+
+  if (activeEnvelopeName === 'processing') {
+    const tasks = summarizeProcessingTasks(envelopes.processing);
+    const failedTask = (Array.isArray(envelopes.processing?.tasks) ? envelopes.processing.tasks : [])
+      .find((task: any) => normalizeStatus(task?.status) === 'failed');
+    return {
+      actionCategory: tasks.failed > 0 ? 'processing_failed' : 'processing_pending',
+      blockingReason: failedTask
+        ? `Processing task failed: ${failedTask.name || 'unnamed task'}`
+        : `Processing tasks ${tasks.completed}/${tasks.total} completed`,
+      availableActions: tasks.failed > 0 ? [...availableActions, 'resume'] : availableActions,
+    };
+  }
+
+  if (activeEnvelopeName === 'delivery') {
+    const delivery = envelopes.delivery || {};
+    const method = delivery.method || delivery.currentMethod;
+    const deliveryStatus = normalizeStatus(delivery.status);
+
+    if (!method) {
+      return {
+        actionCategory: 'delivery_method_required',
+        blockingReason: 'Delivery envelope is waiting for method/details selection',
+        availableActions: ['view', 'update_delivery_details', 'cancel'],
+      };
+    }
+
+    return {
+      actionCategory: 'delivery_status_update',
+      blockingReason: `Delivery method ${method} is ${delivery.currentStatus || deliveryStatus}`,
+      availableActions: ['view', 'update_delivery_status', 'cancel'],
+    };
+  }
+
+  if (activeEnvelopeName === 'feedback') {
+    return {
+      actionCategory: 'feedback_pending',
+      blockingReason: 'Feedback envelope is pending requester response or expiry',
+      availableActions,
+    };
+  }
+
+  return {
+    actionCategory: 'operator_review',
+    blockingReason: `Request is ${status}`,
+    availableActions,
+  };
+}
+
+function summarizeOperatorWorkItem(request: any) {
+  const activeEnvelope = getActiveEnvelopeName(request);
+  const action = determineOperatorAction(request, activeEnvelope);
+  const envelopes = request?.envelopes || {};
+
+  return {
+    id: request.id,
+    type: request.type,
+    initiator: request.initiator,
+    status: request.overallStatus,
+    createdAt: request.createdAt,
+    lastUpdated: request.lastUpdated,
+    activeEnvelope,
+    actionCategory: action.actionCategory,
+    blockingReason: action.blockingReason,
+    availableActions: action.availableActions,
+    envelopeStatuses: ENVELOPE_ORDER.reduce((acc: Record<string, string>, envelopeName) => {
+      acc[envelopeName] = normalizeStatus(envelopes?.[envelopeName]?.status);
+      return acc;
+    }, {}),
+    processing: summarizeProcessingTasks(envelopes.processing),
+    delivery: {
+      method: envelopes.delivery?.method || null,
+      status: envelopes.delivery?.status || null,
+      currentStatus: envelopes.delivery?.currentStatus || null,
+      currentStatusCode: envelopes.delivery?.currentStatusCode ?? null,
+      lastStatusUpdate: envelopes.delivery?.lastStatusUpdate || null,
+    },
+  };
+}
+
+function incrementCount(counts: Record<string, number>, key: string) {
+  counts[key] = (counts[key] || 0) + 1;
+}
+
+function summarizeOperatorCounts(items: any[]) {
+  const byStatus: Record<string, number> = {};
+  const byEnvelope: Record<string, number> = {};
+  const byAction: Record<string, number> = {};
+
+  for (const item of items) {
+    incrementCount(byStatus, normalizeStatus(item.status));
+    incrementCount(byEnvelope, item.activeEnvelope || 'unknown');
+    incrementCount(byAction, item.actionCategory || 'operator_review');
+  }
+
+  return {
+    byStatus,
+    byEnvelope,
+    byAction,
+    needsAction: items.filter((item) => !['terminal', 'feedback_pending'].includes(item.actionCategory)).length,
+  };
+}
+
 /**
  * Build approver list from approval rules.
  * Ensures all relevant approvers receive tokens across all rule types.
@@ -377,6 +578,55 @@ router.get('/mine', async (req: Request, res: Response) => {
   } catch (error) {
     appContext.logger.error('Error listing requester requests:', error);
     res.status(500).json({ error: 'Failed to list requester requests' });
+  }
+});
+
+/**
+ * GET /api/requests/operator/workbench
+ * Staff/operator view of active request work, derived from stored envelopes.
+ */
+router.get('/operator/workbench', async (req: Request, res: Response) => {
+  try {
+    if (isRequesterRole(req)) {
+      logRequesterPermissionDenied(req, 'requester_operator_workbench_blocked');
+      return res.status(403).json({ error: 'Requester accounts cannot access the operator workbench' });
+    }
+
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 });
+    const status = req.query.status as string;
+    const type = req.query.type as string;
+    const action = req.query.action as string;
+    const filters = { status, type };
+
+    const requests = await appContext.stateManager.listRequests(limit, offset, filters);
+    const total = await appContext.stateManager.countRequests(filters);
+    let items = requests.map(summarizeOperatorWorkItem);
+
+    if (action) {
+      items = items.filter((item) => item.actionCategory === action);
+    }
+
+    const meta = paginationMeta(total, requests.length, limit, offset);
+
+    res.json({
+      total: meta.total,
+      count: items.length,
+      limit,
+      offset,
+      hasMore: meta.hasMore,
+      nextOffset: meta.nextOffset,
+      generatedAt: new Date().toISOString(),
+      filters: {
+        status: status || null,
+        type: type || null,
+        action: action || null,
+      },
+      counts: summarizeOperatorCounts(items),
+      items,
+    });
+  } catch (error) {
+    appContext.logger.error('Error building operator workbench:', error);
+    res.status(500).json({ error: 'Failed to build operator workbench' });
   }
 });
 

@@ -736,6 +736,94 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/ServerError"
+  /api/requests/operator/workbench:
+    get:
+      tags:
+        - Requests
+      summary: Get Operator Workbench
+      operationId: getOperatorWorkbench
+      description: Staff/operator read model derived from stored request envelopes. Requester users are not allowed to access this queue.
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - requests:read
+      parameters:
+        - $ref: "#/components/parameters/StatusQueryParam"
+        - $ref: "#/components/parameters/TypeQueryParam"
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
+      responses:
+        "200":
+          description: Operator workbench items and counts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorWorkbenchResponse"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    total: 1
+                    count: 1
+                    limit: 50
+                    offset: 0
+                    hasMore: false
+                    nextOffset: null
+                    generatedAt: 2026-07-06T00:00:00.000Z
+                    filters:
+                      status: null
+                      type: null
+                      action: null
+                    counts:
+                      byStatus:
+                        pending_external: 1
+                      byEnvelope:
+                        delivery: 1
+                      byAction:
+                        delivery_status_update: 1
+                      needsAction: 1
+                    items:
+                      - id: REQ-20260706-001
+                        type: requestTOR
+                        initiator: student@mapua.edu.ph
+                        status: pending_external
+                        createdAt: 2026-07-06T00:00:00.000Z
+                        lastUpdated: 2026-07-06T00:10:00.000Z
+                        activeEnvelope: delivery
+                        actionCategory: delivery_status_update
+                        blockingReason: Delivery method pickup is ready_for_pickup
+                        availableActions:
+                          - view
+                          - update_delivery_status
+                          - cancel
+                        envelopeStatuses:
+                          request: completed
+                          approval: completed
+                          payment: completed
+                          processing: completed
+                          delivery: in_progress
+                          feedback: pending
+                        processing:
+                          total: 3
+                          completed: 3
+                          failed: 0
+                          inProgress: 0
+                          pending: 0
+                        delivery:
+                          method: pickup
+                          status: in_progress
+                          currentStatus: ready_for_pickup
+                          currentStatusCode: 1
+                          lastStatusUpdate: 2026-07-06T00:09:00.000Z
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /api/requests/{requestId}:
     get:
       tags:
@@ -4290,6 +4378,96 @@ components:
               lastUpdated:
                 type: string
                 format: date-time
+    OperatorWorkbenchResponse:
+      type: object
+      properties:
+        total:
+          type: integer
+        count:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        hasMore:
+          type: boolean
+        nextOffset:
+          type: integer
+          nullable: true
+        generatedAt:
+          type: string
+          format: date-time
+        filters:
+          type: object
+          additionalProperties: true
+        counts:
+          type: object
+          properties:
+            byStatus:
+              type: object
+              additionalProperties:
+                type: integer
+            byEnvelope:
+              type: object
+              additionalProperties:
+                type: integer
+            byAction:
+              type: object
+              additionalProperties:
+                type: integer
+            needsAction:
+              type: integer
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperatorWorkbenchItem"
+    OperatorWorkbenchItem:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        initiator:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        lastUpdated:
+          type: string
+          format: date-time
+        activeEnvelope:
+          type: string
+        actionCategory:
+          type: string
+        blockingReason:
+          type: string
+        availableActions:
+          type: array
+          items:
+            type: string
+        envelopeStatuses:
+          type: object
+          additionalProperties:
+            type: string
+        processing:
+          type: object
+          properties:
+            total:
+              type: integer
+            completed:
+              type: integer
+            failed:
+              type: integer
+            inProgress:
+              type: integer
+            pending:
+              type: integer
+        delivery:
+          type: object
+          additionalProperties: true
     RequestDetailsResponse:
       type: object
       properties:
