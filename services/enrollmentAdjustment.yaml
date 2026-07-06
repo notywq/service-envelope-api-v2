@@ -1,0 +1,87 @@
+id: SERV-ENROLLMENT-ADJUSTMENT
+name: Enrollment Special Request
+description: Student request for enrollment petition, load adjustment, or sectioning review.
+type: enrollmentAdjustment
+serviceCode: enrollmentAdjustment
+initiator: Student
+
+envelopes:
+  request:
+    required: true
+    parameters:
+      studentId:
+        type: String
+        required: true
+        description: Student number or SIS student identifier.
+      studentName:
+        type: String
+        required: false
+        description: Student display name.
+      email:
+        type: String
+        required: true
+        description: Student email used for requester ownership.
+      termId:
+        type: String
+        required: true
+        description: Target school term.
+      requestType:
+        type: Dropdown
+        required: true
+        description: Enrollment request category.
+        options:
+          - label: Course Petition
+            value: course_petition
+          - label: Add Course
+            value: add_course
+          - label: Drop Course
+            value: drop_course
+          - label: Section Change
+            value: section_change
+          - label: Overload
+            value: overload
+          - label: Underload
+            value: underload
+          - label: Schedule Conflict Review
+            value: schedule_conflict
+      courseCode:
+        type: String
+        required: false
+        description: Target course code, if applicable.
+      sectionCode:
+        type: String
+        required: false
+        description: Target section code, if applicable.
+      reason:
+        type: String
+        required: true
+        minLength: 10
+        maxLength: 500
+        description: Reason for the enrollment request.
+      academicImpact:
+        type: String
+        required: false
+        maxLength: 500
+        description: Expected academic impact if the request is not approved.
+
+  approval:
+    required: true
+    approvalRules:
+      type: any_one
+      threshold: 1
+      atLeastOneOf:
+        - registrar@mapua.edu.ph
+        - advisor@mapua.edu.ph
+    expiryHours: 72
+
+  payment:
+    required: false
+
+  processing:
+    required: false
+
+  delivery:
+    required: false
+
+  feedback:
+    required: false

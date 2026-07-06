@@ -33,6 +33,7 @@ import adminRouter from './routes/admin.js';
 import mockServiceApisRouter from './routes/mock-service-apis.js';
 import { initializeValidator } from '../utils/schema-validator.js';
 import { tableEventsHandler } from '../utils/table-events.js';
+import { seedBundledServiceDefinitions } from '../utils/bundled-service-seeder.js';
 import { isAuthRequired, requireApiAuth, requireAuth, validateAuthConfiguration } from './middleware/auth.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -467,7 +468,10 @@ async function initializeApp(): Promise<Express> {
     throw err; // Critical - cannot proceed without schema
   }
 
-  // Phase 2: All services are loaded exclusively from MongoDB
+  // Seed repo-bundled MVP services into MongoDB when missing, then load exclusively from MongoDB.
+  await seedBundledServiceDefinitions(stateManager, logger);
+
+  // Phase 2: Runtime service reads are loaded exclusively from MongoDB.
   const serviceRegistry = new ServiceRegistry(logger, stateManager);
   await serviceRegistry.loadServices();
 
