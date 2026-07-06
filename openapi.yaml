@@ -690,6 +690,52 @@ paths:
             curl -X POST "http://localhost:8000/api/requests" \
               -H "Content-Type: application/json" \
               -d '{"sample":true}'
+  /api/requests/mine:
+    get:
+      tags:
+        - Requests
+      summary: List Authenticated Requester Requests
+      operationId: listMyRequests
+      description: Returns only requests whose requester email matches the authenticated bearer user.
+      security:
+        - BearerAuth: []
+        - MachineClientCredentials:
+            - requests:read
+      parameters:
+        - $ref: "#/components/parameters/StatusQueryParam"
+        - $ref: "#/components/parameters/TypeQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - $ref: "#/components/parameters/OffsetQueryParam"
+      responses:
+        "200":
+          description: Requester-owned requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestListResponse"
+              examples:
+                sample:
+                  summary: Sample 200 response
+                  value:
+                    total: 1
+                    count: 1
+                    limit: 20
+                    offset: 0
+                    hasMore: false
+                    nextOffset: null
+                    meta:
+                      version: requests:1720000000
+                    requests:
+                      - id: REQ-20260706-001
+                        type: transcript-of-records
+                        initiator: student@mapua.edu.ph
+                        status: processing
+                        createdAt: 2026-07-06T00:00:00.000Z
+                        lastUpdated: 2026-07-06T00:00:00.000Z
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
   /api/requests/{requestId}:
     get:
       tags:

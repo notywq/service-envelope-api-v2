@@ -354,6 +354,29 @@ export class MongoDBStateManager {
     };
   }
 
+  private buildRequesterEmailQuery(email: string): Record<string, any> {
+    const escapedEmail = email.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const emailRegex = new RegExp(`^${escapedEmail}$`, 'i');
+
+    return {
+      $or: [
+        { initiator: emailRegex },
+        { 'envelopes.request.parameters.email': emailRegex },
+        { 'envelopes.request.parameters.emailAddress': emailRegex },
+        { 'envelopes.request.parameters.requesterEmail': emailRegex },
+        { 'envelopes.request.parameters.requestorEmail': emailRegex },
+        { 'envelopes.request.parameters.initiatorEmail': emailRegex },
+        { 'envelopes.request.parameters.studentEmail': emailRegex },
+        { 'envelopes.request.parameters.contactEmail': emailRegex },
+        { 'envelopes.request.parameters.serviceData.email': emailRegex },
+        { 'envelopes.request.parameters.serviceData.emailAddress': emailRegex },
+        { 'envelopes.request.parameters.serviceData.requesterEmail': emailRegex },
+        { 'envelopes.request.parameters.serviceData.requestorEmail': emailRegex },
+        { 'envelopes.request.parameters.serviceData.initiatorEmail': emailRegex },
+      ],
+    };
+  }
+
   async connect(mongoUri: string, label: string = 'MongoDB', logFailure: boolean = true): Promise<void> {
     try {
       await mongoose.connect(mongoUri);
@@ -498,6 +521,53 @@ export class MongoDBStateManager {
       return await ServiceRequestModel.countDocuments(query);
     } catch (error) {
       this.logger.error('Failed to count requests:', error);
+      return 0;
+    }
+  }
+
+  async listRequestsByRequester(
+    email: string,
+    limit: number = 100,
+    offset: number = 0,
+    filters: { status?: string; type?: string } = {}
+  ): Promise<ServiceRequest[]> {
+    try {
+      const query: Record<string, any> = this.buildRequesterEmailQuery(email);
+      if (filters.status) {
+        query.overallStatus = filters.status;
+      }
+      if (filters.type) {
+        query.type = filters.type;
+      }
+
+      const docs = await this.applyPagination(
+        ServiceRequestModel.find(query).sort({ createdAt: -1 }),
+        limit,
+        offset
+      );
+      return docs.map(doc => doc.toObject() as ServiceRequest);
+    } catch (error) {
+      this.logger.error(`Failed to list requests for requester ${email}:`, error);
+      return [];
+    }
+  }
+
+  async countRequestsByRequester(
+    email: string,
+    filters: { status?: string; type?: string } = {}
+  ): Promise<number> {
+    try {
+      const query: Record<string, any> = this.buildRequesterEmailQuery(email);
+      if (filters.status) {
+        query.overallStatus = filters.status;
+      }
+      if (filters.type) {
+        query.type = filters.type;
+      }
+
+      return await ServiceRequestModel.countDocuments(query);
+    } catch (error) {
+      this.logger.error(`Failed to count requests for requester ${email}:`, error);
       return 0;
     }
   }

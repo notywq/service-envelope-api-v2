@@ -187,6 +187,10 @@ function canAccessAuthenticatedApi(user: AuthenticatedUser, path: string, method
       return true;
     }
 
+    if (normalizedPath === '/requests/mine' && normalizedMethod === 'GET') {
+      return true;
+    }
+
     if (/^\/requests\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'GET') {
       return true;
     }
@@ -231,6 +235,9 @@ function getRequiredClientScope(path: string, method: string): string | null {
   }
   if (normalizedPath === '/requests' && normalizedMethod === 'GET') {
     return 'requests:list';
+  }
+  if (normalizedPath === '/requests/mine' && normalizedMethod === 'GET') {
+    return 'requests:read';
   }
   if (/^\/requests\/[^/]+$/.test(normalizedPath) && normalizedMethod === 'GET') {
     return 'requests:read';

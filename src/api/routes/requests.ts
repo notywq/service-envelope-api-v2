@@ -43,6 +43,17 @@ function logRequesterPermissionDenied(req: Request, reason: string, requestId?: 
   }));
 }
 
+function summarizeRequest(r: any) {
+  return {
+    id: r.id,
+    type: r.type,
+    initiator: r.initiator,
+    status: r.overallStatus,
+    createdAt: r.createdAt,
+    lastUpdated: r.lastUpdated,
+  };
+}
+
 /**
  * Build approver list from approval rules.
  * Ensures all relevant approvers receive tokens across all rule types.
@@ -313,18 +324,59 @@ router.get('/', async (req: Request, res: Response) => {
       meta: {
         version: getTableVersion('requests'),
       },
-      requests: requests.map(r => ({
-        id: r.id,
-        type: r.type,
-        initiator: r.initiator,
-        status: r.overallStatus,
-        createdAt: r.createdAt,
-        lastUpdated: r.lastUpdated,
-      })),
+      requests: requests.map(summarizeRequest),
     });
   } catch (error) {
     appContext.logger.error('Error listing requests:', error);
     res.status(500).json({ error: 'Failed to list requests' });
+  }
+});
+
+/**
+ * GET /api/requests/mine
+ * List requests owned by the authenticated requester.
+ */
+router.get('/mine', async (req: Request, res: Response) => {
+  try {
+    const userEmail = normalizeEmail(req.user?.email);
+
+    if (!userEmail) {
+      return res.status(401).json({ error: 'Authenticated requester email is required' });
+    }
+
+    const { limit, offset } = parsePagination(req.query, { defaultLimit: 20, maxLimit: 100 });
+    const status = req.query.status as string;
+    const type = req.query.type as string;
+    const filters = { status, type };
+
+    const stateManager = appContext.stateManager as any;
+
+    if (
+      typeof stateManager.listRequestsByRequester !== 'function' ||
+      typeof stateManager.countRequestsByRequester !== 'function'
+    ) {
+      return res.status(501).json({ error: 'Requester request listing is not supported by this state manager' });
+    }
+
+    const requests = await stateManager.listRequestsByRequester(userEmail, limit, offset, filters);
+    const total = await stateManager.countRequestsByRequester(userEmail, filters);
+    const meta = paginationMeta(total, requests.length, limit, offset);
+
+    res.json({
+      total: meta.total,
+      count: meta.count,
+      limit,
+      offset,
+      hasMore: meta.hasMore,
+      nextOffset: meta.nextOffset,
+      meta: {
+        version: getTableVersion('requests'),
+      },
+      requests: requests.map(summarizeRequest),
+    });
+  } catch (error) {
+    appContext.logger.error('Error listing requester requests:', error);
+    res.status(500).json({ error: 'Failed to list requester requests' });
   }
 });
 
