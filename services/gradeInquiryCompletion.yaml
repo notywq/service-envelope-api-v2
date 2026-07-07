@@ -1,0 +1,88 @@
+id: SERV-GRADE-INQUIRY-COMPLETION
+name: Grade Inquiry and Completion Request
+description: Student request for grade inquiry, grade dispute, or completion routing.
+type: gradeInquiryCompletion
+serviceCode: gradeInquiryCompletion
+initiator: Student
+
+envelopes:
+  request:
+    required: true
+    parameters:
+      studentId:
+        type: String
+        required: true
+        description: Student number or SIS student identifier.
+      studentName:
+        type: String
+        required: false
+        description: Student display name.
+      email:
+        type: String
+        required: true
+        description: Student email used for requester ownership.
+      termId:
+        type: String
+        required: true
+        description: Target school term.
+      requestType:
+        type: Dropdown
+        required: true
+        description: Grade request category.
+        options:
+          - label: Grade Inquiry
+            value: grade_inquiry
+          - label: Grade Dispute
+            value: grade_dispute
+          - label: Completion Request
+            value: completion_request
+      courseCode:
+        type: String
+        required: true
+        description: Target course code.
+      sectionCode:
+        type: String
+        required: false
+        description: Target section code, if known.
+      currentGrade:
+        type: String
+        required: false
+        description: Grade currently visible to the student, if any.
+      expectedOutcome:
+        type: String
+        required: false
+        maxLength: 250
+        description: Requested outcome or correction being asked for.
+      reason:
+        type: String
+        required: true
+        minLength: 10
+        maxLength: 700
+        description: Reason for the grade inquiry or completion request.
+      supportingDetails:
+        type: String
+        required: false
+        maxLength: 700
+        description: Supporting context, dates, or instructor notes.
+
+  approval:
+    required: true
+    approvalRules:
+      type: any_one
+      threshold: 1
+      atLeastOneOf:
+        - program-chair@mapua.edu.ph
+        - dean@mapua.edu.ph
+    expiryHours: 72
+
+  payment:
+    required: false
+
+  processing:
+    required: false
+
+  delivery:
+    required: false
+
+  feedback:
+    required: true
