@@ -255,6 +255,10 @@ function summarizeOperatorCounts(items: any[]) {
   };
 }
 
+function paginateItems<T>(items: T[], limit: number, offset: number): T[] {
+  return items.slice(offset, offset + limit);
+}
+
 /**
  * Build approver list from approval rules.
  * Ensures all relevant approvers receive tokens across all rule types.
@@ -598,15 +602,17 @@ router.get('/operator/workbench', async (req: Request, res: Response) => {
     const action = req.query.action as string;
     const filters = { status, type };
 
-    const requests = await appContext.stateManager.listRequests(limit, offset, filters);
-    const total = await appContext.stateManager.countRequests(filters);
-    let items = requests.map(summarizeOperatorWorkItem);
+    const totalByStatusAndType = await appContext.stateManager.countRequests(filters);
+    const sourceRequests = await appContext.stateManager.listRequests(totalByStatusAndType || limit, 0, filters);
+    let filteredItems = sourceRequests.map(summarizeOperatorWorkItem);
 
     if (action) {
-      items = items.filter((item) => item.actionCategory === action);
+      filteredItems = filteredItems.filter((item) => item.actionCategory === action);
     }
 
-    const meta = paginationMeta(total, requests.length, limit, offset);
+    const total = filteredItems.length;
+    const items = paginateItems(filteredItems, limit, offset);
+    const meta = paginationMeta(total, items.length, limit, offset);
 
     res.json({
       total: meta.total,
