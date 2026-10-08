@@ -318,7 +318,7 @@ function createCorsOptions(): cors.CorsOptions {
 async function connectMongoWithFallback(stateManager: MongoDBStateManager): Promise<void> {
   const primaryMongoUri = getConfiguredMongoPrimaryUri();
   if (!primaryMongoUri) {
-    throw new Error('MongoDB connection is required. Set MAPUA_MONGODB_SRV_URI or a supported MONGODB_* URI.');
+    throw new Error('MongoDB connection is required. Set MAPUA_MONGODB_SRV_URI.');
   }
   const fallbackMongoUri = getConfiguredMongoFallbackUri();
 
@@ -338,7 +338,7 @@ async function connectMongoWithFallback(stateManager: MongoDBStateManager): Prom
     }
 
     if (!fallbackMongoUri) {
-      logger.error(bootLine('MongoDB', 'SRV fallback unavailable', { fallback: 'MONGODB_DIRECT_URI missing' }));
+      logger.error(bootLine('MongoDB', 'SRV fallback unavailable', { fallback: 'MAPUA_MONGODB_DIRECT_URI missing' }));
       throw error;
     }
 

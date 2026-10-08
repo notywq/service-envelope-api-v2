@@ -28,12 +28,32 @@ const logger = winston.createLogger({
   ],
 });
 
+function isSrvDnsFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return message.includes('querysrv')
+    && message.includes('_mongodb._tcp')
+    && ['econnrefused', 'etimeout', 'enotfound', 'eai_again', 'eservfail'].some(code => message.includes(code));
+}
+
 async function saveSchemaVersion() {
   try {
     logger.info('🔄 Connecting to MongoDB...');
-    const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/service-envelope';
+    const mongoUri = process.env.MAPUA_MONGODB_SRV_URI?.trim()
+      || process.env.MAPUA_MONGODB_URI?.trim()
+      || process.env.MAPUA_MONGODB_DIRECT_URI?.trim();
+    const fallbackMongoUri = process.env.MAPUA_MONGODB_DIRECT_URI?.trim();
+    if (!mongoUri) {
+      throw new Error('MongoDB connection is required. Set MAPUA_MONGODB_SRV_URI or MAPUA_MONGODB_DIRECT_URI.');
+    }
     const stateManager = new MongoDBStateManager(logger);
-    await stateManager.connect(mongoUri);
+    try {
+      await stateManager.connect(mongoUri);
+    } catch (error) {
+      if (!mongoUri.startsWith('mongodb+srv://') || !fallbackMongoUri || !isSrvDnsFailure(error)) {
+        throw error;
+      }
+      await stateManager.connect(fallbackMongoUri);
+    }
 
     logger.info('📖 Loading schema from file...');
     const __filename = fileURLToPath(import.meta.url);

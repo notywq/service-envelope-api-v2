@@ -8,6 +8,7 @@
 
 import mongoose from 'mongoose';
 import axios from 'axios';
+import 'dotenv/config';
 
 const requestId = process.argv[2];
 
@@ -16,21 +17,41 @@ if (!requestId) {
   process.exit(1);
 }
 
-const MONGO_URI = process.env.MONGODB_URI || 'mongodb+srv://mapua_user:mapua_password_phase2@mapua-cluster.mongodb.net/service-envelope-dev?retryWrites=true&w=majority';
+const MONGO_URI = process.env.MAPUA_MONGODB_SRV_URI
+  || process.env.MAPUA_MONGODB_URI
+  || process.env.MAPUA_MONGODB_DIRECT_URI;
+const MONGO_FALLBACK_URI = process.env.MAPUA_MONGODB_DIRECT_URI;
 const API_URL = 'http://localhost:8000';
+
+function isSrvDnsFailure(error) {
+  const text = String(error?.message || error).toLowerCase();
+  return text.includes('querysrv')
+    && text.includes('_mongodb._tcp')
+    && ['econnrefused', 'etimeout', 'enotfound', 'eai_again', 'eservfail'].some(code => text.includes(code));
+}
 
 async function approveAllPending() {
   try {
     console.log(`🔍 Connecting to MongoDB...`);
-    await mongoose.connect(MONGO_URI);
+    if (!MONGO_URI) {
+      throw new Error('MongoDB connection is required. Set MAPUA_MONGODB_SRV_URI or MAPUA_MONGODB_DIRECT_URI.');
+    }
+    try {
+      await mongoose.connect(MONGO_URI);
+    } catch (error) {
+      if (!MONGO_URI.startsWith('mongodb+srv://') || !MONGO_FALLBACK_URI || !isSrvDnsFailure(error)) {
+        throw error;
+      }
+      await mongoose.connect(MONGO_FALLBACK_URI);
+    }
     console.log(`✅ Connected to MongoDB`);
 
     // Get the database connection
-    const db = mongoose.connection.getClient().db('service-envelope-dev');
+    const db = mongoose.connection.getClient().db();
     
     // Query for approval tokens for this request
     console.log(`\n🔎 Fetching approval tokens for request: ${requestId}`);
-    const tokens = await db.collection('approvalTokens').find({ requestId }).toArray();
+    const tokens = await db.collection('approvaltokens').find({ requestId }).toArray();
     
     if (tokens.length === 0) {
       console.log(`⚠️  No pending approval tokens found for request ${requestId}`);

@@ -32,7 +32,7 @@ services:
       PORT: 8000
       NODE_ENV: development
       JWT_SECRET: dev-secret-key-change-in-production
-      MONGODB_URI: mongodb://root:rootpassword@mongodb:27017/service-envelope?authSource=admin
+      MAPUA_MONGODB_URI: mongodb://root:rootpassword@mongodb:27017/service-envelope?authSource=admin
       EMAIL_FROM: noreply@mapua.edu.ph
       API_BASE_URL: http://localhost:8000
       SERVICES_PATH: ./services
