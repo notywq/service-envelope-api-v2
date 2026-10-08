@@ -141,12 +141,13 @@ function getErrorText(error: unknown): string {
   return String(error);
 }
 
-function isSrvLookupRefused(error: unknown): boolean {
+function isSrvLookupFailure(error: unknown): boolean {
   const text = getErrorText(error).toLowerCase();
 
   return text.includes('querysrv')
-    && text.includes('econnrefused')
-    && text.includes('_mongodb._tcp');
+    && text.includes('_mongodb._tcp')
+    && ['econnrefused', 'etimeout', 'enotfound', 'eai_again', 'eservfail']
+      .some(code => text.includes(code));
 }
 
 function getCorsAllowedOrigins(): string[] {
@@ -196,6 +197,12 @@ function getEnvPresence(name: string): 'set' | 'missing' {
 }
 
 function getConfiguredMongoSource(): string {
+  if (process.env.MAPUA_MONGODB_SRV_URI?.trim()) {
+    return 'MAPUA_MONGODB_SRV_URI';
+  }
+  if (process.env.MAPUA_MONGODB_URI?.trim()) {
+    return 'MAPUA_MONGODB_URI';
+  }
   if (process.env.MONGODB_SRV_URI?.trim()) {
     return 'MONGODB_SRV_URI';
   }
@@ -203,6 +210,24 @@ function getConfiguredMongoSource(): string {
     return 'MONGODB_URI';
   }
   return 'missing';
+}
+
+function getConfiguredMongoPrimaryUri(): string | undefined {
+  return process.env.MAPUA_MONGODB_SRV_URI?.trim()
+    || process.env.MAPUA_MONGODB_URI?.trim()
+    || process.env.MONGODB_SRV_URI?.trim()
+    || process.env.MONGODB_URI?.trim();
+}
+
+function getConfiguredMongoFallbackUri(): string | undefined {
+  return process.env.MAPUA_MONGODB_DIRECT_URI?.trim()
+    || (process.env.MAPUA_MONGODB_SRV_URI && process.env.MAPUA_MONGODB_URI?.startsWith('mongodb://')
+      ? process.env.MAPUA_MONGODB_URI
+      : undefined)
+    || process.env.MONGODB_DIRECT_URI?.trim()
+    || (process.env.MONGODB_SRV_URI && process.env.MONGODB_URI?.startsWith('mongodb://')
+      ? process.env.MONGODB_URI
+      : undefined);
 }
 
 function getEmailMode(): string {
@@ -256,7 +281,9 @@ function logStartupEnvironment(): void {
   }));
   logger.info(bootLine('Config', 'Integrations', {
     mongoSource: getConfiguredMongoSource(),
-    mongoFallback: getEnvPresence('MONGODB_DIRECT_URI'),
+    mongoFallback: process.env.MAPUA_MONGODB_DIRECT_URI?.trim()
+      ? 'set'
+      : getEnvPresence('MONGODB_DIRECT_URI'),
     emailMode: getEmailMode(),
     emailHost: process.env.EMAIL_HOST || 'smtp.gmail.com',
     emailUser: getEnvPresence('EMAIL_USER'),
@@ -289,14 +316,11 @@ function createCorsOptions(): cors.CorsOptions {
 }
 
 async function connectMongoWithFallback(stateManager: MongoDBStateManager): Promise<void> {
-  const primaryMongoUri = process.env.MONGODB_SRV_URI || process.env.MONGODB_URI;
+  const primaryMongoUri = getConfiguredMongoPrimaryUri();
   if (!primaryMongoUri) {
-    throw new Error('MongoDB connection is required. Set MONGODB_SRV_URI or MONGODB_URI.');
+    throw new Error('MongoDB connection is required. Set MAPUA_MONGODB_SRV_URI or a supported MONGODB_* URI.');
   }
-  const fallbackMongoUri = process.env.MONGODB_DIRECT_URI
-    || (process.env.MONGODB_SRV_URI && process.env.MONGODB_URI?.startsWith('mongodb://')
-      ? process.env.MONGODB_URI
-      : undefined);
+  const fallbackMongoUri = getConfiguredMongoFallbackUri();
 
   logger.info(bootLine('MongoDB', 'Primary selected', {
     source: getConfiguredMongoSource(),
@@ -308,7 +332,7 @@ async function connectMongoWithFallback(stateManager: MongoDBStateManager): Prom
     await stateManager.connect(primaryMongoUri, `MongoDB primary ${getMongoUriMode(primaryMongoUri)}`, false);
     return;
   } catch (error) {
-    if (!primaryMongoUri.startsWith('mongodb+srv://') || !isSrvLookupRefused(error)) {
+    if (!primaryMongoUri.startsWith('mongodb+srv://') || !isSrvLookupFailure(error)) {
       logger.error(bootLine('MongoDB', 'Primary failed without eligible fallback'), error);
       throw error;
     }
@@ -318,7 +342,7 @@ async function connectMongoWithFallback(stateManager: MongoDBStateManager): Prom
       throw error;
     }
 
-    logger.warn(bootLine('MongoDB', 'SRV lookup refused', { error: getErrorText(error) }));
+    logger.warn(bootLine('MongoDB', 'SRV lookup failed', { error: getErrorText(error) }));
     logger.warn(bootLine('MongoDB', 'Switching to fallback', {
       mode: getMongoUriMode(fallbackMongoUri),
       target: describeMongoUri(fallbackMongoUri),
